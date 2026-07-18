@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────
+# Nginx: Virtual host — Desarrollo local (sin SSL)
+# File: infra/nginx/app.dev.conf.template
+#
+# Solo HTTP. Proxy a Vite dev server en app_web:5173.
+# Variables sustituidas: ${DOMAIN}
+# ─────────────────────────────────────────────────────────────
+
+server {
+    listen      80;
+    listen      [::]:80;
+    server_name ${DOMAIN} localhost;
+
+    client_max_body_size 25M;
+
+    # Health check
+    location = /health {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    # API proxy
+    location /api/ {
+        proxy_pass         http://app_api:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Connection        "";
+    }
+
+    # WebSocket proxy
+    location /ws {
+        proxy_pass         http://app_api:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # Vite HMR WebSocket
+    location /vite-hmr {
+        proxy_pass         http://app_vite:5173;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+    }
+
+    # Frontend (Vite dev server)
+    location / {
+        proxy_pass         http://app_vite:5173;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+    }
+}

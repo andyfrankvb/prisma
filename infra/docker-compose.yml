@@ -1,0 +1,217 @@
+# ─────────────────────────────────────────────────────────────
+# Docker Compose: Oficialía de Partes — Production
+# File: infra/docker-compose.yml
+#
+# Services:
+#   app_web    → Nginx (port 80 / 443)
+#   app_api    → Node.js API (port 3000, internal only)
+#   app_worker → Notification worker (no exposed port)
+#   db_prod    → PostgreSQL 15 (port 5432, internal only)
+#   redis      → Redis 7 (port 6379, internal only)
+#   certbot    → Let's Encrypt certificate renewal
+#
+# Usage:
+#   cp .env.example .env && nano .env
+#   docker compose -f infra/docker-compose.yml up -d
+# ─────────────────────────────────────────────────────────────
+
+# ── Named volumes ─────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  storage_pdfs:
+    driver: local
+  certbot_conf:
+    driver: local
+  certbot_www:
+    driver: local
+  nginx_logs:
+    driver: local
+
+# ── Internal network ──────────────────────────────────────────
+networks:
+  backend:
+    driver: bridge
+    internal: true          # DB, Redis, API — not reachable from host
+  frontend:
+    driver: bridge          # Nginx ↔ API
+
+# ─────────────────────────────────────────────────────────────
+# SERVICES
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL 15 ──────────────────────────────────────────
+  db_prod:
+    image: postgres:15-alpine
+    container_name: db_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 20s
+    # Port NOT exposed to host in production — access via app_api only
+    # Uncomment for local debugging:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  # ── Redis 7 ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1
+      --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  # ── Node.js API ────────────────────────────────────────────
+  app_api:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: app_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_prod:5432/${POSTGRES_DB}
+      REDIS_URL:    redis://:${REDIS_PASSWORD}@redis:6379
+    volumes:
+      - storage_pdfs:/app/storage
+    networks:
+      - backend
+      - frontend
+    depends_on:
+      db_prod:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout:  10s
+      retries:  3
+      start_period: 30s
+    # Internal only — Nginx proxies to this service
+    expose:
+      - "3000"
+
+  # ── Notification Worker ────────────────────────────────────
+  app_worker:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.worker
+    container_name: app_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV:     production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_prod:5432/${POSTGRES_DB}
+      REDIS_URL:    redis://:${REDIS_PASSWORD}@redis:6379
+    networks:
+      - backend
+    depends_on:
+      db_prod:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app_api:
+        condition: service_healthy
+
+  # ── Nginx (Reverse Proxy + Static Files) ───────────────────
+  app_web:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: app_web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+      - nginx_logs:/var/log/nginx
+      - storage_pdfs:/app/storage:ro    # serve PDFs directly if needed
+    networks:
+      - frontend
+    depends_on:
+      app_api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN}
+
+  # ── Certbot (Let's Encrypt) ────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Renew certificates twice daily (certbot checks if renewal is needed)
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done"
+    depends_on:
+      - app_web
+
+  # ── DB Backup ──────────────────────────────────────────────
+  db_backup:
+    image: postgres:15-alpine
+    container_name: db_backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      PGPASSWORD:        ${POSTGRES_PASSWORD}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      S3_BUCKET:         ${BACKUP_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+      - storage_pdfs:/app/storage:ro
+    networks:
+      - backend
+    depends_on:
+      db_prod:
+        condition: service_healthy
+    # Run backup daily at 02:00
+    command: >
+      /bin/sh -c "
+        crond -f -d 8 &
+        echo '0 2 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1' | crontab -;
+        wait
+      "

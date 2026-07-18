@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────
+# Kubernetes: ConfigMap (non-sensitive config)
+# File: infra/k8s/configmap.yaml
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: oficialia-partes
+data:
+  NODE_ENV:           "production"
+  TZ:                 "America/Cancun"
+  APP_URL:            "https://oficialia.gobierno.mx"
+  EMAIL_TRANSPORT:    "smtp"
+  EMAIL_FROM:         "Oficialía de Partes <noreply@gobierno.mx>"
+  SMTP_HOST:          "smtp.gobierno.mx"
+  SMTP_PORT:          "587"
+  SMTP_SECURE:        "false"
+  INAPP_TRANSPORT:    "websocket"
+  STORAGE_DRIVER:     "local"
+  STORAGE_LOCAL_PATH: "/app/storage"
+  BACKUP_RETENTION_DAYS: "7"

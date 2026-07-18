@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────
+# Docker Compose: DESARROLLO LOCAL
+# File: docker-compose.yml
+#
+# Sin SSL. Sin Certbot. Con hot-reload.
+# Acceso: http://localhost
+#
+# Uso:
+#   docker compose up --build
+# ─────────────────────────────────────────────────────────────
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_pdfs:
+
+networks:
+  app_net:
+    driver: bridge
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       oficialia_partes
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d oficialia_partes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  # ── API (Node.js con ts-node-dev para hot-reload) ───────────
+  app_api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api.dev
+    container_name: app_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV:     development
+      PORT:         3000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/oficialia_partes
+      REDIS_URL:    redis://redis:6379
+      JWT_SECRET:   dev_secret_key_local
+      APP_URL:      http://localhost
+      EMAIL_TRANSPORT: smtp
+      SMTP_HOST:    mailhog
+      SMTP_PORT:    1025
+      SMTP_SECURE:  "false"
+      INAPP_TRANSPORT: websocket
+      STORAGE_LOCAL_PATH: /app/storage
+      OCR_PROVIDER: tesseract
+      TZ:           America/Cancun
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - storage_pdfs:/app/storage
+    ports:
+      - "3000:3000"
+    networks:
+      - app_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Nginx (reverse proxy para Vite + API) ──────────────────
+  app_web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web.dev
+    container_name: app_web
+    restart: unless-stopped
+    environment:
+      DOMAIN: localhost
+    ports:
+      - "80:80"
+    networks:
+      - app_net
+    depends_on:
+      - app_api
+
+  # ── Frontend (Vite dev server con HMR) ─────────────────────
+  app_vite:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.vite.dev
+    container_name: app_vite
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: /api/v1
+      VITE_WS_URL:  ws://localhost/ws
+    volumes:
+      # Código fuente montado desde el host → Vite detecta cambios en tiempo real
+      - ./frontend:/app                  # index.html, vite.config.ts, tsconfig.json
+      - ./src/frontend:/app/src_frontend # componentes React
+      # node_modules del contenedor — NO sobreescribir con el del host
+      - /app/node_modules
+    expose:
+      - "5173"
+    networks:
+      - app_net
+    depends_on:
+      - app_api
+
+  # ── Mailpit (captura emails en desarrollo — ARM64 compatible) ─
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: mailhog
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # UI web para ver emails
+      - "1025:1025"   # SMTP
+    networks:
+      - app_net

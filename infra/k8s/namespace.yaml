@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────────────
+# Kubernetes: Namespace
+# File: infra/k8s/namespace.yaml
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oficialia-partes
+  labels:
+    app.kubernetes.io/name:    oficialia-partes
+    app.kubernetes.io/part-of: gobierno

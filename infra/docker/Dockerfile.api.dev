@@ -1,0 +1,12 @@
+# Dockerfile de desarrollo — API con hot-reload
+FROM node:20-alpine
+WORKDIR /app
+
+# poppler-utils para convertir PDF a imagen + tesseract para OCR
+RUN apk add --no-cache python3 make g++ poppler-utils tesseract-ocr tesseract-ocr-data-spa
+
+COPY package*.json ./
+RUN npm install
+
+EXPOSE 3000
+CMD ["npx", "ts-node-dev", "--respawn", "--transpile-only", "--ignore-watch", "node_modules", "src/server.ts"]

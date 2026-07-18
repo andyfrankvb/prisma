@@ -1,0 +1,16 @@
+# Dockerfile de desarrollo — Nginx como reverse proxy para Vite
+FROM nginx:1.25-alpine
+
+RUN apk add --no-cache gettext
+RUN rm /etc/nginx/conf.d/default.conf
+
+RUN mkdir -p /etc/nginx/templates
+COPY infra/nginx/nginx.dev.conf                /etc/nginx/nginx.conf
+COPY infra/nginx/app.dev.conf.template         /etc/nginx/templates/app.conf.template
+COPY infra/nginx/docker-entrypoint.sh          /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 80
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

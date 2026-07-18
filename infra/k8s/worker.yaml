@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────
+# Kubernetes: Notification Worker Deployment
+# File: infra/k8s/worker.yaml
+# Single replica — cron scheduler must not run in parallel
+# ─────────────────────────────────────────────────────────────
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-worker
+  namespace: oficialia-partes
+  labels:
+    app: app-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-worker
+  strategy:
+    type: Recreate    # Ensure only one worker runs at a time
+  template:
+    metadata:
+      labels:
+        app: app-worker
+    spec:
+      containers:
+        - name: app-worker
+          image: registry.example.com/oficialia/worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          volumeMounts:
+            - name: pdf-storage
+              mountPath: /app/storage
+          resources:
+            requests:
+              cpu:    "100m"
+              memory: "128Mi"
+            limits:
+              cpu:    "500m"
+              memory: "256Mi"
+      volumes:
+        - name: pdf-storage
+          persistentVolumeClaim:
+            claimName: storage-pdfs-pvc
+
+---
+# CronJob for daily DB backup (Kubernetes-native alternative to db_backup container)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: oficialia-partes
+spec:
+  schedule: "0 2 * * *"    # 02:00 daily
+  timeZone: "America/Cancun"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit:     3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: db-backup
+              image: postgres:15-alpine
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              env:
+                - name: POSTGRES_USER
+                  value: "oficialia_app"
+                - name: POSTGRES_DB
+                  value: "oficialia_partes"
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secrets
+                      key: POSTGRES_PASSWORD
+                - name: BACKUP_RETENTION_DAYS
+                  value: "7"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secrets
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: backup-scripts
+                  mountPath: /scripts
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-scripts
+              configMap:
+                name: backup-scripts
+                defaultMode: 0755
+            - name: backup-storage
+              emptyDir: {}

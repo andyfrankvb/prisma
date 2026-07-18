@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────
+# Kubernetes: API Deployment + Service + HPA
+# File: infra/k8s/api.yaml
+# ─────────────────────────────────────────────────────────────
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: storage-pdfs-pvc
+  namespace: oficialia-partes
+spec:
+  accessModes:
+    - ReadWriteMany    # Shared between api + worker pods
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-api
+  namespace: oficialia-partes
+  labels:
+    app: app-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge:       1
+      maxUnavailable: 0    # Zero-downtime rolling update
+  template:
+    metadata:
+      labels:
+        app: app-api
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app-api
+          image: registry.example.com/oficialia/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          volumeMounts:
+            - name: pdf-storage
+              mountPath: /app/storage
+          resources:
+            requests:
+              cpu:    "250m"
+              memory: "256Mi"
+            limits:
+              cpu:    "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds:       15
+            failureThreshold:    3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds:       5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]   # Drain connections before shutdown
+      volumes:
+        - name: pdf-storage
+          persistentVolumeClaim:
+            claimName: storage-pdfs-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: oficialia-partes
+spec:
+  selector:
+    app: app-api
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+# Horizontal Pod Autoscaler — scale API between 2 and 6 replicas
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-api-hpa
+  namespace: oficialia-partes
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               AverageUtilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type:               AverageUtilization
+          averageUtilization: 80

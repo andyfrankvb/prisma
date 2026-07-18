@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────
+# Override: guardar los archivos subidos en un NAS / ruta de red.
+#
+# El código NO cambia: la app sigue guardando en /app/storage dentro del
+# contenedor. Lo que cambia es el BACKING del volumen storage_pdfs, que ahora
+# apunta al NAS en vez del disco local del servidor.
+#
+# USO (en el servidor donde el NAS es accesible):
+#   1. Completá las variables en infra/.env (ver storage-nas.env.example).
+#   2. Migrá los archivos actuales al NAS (ver scripts/migrar-storage-a-nas.sh).
+#   3. Levantá con el override:
+#        docker compose -f docker-compose.yml -f docker-compose.storage-nas.yml up -d
+#
+# Elegí NFS o SMB según tu NAS (dejá activo uno, comentá el otro).
+# ─────────────────────────────────────────────────────────────
+
+volumes:
+  storage_pdfs:
+    driver: local
+    driver_opts:
+      # ── Opción A: NFS (típico en NAS/Linux) ─────────────────
+      type: nfs
+      o: "addr=${STORAGE_NFS_ADDR},rw,nfsvers=4,hard,timeo=600,retrans=2"
+      device: ":${STORAGE_NFS_PATH}"
+
+      # ── Opción B: SMB/CIFS (NAS Windows/Synology/QNAP) ──────
+      # Comentá las 3 líneas de NFS de arriba y descomentá estas:
+      # type: cifs
+      # o: "username=${STORAGE_SMB_USER},password=${STORAGE_SMB_PASS},uid=1000,gid=1000,file_mode=0660,dir_mode=0770,vers=3.0"
+      # device: "//${STORAGE_SMB_HOST}/${STORAGE_SMB_SHARE}"

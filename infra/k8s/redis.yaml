@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────
+# Kubernetes: Redis 7 Deployment + Service + PVC
+# File: infra/k8s/redis.yaml
+# ─────────────────────────────────────────────────────────────
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: oficialia-partes
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: oficialia-partes
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+            - "--maxmemory"
+            - "256mb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+            - "--save"
+            - "60 1"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-storage
+              mountPath: /data
+          resources:
+            requests:
+              cpu:    "100m"
+              memory: "128Mi"
+            limits:
+              cpu:    "500m"
+              memory: "384Mi"
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds:       10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds:       5
+      volumes:
+        - name: redis-storage
+          persistentVolumeClaim:
+            claimName: redis-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: oficialia-partes
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

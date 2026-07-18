@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────
+# Dockerfile: API (Node.js)
+# Target: infra/docker/Dockerfile.api
+# Multi-stage build — final image is distroless-like (node:alpine)
+# ─────────────────────────────────────────────────────────────
+
+# ── Stage 1: deps ─────────────────────────────────────────────
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+# ── Stage 2: build ────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# ── Stage 3: runtime ──────────────────────────────────────────
+FROM node:20-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# poppler-utils: convierte PDF a imagen para OCR con Tesseract
+# tesseract-ocr + idioma español
+# ghostscript: comprime los PDFs subidos para que queden livianos
+RUN apk add --no-cache poppler-utils tesseract-ocr tesseract-ocr-data-spa ghostscript
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+COPY --from=deps     /app/node_modules ./node_modules
+COPY --from=builder  /app/dist         ./dist
+COPY package.json ./
+
+# Storage volume mount point
+RUN mkdir -p /app/storage && chown appuser:appgroup /app/storage
+
+USER appuser
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["node", "dist/server.js"]

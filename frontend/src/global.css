@@ -1,0 +1,40 @@
+/* ===========================================================
+   Estilos globales — base responsive
+   Complementa los estilos en línea de la app para móviles.
+   =========================================================== */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  /* Evita el desbordamiento horizontal en celulares */
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Las imágenes nunca rompen el ancho del contenedor */
+img { max-width: 100%; }
+
+/* ===========================================================
+   MÓVIL (≤ 768px)
+   =========================================================== */
+@media (max-width: 768px) {
+
+  /* Las tablas anchas se desplazan horizontalmente en su contenedor
+     en vez de romper el layout. Envolver tablas en un div con esta clase
+     o aplicar overflow-x al contenedor de la tabla. */
+  table { font-size: 0.8rem; }
+
+  /* Cualquier contenedor que deba permitir scroll horizontal */
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Reducir paddings grandes en pantallas chicas */
+  .pad-responsive { padding-left: 12px !important; padding-right: 12px !important; }
+}
+
+/* Móvil chico (≤ 480px) */
+@media (max-width: 480px) {
+  table { font-size: 0.74rem; }
+}

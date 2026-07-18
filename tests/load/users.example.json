@@ -1,0 +1,20 @@
+[
+  {
+    "role": "ADMIN",
+    "email": "directora@rppc.qroo",
+    "password": "CAMBIA_ESTO",
+    "note": "Rol real PRISMA: DIRECCION_GENERAL / SUPERADMIN → supervisora (lectura global)"
+  },
+  {
+    "role": "EDITOR",
+    "email": "delegado.bj@rppc.qroo",
+    "password": "CAMBIA_ESTO",
+    "note": "Rol real PRISMA: DELEGACION DIRECTOR → creador (crea trámites)"
+  },
+  {
+    "role": "VISITOR",
+    "email": "operativo.bj@rppc.qroo",
+    "password": "CAMBIA_ESTO",
+    "note": "Rol real PRISMA: DELEGACION OPERATIVO → observador (solo lectura de su delegación)"
+  }
+]

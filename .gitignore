@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+frontend/dist/
+frontend/.next/
+
+# Environment — NEVER commit real credentials
+.env
+.env.local
+.env.production
+infra/.env
+
+# Logs
+*.log
+logs/
+
+# Storage (uploaded files)
+storage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Test coverage
+coverage/
