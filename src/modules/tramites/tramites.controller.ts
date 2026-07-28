@@ -165,15 +165,28 @@ export async function crearTramite(
 
     // Guardar archivos adjuntos si los hay
     const archivos: { url: string; nombre: string }[] = [];
+    let totalOriginal = 0;
+    let totalFinal    = 0;
+    let huboCompresion = false;
     if (req.files && Array.isArray(req.files)) {
       for (const file of req.files as Express.Multer.File[]) {
         if (file.size > 10 * 1024 * 1024) {
           throw new AppError(`El archivo ${file.originalname} supera el límite de 10 MB`, 422);
         }
-        const url = await storage.save(file, 'tramites/adjuntos');
-        archivos.push({ url, nombre: file.originalname });
+        const guardado = await storage.saveWithInfo(file, 'tramites/adjuntos');
+        archivos.push({ url: guardado.url, nombre: file.originalname });
+        totalOriginal += guardado.originalSize;
+        totalFinal    += guardado.finalSize;
+        if (guardado.compressed) huboCompresion = true;
       }
     }
+    const compresion = huboCompresion
+      ? {
+          original_bytes: totalOriginal,
+          final_bytes:    totalFinal,
+          ahorro_pct:     Math.round((1 - totalFinal / totalOriginal) * 100),
+        }
+      : null;
 
     const fechaRegistro = new Date();
 
@@ -227,7 +240,7 @@ export async function crearTramite(
       }).catch(() => {});
     }
 
-    res.status(201).json({ data: tramite, message: 'Trámite creado correctamente' });
+    res.status(201).json({ data: tramite, message: 'Trámite creado correctamente', compresion });
   } catch (err) { next(err); }
 }
 
@@ -797,6 +810,15 @@ export async function agregarComentario(
       throw new AppError('No tienes acceso a este trámite', 403);
     }
 
+    // El equipo de la delegación (creador/observador) solo puede aportar
+    // información mientras el trámite sigue en su proceso (Ingresados / En proceso).
+    // Una vez CERRADO (FINALIZADO o RECHAZADO) ya no puede comentar.
+    const ESTADOS_CERRADOS: EstatusTramite[] = ['FINALIZADO', 'RECHAZADO'];
+    if ((tramiteRole === 'creador' || tramiteRole === 'observador') &&
+        ESTADOS_CERRADOS.includes(tramite.estatus)) {
+      throw new AppError('No puedes comentar: el trámite ya está cerrado', 403);
+    }
+
     // El finalizador solo puede comentar en trámites EN_PROCESO o DEVUELTO_JURIDICO
     if (tramiteRole === 'finalizador' &&
         tramite.estatus !== 'EN_PROCESO' &&
@@ -810,6 +832,27 @@ export async function agregarComentario(
       contenido:  contenido.trim(),
       creado_en:  new Date(),
     }).returning(['id', 'tramite_id', 'autor_id', 'contenido', 'creado_en']);
+
+    // Notificar "mensaje nuevo" a los demás participantes del trámite (no al autor):
+    // el creador (delegación), el revisor jurídico y el finalizador.
+    const [revisorId, finalizadorId] = await Promise.all([
+      getActorFlujo('tramites_seguimiento', 'REVISOR').catch(() => null),
+      getActorFlujo('tramites_seguimiento', 'FINALIZADOR').catch(() => null),
+    ]);
+    const destinatarios = [...new Set(
+      [tramite.creado_por_id, revisorId, finalizadorId]
+        .filter((uid): uid is number => !!uid && uid !== user.id),
+    )];
+    for (const uid of destinatarios) {
+      notifyTramite({
+        recipient_id: uid,
+        event:        'TRAMITE_NUEVO_COMENTARIO',
+        title:        'Nuevo comentario en trámite',
+        body:         `${user.nombre} comentó en el trámite ${tramite.folio}`,
+        tramite_id:   id,
+        folio:        tramite.folio,
+      }).catch(() => {});
+    }
 
     res.status(201).json({
       data: { ...comentario, autor_nombre: user.nombre },

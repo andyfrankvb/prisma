@@ -16,22 +16,27 @@ import { theme } from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
-import { PDFPreviewer } from '../components/PDFPreviewer';
-import { SeguimientoOficio } from '../components/SeguimientoOficio';
+import { OficioDetalle } from '../components/OficioDetalle';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import {
   getOficios,
   getAbogados,
+  getCandidatosAsignacion,
   asignarOficio,
   reasignarOficio,
+  subirProyecto,
   aprobarVobo,
   finalizarOficio,
   reconsiderarOficio,
   getComentarios,
+  getOficioDocumentos,
 } from '../api';
 import type { Oficio, Abogado, EstatusOficio } from '../types';
-import type { ComentarioReconsideracion } from '../api';
+import type { ComentarioReconsideracion, OficioDocumento } from '../api';
+import { textoCompresion } from '../utils/compresion';
+import { FiltrosOficios } from '../components/FiltrosOficios';
+import type { OficiosFiltros } from '../components/FiltrosOficios';
 
 const LIMIT = 20;
 
@@ -65,14 +70,9 @@ export const Dashboard_Gestion: React.FC = () => {
   const [oficios,   setOficios]   = useState<Oficio[]>([]);
   const [total,     setTotal]     = useState(0);
   const [page,      setPage]      = useState(1);
-  const [search,    setSearch]    = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [desde,     setDesde]     = useState('');
-  const [hasta,     setHasta]     = useState('');
-  const [filterEstatus, setFilterEstatus] = useState('');
+  const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false });
   const [loading,   setLoading]   = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Selected oficio (detail panel) ───────────────────────
   const [selected, setSelected] = useState<Oficio | null>(null);
@@ -84,6 +84,12 @@ export const Dashboard_Gestion: React.FC = () => {
   const [observaciones, setObservaciones] = useState('');
   const [assignError,   setAssignError]   = useState<string | null>(null);
   const [assigning,     setAssigning]     = useState(false);
+
+  // ── Trabajar modal (ENCARGADO sube su propio proyecto) ────
+  const [showTrabajar,  setShowTrabajar]  = useState(false);
+  const [trabajarFile,  setTrabajarFile]  = useState<File | null>(null);
+  const [trabajarError, setTrabajarError] = useState<string | null>(null);
+  const [trabajando,    setTrabajando]    = useState(false);
 
   // ── Reassign modal (ENCARGADO) ────────────────────────────
   const [showReassign,    setShowReassign]    = useState(false);
@@ -109,11 +115,23 @@ export const Dashboard_Gestion: React.FC = () => {
   // ── Action feedback ───────────────────────────────────────
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
+  // ¿El oficio tiene información SIQROO pendiente por completar?
+  const siqrooPend = (o: Oficio) => !!o.siqroo_aplica && !o.siqroo_control_interno;
+
   const fetchOficios = useCallback(async () => {
     setLoading(true);
     setListError(null);
     try {
-      const res = await getOficios({ page, limit: LIMIT, search: searchDebounced || undefined, estatus: filterEstatus || undefined, desde: desde || undefined, hasta: hasta || undefined });
+      const res = await getOficios({
+        page, limit: LIMIT,
+        search:           filtros.search || undefined,
+        estatus:          filtros.estatus || undefined,
+        termino:          filtros.termino || undefined,
+        desde:            filtros.desde || undefined,
+        hasta:            filtros.hasta || undefined,
+        siqroo_pendiente: filtros.siqroo_pendiente || undefined,
+        pendiente_firma:  filtros.pendiente_firma || undefined,
+      });
       setOficios(res.data);
       setTotal(res.meta.total);
     } catch (err: any) {
@@ -121,31 +139,16 @@ export const Dashboard_Gestion: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, searchDebounced, filterEstatus, desde, hasta]);
+  }, [page, filtros]);
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
-  // Debounce search input — espera 400ms antes de disparar la petición
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setSearchDebounced(value);
-      setPage(1);
-    }, 400);
-  };
-
-  // Load abogados when assign or reassign modal opens
-  // Carga usuarios de la Dirección Jurídica (unidad_id=36) sin restricción de rol
+  // Load candidatos when assign or reassign modal opens.
+  // Usuarios de la unidad del encargado que tienen el módulo de oficios habilitado.
   useEffect(() => {
     if ((showAssign || showReassign) && abogados.length === 0) {
-      const token = localStorage.getItem('token');
-      const base = (import.meta as any).env?.VITE_API_URL ?? '/api/v1';
-      fetch(`${base}/usuarios?oficina_id=36&limit=100`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then(r => r.json())
-        .then((body: any) => setAbogados(body.data ?? []))
+      getCandidatosAsignacion()
+        .then((data) => setAbogados(data))
         .catch(() => {});
     }
   }, [showAssign, showReassign]);
@@ -197,6 +200,20 @@ export const Dashboard_Gestion: React.FC = () => {
     } catch (err: any) {
       setActionMsg(`Error: ${err.message}`);
     }
+  };
+
+  // El encargado sube su propio proyecto de contestación (trabaja el oficio directo)
+  const handleTrabajar = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selected || !trabajarFile) { setTrabajarError('Selecciona el archivo del proyecto'); return; }
+    setTrabajando(true); setTrabajarError(null);
+    try {
+      await subirProyecto(selected.id, trabajarFile);
+      setShowTrabajar(false); setTrabajarFile(null);
+      setActionMsg('Proyecto subido. Queda en revisión para el VoBo del delegado.');
+      fetchOficios();
+    } catch (err: any) { setTrabajarError(err.message); }
+    finally { setTrabajando(false); }
   };
 
   // Abre/descarga un archivo protegido (requiere token). Un <a href> normal no
@@ -253,10 +270,11 @@ export const Dashboard_Gestion: React.FC = () => {
     setUploading(true);
     setUploadError(null);
     try {
-      await finalizarOficio(selected.id, signedFile);
+      const resp = await finalizarOficio(selected.id, signedFile);
+      const aviso = textoCompresion(resp.compresion);
       setShowUpload(false);
       setSignedFile(null);
-      setActionMsg('Oficio finalizado correctamente');
+      setActionMsg('Oficio finalizado correctamente' + (aviso ? ` · 📉 ${aviso}` : ''));
       fetchOficios();
     } catch (err: any) {
       setUploadError(err.message);
@@ -309,36 +327,8 @@ export const Dashboard_Gestion: React.FC = () => {
             </button>
           </div>
 
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', paddingBottom: '16px' }}>
-            <input
-              type="search"
-              placeholder="Buscar folio, remitente o contenido del oficio…"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              style={{ ...inputStyle, width: '220px' }}
-              aria-label="Buscar"
-            />
-            <select
-              value={filterEstatus}
-              onChange={(e) => { setFilterEstatus(e.target.value); setPage(1); }}
-              style={{ ...inputStyle, width: '180px' }}
-              aria-label="Filtrar por estatus"
-            >
-              <option value="">Todos los estatus</option>
-              <option value="RECIBIDO">Recibido</option>
-              <option value="ASIGNADO">Asignado</option>
-              <option value="EN_REVISION">En Revisión</option>
-              <option value="EN_RECONSIDERACION">En Reconsideración</option>
-              <option value="VOBO_APROBADO">VoBo Aprobado</option>
-              <option value="FINALIZADO">Finalizado</option>
-            </select>
-            <input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} style={{ ...inputStyle, width: '150px' }} aria-label="Desde" title="Desde" />
-            <input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} style={{ ...inputStyle, width: '150px' }} aria-label="Hasta" title="Hasta" />
-            {(desde || hasta || filterEstatus) && (
-              <button onClick={() => { setDesde(''); setHasta(''); setFilterEstatus(''); setPage(1); }} style={btnSecondary}>✕ Limpiar</button>
-            )}
-          </div>
+          {/* Filtros (componente compartido) */}
+          <FiltrosOficios onChange={(f) => { setFiltros(f); setPage(1); }} />
         </div>
 
         {/* Feedback banner */}
@@ -359,16 +349,16 @@ export const Dashboard_Gestion: React.FC = () => {
           <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.primary, color: '#fff' }}>
-                {['', 'Folio', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'Asignado a', 'Acciones'].map((h) => (
+                {['', 'Folio', 'Delegación', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de', 'Acciones'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
+                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Sin registros</td></tr>
+                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Sin registros</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -385,25 +375,48 @@ export const Dashboard_Gestion: React.FC = () => {
                       <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} />
                     </td>
                     <td style={tdStyle}><strong>{o.folio}</strong></td>
+                    <td style={{ ...tdStyle, fontSize: '0.78rem', color: theme.colors.textSecondary }}>{o.delegacion_nombre ?? '—'}</td>
                     <td style={tdStyle}>{o.remitente}</td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                     <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
                     <td style={tdStyle}>
-                      {(o as any).abogado_nombre ? (
+                      {!o.siqroo_aplica ? (
+                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
+                      ) : siqrooPend(o) ? (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>🚩 Pendiente</span>
+                      ) : (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>✓ Completo</span>
+                      )}
+                    </td>
+                    <td style={tdStyle}>
+                      {o.en_bandeja_de ? (
                         <span style={{ fontSize: '0.78rem', color: theme.colors.textPrimary, fontWeight: 600 }}>
-                          👤 {(o as any).abogado_nombre}
+                          👤 {o.en_bandeja_de}
                         </span>
                       ) : (
                         <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>—</span>
                       )}
                     </td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      {/* Orquestación — solo el ENCARGADO (asigna, delega el trabajo) */}
                       {esEncargado && (
                         <>
                           {o.estatus === 'RECIBIDO' && (
-                            <button style={btnAction} onClick={() => { setSelected(o); setShowAssign(true); }}>
-                              Asignar
+                            <>
+                              <button style={btnAction} onClick={() => { setSelected(o); setShowAssign(true); }}>
+                                Asignar
+                              </button>
+                              <button style={{ ...btnAction, backgroundColor: '#1E40AF' }} onClick={() => { setSelected(o); setShowTrabajar(true); }}>
+                                ✍️ Trabajar
+                              </button>
+                            </>
+                          )}
+                          {/* Trabajo directo del encargado: si lo reconsideran y no hay abogado
+                              asignado, el propio encargado sube la corrección. */}
+                          {o.estatus === 'EN_RECONSIDERACION' && !o.abogado_nombre && (
+                            <button style={{ ...btnAction, backgroundColor: '#1E40AF' }} onClick={() => { setSelected(o); setShowTrabajar(true); }}>
+                              ✍️ Corregir
                             </button>
                           )}
                           {(['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
@@ -411,43 +424,40 @@ export const Dashboard_Gestion: React.FC = () => {
                               Reasignar
                             </button>
                           )}
-                          {(o.estatus === 'EN_REVISION' || o.estatus === 'EN_RECONSIDERACION') && (
-                            <>
-                              <button style={{ ...btnAction, backgroundColor: theme.colors.alert.green }} onClick={() => handleVobo(o)}>
-                                VoBo
-                              </button>
-                              <button style={{ ...btnAction, backgroundColor: theme.colors.alert.yellow, color: '#78350F' }} onClick={() => { handleSelectOficio(o); setShowRecon(true); }}>
-                                Reconsiderar
-                              </button>
-                            </>
-                          )}
-                          {/* Proyecto de contestación — disponible desde que el abogado lo sube */}
-                          {(['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
-                            <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/proyecto`)} style={{ ...btnAction, backgroundColor: '#EFF6FF', color: '#1E40AF' }}>
-                              📝 Proyecto
-                            </button>
-                          )}
-                          {/* Documento firmado por la secretaría — disponible al finalizar */}
-                          {o.estatus === 'FINALIZADO' && (
-                            <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/firmado`)} style={{ ...btnAction, backgroundColor: '#D1FAE5', color: '#065F46' }}>
-                              ✍️ Firmado
-                            </button>
-                          )}
                         </>
                       )}
-                      {rol === 'SECRETARIA' && (
+
+                      {/* Aprobación — quien tiene la autoridad: en delegaciones el DELEGADO,
+                          en la Dirección General el encargado (backend: puede_vobo) */}
+                      {o.puede_vobo && (o.estatus === 'EN_REVISION' || o.estatus === 'EN_RECONSIDERACION') && (
                         <>
-                          {o.estatus === 'VOBO_APROBADO' && (
-                            <button style={btnAction} onClick={() => { setSelected(o); setShowUpload(true); }}>
-                              Subir Firmado
-                            </button>
-                          )}
-                          {o.estatus === 'FINALIZADO' && (
-                            <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/firmado`)} style={{ ...btnAction }}>
-                              ⬇ Descargar
-                            </button>
-                          )}
+                          <button style={{ ...btnAction, backgroundColor: theme.colors.alert.green }} onClick={() => handleVobo(o)}>
+                            VoBo
+                          </button>
+                          <button style={{ ...btnAction, backgroundColor: theme.colors.alert.yellow, color: '#78350F' }} onClick={() => { handleSelectOficio(o); setShowRecon(true); }}>
+                            Reconsiderar
+                          </button>
                         </>
+                      )}
+
+                      {/* Ver el proyecto — el encargado o quien aprueba (para decidir el VoBo) */}
+                      {(esEncargado || o.puede_vobo) && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
+                        <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/proyecto`)} style={{ ...btnAction, backgroundColor: '#EFF6FF', color: '#1E40AF' }}>
+                          📝 Proyecto
+                        </button>
+                      )}
+
+                      {/* Subir firmado — VOBO_APROBADO: secretaría (DG) o encargado/delegado (delegación) */}
+                      {o.puede_finalizar && o.estatus === 'VOBO_APROBADO' && (
+                        <button style={btnAction} onClick={() => { setSelected(o); setShowUpload(true); }}>
+                          ✍️ Subir Firmado
+                        </button>
+                      )}
+                      {/* Ver documento firmado — al finalizar */}
+                      {o.estatus === 'FINALIZADO' && (
+                        <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/firmado`)} style={{ ...btnAction, backgroundColor: '#D1FAE5', color: '#065F46' }}>
+                          ✍️ Firmado
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -477,21 +487,39 @@ export const Dashboard_Gestion: React.FC = () => {
             <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} aria-label="Cerrar detalle">×</button>
           </div>
           <div style={{ padding: '20px', flex: 1 }}>
-            <DetailRow label="Folio"          value={selected.folio} />
-            <DetailRow label="Remitente"      value={selected.remitente} />
-            <DetailRow label="Dependencia"    value={selected.dependencia_origen} />
-            <DetailRow label="Fecha Ingreso"  value={new Date(selected.fecha_registro).toLocaleString('es-MX')} />
-            <DetailRow label="Estatus"        value={<StatusBadge estatus={selected.estatus as EstatusOficio} />} />
-            <DetailRow label="Término"        value={<TerminoTimer tiene_termino={selected.tiene_termino} fecha_vencimiento={selected.fecha_vencimiento} />} />
-            <DetailRow label="Descripción"    value={selected.descripcion_solicitud} />
-
-            {/* ── Visor de documentos con tabs ─────────────── */}
-            <DocViewer oficio={selected} rol={esEncargado ? 'ENCARGADO' : (rol ?? '')} onVobo={() => handleVobo(selected)} />
-
-            {/* ── Línea de tiempo: movimientos (🔄) + comentarios (💬) ── */}
-            <div style={{ marginTop: '20px' }}>
-              <SeguimientoOficio oficioId={selected.id} />
-            </div>
+            <OficioDetalle
+              oficio={selected}
+              acciones={
+                selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
+                  <div style={{
+                    padding: '14px 16px',
+                    backgroundColor: '#F0FDF4', border: `1px solid #86EFAC`,
+                    borderRadius: '8px', display: 'flex',
+                    alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap',
+                  }}>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#166534' }}>
+                        ¿El proyecto está correcto?
+                      </p>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: '#15803D' }}>
+                        Al otorgar el VoBo, se notificará a Secretaría para la firma.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleVobo(selected)}
+                      style={{
+                        padding: '9px 20px', backgroundColor: theme.colors.alert.green,
+                        color: '#fff', border: 'none', borderRadius: '7px',
+                        fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ✓ Otorgar VoBo
+                    </button>
+                  </div>
+                ) : null
+              }
+            />
+            {/* La línea de tiempo ahora vive dentro del modal "Ver historial". */}
           </div>
         </div>
       )}
@@ -516,6 +544,30 @@ export const Dashboard_Gestion: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
             <button type="button" onClick={() => setShowAssign(false)} style={btnSecondary}>Cancelar</button>
             <button type="submit" disabled={assigning || !abogadoId} style={btnPrimary}>{assigning ? 'Asignando…' : 'Confirmar Asignación'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Trabajar el oficio (encargado sube su propio proyecto) */}
+      <Modal open={showTrabajar} title={`Trabajar Oficio — ${selected?.folio}`} onClose={() => { setShowTrabajar(false); setTrabajarError(null); setTrabajarFile(null); }}>
+        <form onSubmit={handleTrabajar} noValidate>
+          <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: theme.colors.textSecondary }}>
+            Subí tu <strong>proyecto de contestación</strong>. Quedará en revisión para que el <strong>delegado</strong> otorgue el VoBo.
+          </p>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Proyecto de contestación <span style={{ color: theme.colors.alert.red }}>*</span></label>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={(e) => setTrabajarFile(e.target.files?.[0] ?? null)}
+              style={{ display: 'block', fontSize: '0.85rem', marginTop: '6px' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>PDF o Word</p>
+          </div>
+          {trabajarError && <div role="alert" style={alertStyle}>{trabajarError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button type="button" onClick={() => { setShowTrabajar(false); setTrabajarFile(null); }} style={btnSecondary}>Cancelar</button>
+            <button type="submit" disabled={trabajando || !trabajarFile} style={btnPrimary}>{trabajando ? 'Subiendo…' : 'Subir proyecto'}</button>
           </div>
         </form>
       </Modal>
@@ -691,201 +743,6 @@ export const Dashboard_Gestion: React.FC = () => {
   );
 };
 
-// ── DocViewer — tabs para oficio original y proyecto ─────────────────────────
-
-const DocViewer: React.FC<{
-  oficio:   Oficio;
-  rol:      string;
-  onVobo:   () => void;
-}> = ({ oficio, rol, onVobo }) => {
-  const tieneProyecto = ['EN_REVISION', 'VOBO_APROBADO', 'FINALIZADO'].includes(oficio.estatus);
-  const textoOcr      = (oficio as any).texto_ocr as string | null;
-  const ocrMetodo     = (oficio as any).ocr_metodo as string | null;
-  const ocrProcesado  = (oficio as any).ocr_procesado as boolean;
-
-  type Tab = 'original' | 'proyecto' | 'texto';
-  const [tab, setTab] = useState<Tab>('original');
-
-  React.useEffect(() => {
-    if (tieneProyecto) setTab('proyecto');
-    else               setTab('original');
-  }, [oficio.id, tieneProyecto]);
-
-  // Definir tabs disponibles
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'original', label: '📄 Oficio Original' },
-    ...(tieneProyecto ? [{ key: 'proyecto' as Tab, label: '📝 Proyecto de Contestación' }] : []),
-    { key: 'texto',    label: `🤖 Texto IA${textoOcr ? '' : ' —'}` },
-  ];
-
-  return (
-    <div style={{ marginTop: '20px' }}>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: `2px solid ${theme.colors.border}` }}>
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              padding:         '8px 16px',
-              border:          'none',
-              borderBottom:    tab === t.key ? `2px solid ${theme.colors.primary}` : '2px solid transparent',
-              marginBottom:    '-2px',
-              backgroundColor: 'transparent',
-              color:           tab === t.key ? theme.colors.primary : theme.colors.textSecondary,
-              fontWeight:      tab === t.key ? 700 : 400,
-              fontSize:        '0.82rem',
-              cursor:          'pointer',
-              whiteSpace:      'nowrap',
-              fontFamily:      theme.font.family,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Contenido */}
-      <div style={{ marginTop: '12px' }}>
-
-        {/* ── Oficio original ─────────────────────────── */}
-        {tab === 'original' && (
-          <PDFPreviewer
-            url={`/api/v1/files/${oficio.id}/original`}
-            title="Oficio Original"
-            height={400}
-          />
-        )}
-
-        {/* ── Proyecto de contestación ─────────────────── */}
-        {tab === 'proyecto' && tieneProyecto && (
-          <div>
-            <PDFPreviewer
-              url={`/api/v1/files/${oficio.id}/proyecto`}
-              title="Proyecto de Contestación"
-              height={400}
-            />
-            {rol === 'ENCARGADO' && oficio.estatus === 'EN_REVISION' && (
-              <div style={{
-                marginTop: '16px', padding: '14px 16px',
-                backgroundColor: '#F0FDF4', border: `1px solid #86EFAC`,
-                borderRadius: '8px', display: 'flex',
-                alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-              }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#166534' }}>
-                    ¿El proyecto está correcto?
-                  </p>
-                  <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: '#15803D' }}>
-                    Al otorgar el VoBo, se notificará a Secretaría para la firma.
-                  </p>
-                </div>
-                <button
-                  onClick={onVobo}
-                  style={{
-                    padding: '9px 20px', backgroundColor: theme.colors.alert.green,
-                    color: '#fff', border: 'none', borderRadius: '7px',
-                    fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  ✓ Otorgar VoBo
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Texto extraído por IA ─────────────────────── */}
-        {tab === 'texto' && (
-          <div style={{
-            border:       `1.5px solid ${theme.colors.border}`,
-            borderRadius: '10px',
-            overflow:     'hidden',
-          }}>
-            {/* Header */}
-            <div style={{
-              display:         'flex',
-              alignItems:      'center',
-              justifyContent:  'space-between',
-              padding:         '10px 14px',
-              backgroundColor: theme.colors.charcoal,
-              color:           '#fff',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>🤖</span>
-                <span style={{ fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const, fontFamily: theme.font.family }}>
-                  Texto extraído por IA
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {ocrMetodo && (
-                  <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
-                    {ocrMetodo.toUpperCase()}
-                  </span>
-                )}
-                <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                  {textoOcr ? `${textoOcr.length} chars` : 'Sin texto'}
-                </span>
-              </div>
-            </div>
-
-            {/* Cuerpo */}
-            {textoOcr ? (
-              <div style={{
-                padding:         '16px',
-                backgroundColor: '#FAFAF8',
-                maxHeight:       '380px',
-                overflowY:       'auto',
-                fontSize:        '0.82rem',
-                lineHeight:      1.8,
-                color:           theme.colors.textPrimary,
-                whiteSpace:      'pre-wrap',
-                fontFamily:      'monospace',
-                userSelect:      'text',
-              }}>
-                {textoOcr}
-              </div>
-            ) : !ocrProcesado ? (
-              <div style={{ padding: '32px', textAlign: 'center', backgroundColor: '#FAFAF8' }}>
-                <p style={{ margin: 0, color: '#0369A1', fontSize: '0.85rem' }}>
-                  ⏳ El OCR está procesando este documento en segundo plano…
-                </p>
-                <p style={{ margin: '6px 0 0', color: theme.colors.textSecondary, fontSize: '0.75rem' }}>
-                  Recarga el detalle en unos segundos
-                </p>
-              </div>
-            ) : (
-              <div style={{ padding: '32px', textAlign: 'center', backgroundColor: '#FAFAF8' }}>
-                <p style={{ margin: 0, color: theme.colors.textSecondary, fontSize: '0.85rem' }}>
-                  📋 No se pudo extraer texto de este documento.
-                </p>
-                <p style={{ margin: '6px 0 0', color: theme.colors.textSecondary, fontSize: '0.75rem' }}>
-                  El PDF puede ser una imagen sin capa de texto reconocible.
-                </p>
-              </div>
-            )}
-
-            {/* Footer */}
-            {textoOcr && (
-              <div style={{
-                padding:         '8px 14px',
-                backgroundColor: '#F0F0EC',
-                borderTop:       `1px solid ${theme.colors.border}`,
-                fontSize:        '0.72rem',
-                color:           theme.colors.textSecondary,
-              }}>
-                💡 Texto seleccionable — puedes copiar cualquier fragmento
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null }> = ({ tiene_termino, dias }) => {
@@ -896,13 +753,6 @@ const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null }> = ({
   }
   return <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color }} aria-hidden="true" />;
 };
-
-const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', fontSize: '0.875rem' }}>
-    <span style={{ minWidth: '120px', fontWeight: 600, color: theme.colors.textSecondary }}>{label}</span>
-    <span style={{ color: theme.colors.textPrimary, flex: 1 }}>{value}</span>
-  </div>
-);
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const thStyle: React.CSSProperties      = { padding: '11px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.78rem', whiteSpace: 'nowrap' };

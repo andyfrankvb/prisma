@@ -12,11 +12,16 @@ import React, { useState, useEffect, useCallback, FormEvent } from 'react';
 import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
-import { PDFPreviewer } from '../components/PDFPreviewer';
+import { OficioDetalle } from '../components/OficioDetalle';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
-import { getOficios, createOficio, getUsuarios, analizarPdf } from '../api';
+import { getOficios, createOficio, getUsuarios, analizarPdf,
+         getDependencias, crearDependencia, getRemitentes, crearRemitente,
+         getUnidadesInternas, crearUnidadInterna, completarSiqroo } from '../api';
+import type { CatalogoItem } from '../api';
+import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
 import {
   thStyle, tdStyle, inputStyle, selectStyle, emptyCell,
@@ -35,6 +40,15 @@ const ESTATUS_OPTIONS = [
 
 const LIMIT = 15;
 
+/** Documentos categorizados que se pueden adjuntar al ingreso de oficio */
+const DOCUMENTOS_OFICIO = [
+  { key: 'oficio',         label: 'Oficio'                },
+  { key: 'anexos',         label: 'Anexos'                },
+  { key: 'identificacion', label: 'Identificación oficial'},
+  { key: 'recibos',        label: 'Recibos de pago'       },
+  { key: 'solicitud',      label: 'Solicitud de servicio' },
+] as const;
+
 export const Dashboard_Oficial: React.FC = () => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -47,8 +61,43 @@ export const Dashboard_Oficial: React.FC = () => {
   const [loading,   setLoading]   = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
+  // ── Filtros de búsqueda ───────────────────────────────────
+  const [search,     setSearch]     = useState('');
+  const [searchDeb,  setSearchDeb]  = useState('');   // buscador con debounce
+  const [desde,      setDesde]      = useState('');
+  const [hasta,      setHasta]      = useState('');
+  const [siqrooPend, setSiqrooPend] = useState(false);
+  const [firmaPend,  setFirmaPend]  = useState(false);
+  const [termino,    setTermino]    = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => { setSearchDeb(search); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   // ── Detail panel ──────────────────────────────────────────
   const [selected, setSelected] = useState<Oficio | null>(null);
+
+  // SIQROO: completar el NCI pendiente desde el detalle
+  const [siqControl, setSiqControl] = useState('');
+  const [siqSaving,  setSiqSaving]  = useState(false);
+  useEffect(() => { setSiqControl(''); }, [selected?.id]);
+
+  const siqrooPendiente = (o: Oficio) =>
+    !!o.siqroo_aplica && !o.siqroo_control_interno;
+
+  const handleCompletarSiqroo = async () => {
+    if (!selected || !siqControl.trim()) return;
+    setSiqSaving(true);
+    try {
+      const { data } = await completarSiqroo(selected.id, siqControl);
+      setSelected(data);
+      fetchOficios();
+    } catch { /* noop */ }
+    finally { setSiqSaving(false); }
+  };
+
+  // Aviso sutil de optimización del PDF tras registrar
+  const [avisoCompresion, setAvisoCompresion] = useState<string | null>(null);
 
   // ── Create modal — paso 1: subir PDF, paso 2: corroborar campos ─
   const [showCreate,   setShowCreate]   = useState(false);
@@ -60,11 +109,41 @@ export const Dashboard_Oficial: React.FC = () => {
   const [createError,  setCreateError]  = useState<string | null>(null);
   const [remitente,    setRemitente]    = useState('');
   const [dependencia,  setDependencia]  = useState('');
+  const [unidadInterna, setUnidadInterna] = useState('');
+  const [numOficioOrigen, setNumOficioOrigen] = useState('');
   const [dirigidoA,    setDirigidoA]    = useState('');
   const [descripcion,  setDescripcion]  = useState('');
   const [tieneTermino, setTieneTermino] = useState(false);
   const [fechaVence,   setFechaVence]   = useState('');
   const [pdfFile,      setPdfFile]      = useState<File | null>(null);
+  // Documentos categorizados (opcionales): { anexos, identificacion, oficio, recibos, solicitud }
+  const [docFiles,     setDocFiles]     = useState<Record<string, File | null>>({});
+
+  // ── Catálogos INDEPENDIENTES (dependencia, unidad interna, remitente) ──
+  const [dependencias,   setDependencias]   = useState<CatalogoItem[]>([]);
+  const [unidadesList,   setUnidadesList]   = useState<CatalogoItem[]>([]);
+  const [remitentesList, setRemitentesList] = useState<CatalogoItem[]>([]);
+  const [depSel,         setDepSel]         = useState<number | ''>('');
+  const [uniSel,         setUniSel]         = useState<number | ''>('');
+  const [remSel,         setRemSel]         = useState<number | ''>('');
+  const [addDepMode,     setAddDepMode]     = useState(false);
+  const [addUniMode,     setAddUniMode]     = useState(false);
+  const [addRemMode,     setAddRemMode]     = useState(false);
+  const [nuevaDepNombre, setNuevaDepNombre] = useState('');
+  const [nuevaUniNombre, setNuevaUniNombre] = useState('');
+  const [nuevoRemNombre, setNuevoRemNombre] = useState('');
+
+  // Cargar los tres catálogos al abrir el modal (ninguno depende de otro)
+  useEffect(() => {
+    if (!showCreate) return;
+    getDependencias().then((r) => setDependencias(r.data)).catch(() => {});
+    getUnidadesInternas().then((r) => setUnidadesList(r.data)).catch(() => {});
+    getRemitentes().then((r) => setRemitentesList(r.data)).catch(() => {});
+  }, [showCreate]);
+
+  // ── SIQROO ────────────────────────────────────────────────
+  const [siqrooAplica,  setSiqrooAplica]  = useState(false);
+  const [siqrooControl, setSiqrooControl] = useState('');
 
   // ── Destinatarios ─────────────────────────────────────────
   const [destinatarios, setDestinatarios] = useState<Abogado[]>([]);
@@ -78,60 +157,168 @@ export const Dashboard_Oficial: React.FC = () => {
   const fetchOficios = useCallback(async () => {
     setLoading(true); setListError(null);
     try {
-      const res = await getOficios({ page, limit: LIMIT, estatus: estatus || undefined });
+      const res = await getOficios({
+        page, limit: LIMIT,
+        estatus:          estatus  || undefined,
+        search:           searchDeb || undefined,
+        desde:            desde    || undefined,
+        hasta:            hasta    || undefined,
+        siqroo_pendiente: siqrooPend || undefined,
+        pendiente_firma:  firmaPend || undefined,
+        termino:          termino  || undefined,
+      });
       setOficios(res.data); setTotal(res.meta.total);
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
-  }, [page, estatus]);
+  }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino]);
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
-  // ── Paso 1: analizar PDF con IA ───────────────────────────
+  // ── Analizar el "Oficio" con IA (OCR) ─────────────────────
+  // Autocompleta descripción y trata de emparejar dependencia + remitente con el
+  // catálogo. Si no encuentra coincidencia, propone el texto detectado (editable).
   const handleAnalizarPdf = async (file: File) => {
     setPdfFile(file);
     setAnalizando(true);
     setCreateError(null);
     try {
       const { data } = await analizarPdf(file);
-      if (data.remitente)          setRemitente(data.remitente);
-      if (data.dependencia_origen) setDependencia(data.dependencia_origen);
       if (data.descripcion)        setDescripcion(data.descripcion);
       if (data.tiene_termino)      setTieneTermino(data.tiene_termino);
       if (data.fecha_vencimiento)  setFechaVence(data.fecha_vencimiento);
       setTextoOcr(data.texto_completo ?? '');
       setConfianza(data.confianza);
-      setPaso(2);    } catch (err: any) {
-      // Si falla la IA, igual avanzar al paso 2 con campos vacíos
+      await autocompletarCatalogo(data.dependencia_origen, data.remitente);
+      autoseleccionarDirigidoA((data as any).dirigido_a);
+    } catch (err: any) {
       setConfianza('baja');
-      setPaso(2);
     } finally {
       setAnalizando(false);
     }
   };
 
-  // ── Paso 2: guardar oficio ────────────────────────────────
+  // Empareja el texto del OCR con los catálogos (independientes entre sí).
+  const autocompletarCatalogo = (depText?: string, remText?: string) => {
+    const dep = (depText ?? '').trim();
+    const rem = (remText ?? '').trim();
+    const norm = (s: string) => s.trim().toLowerCase();
+
+    if (dep) {
+      const depMatch = dependencias.find((d) => norm(d.nombre) === norm(dep));
+      if (depMatch) seleccionarDependencia(depMatch.id);
+      else { setAddDepMode(true); setNuevaDepNombre(dep.toUpperCase()); }   // propone el texto, editable
+    }
+    if (rem) {
+      const remMatch = remitentesList.find((r) => norm(r.nombre) === norm(rem));
+      if (remMatch) seleccionarRemitente(remMatch.id);
+      else { setAddRemMode(true); setNuevoRemNombre(rem); }
+    }
+  };
+
+  // "Dirigido a": empareja el nombre detectado con la lista de usuarios internos.
+  // Si coincide, lo autoselecciona; si no, lo deja para elección manual (debe ser
+  // una persona real del sistema, por eso no admite texto libre).
+  const autoseleccionarDirigidoA = (detectado?: string) => {
+    const det = (detectado ?? '').trim();
+    if (!det) return;
+    const norm = (s: string) => s.trim().toLowerCase();
+    const match =
+      destinatarios.find((u) => norm(u.nombre) === norm(det)) ??
+      destinatarios.find((u) => norm(u.nombre).includes(norm(det)) || norm(det).includes(norm(u.nombre)));
+    if (match) setDirigidoA(String(match.id));
+  };
+
+  // ── Catálogos: selección y alta al vuelo (independientes) ──
+  const seleccionarDependencia = (id: number | '') => {
+    setDepSel(id);
+    setDependencia(id ? (dependencias.find((d) => d.id === id)?.nombre ?? '') : '');
+  };
+  const seleccionarUnidad = (id: number | '') => {
+    setUniSel(id);
+    setUnidadInterna(id ? (unidadesList.find((u) => u.id === id)?.nombre ?? '') : '');
+  };
+  const seleccionarRemitente = (id: number | '') => {
+    setRemSel(id);
+    setRemitente(id ? (remitentesList.find((r) => r.id === id)?.nombre ?? '') : '');
+  };
+  const agregarDependencia = async () => {
+    const nombre = nuevaDepNombre.trim().toUpperCase();
+    if (!nombre) return;
+    try {
+      const { data } = await crearDependencia(nombre);
+      setDependencias((prev) =>
+        [...prev.filter((d) => d.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+      seleccionarDependencia(data.id);
+      setAddDepMode(false); setNuevaDepNombre('');
+    } catch (err: any) { setCreateError(err.message); }
+  };
+  const agregarUnidad = async () => {
+    const nombre = nuevaUniNombre.trim();
+    if (!nombre) return;
+    try {
+      const { data } = await crearUnidadInterna(nombre);
+      setUnidadesList((prev) =>
+        [...prev.filter((u) => u.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+      seleccionarUnidad(data.id);
+      setAddUniMode(false); setNuevaUniNombre('');
+    } catch (err: any) { setCreateError(err.message); }
+  };
+  const agregarRemitente = async () => {
+    const nombre = nuevoRemNombre.trim();
+    if (!nombre) return;
+    try {
+      const { data } = await crearRemitente(nombre);
+      setRemitentesList((prev) =>
+        [...prev.filter((r) => r.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+      seleccionarRemitente(data.id);
+      setAddRemMode(false); setNuevoRemNombre('');
+    } catch (err: any) { setCreateError(err.message); }
+  };
+
+  // ── Guardar oficio ────────────────────────────────────────
   const resetForm = () => {
     setPaso(1); setConfianza(null); setTextoOcr('');
-    setRemitente(''); setDependencia(''); setDirigidoA('');
+    setRemitente(''); setDependencia(''); setUnidadInterna(''); setDirigidoA('');
     setDescripcion(''); setTieneTermino(false); setFechaVence('');
-    setPdfFile(null); setCreateError(null);
+    setPdfFile(null); setDocFiles({}); setCreateError(null);
+    setDepSel(''); setUniSel(''); setRemSel('');
+    setAddDepMode(false); setAddUniMode(false); setAddRemMode(false);
+    setNuevaDepNombre(''); setNuevaUniNombre(''); setNuevoRemNombre(''); setNumOficioOrigen('');
+    setSiqrooAplica(false); setSiqrooControl('');
   };
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
-    if (!pdfFile)                    { setCreateError('El PDF es obligatorio'); return; }
+    // Durante las pruebas ningún campo es obligatorio. Única validación de
+    // consistencia: si marcó "tiene término", pedimos la fecha.
     if (tieneTermino && !fechaVence) { setCreateError('Ingresa la fecha de vencimiento'); return; }
     setSubmitting(true); setCreateError(null);
     try {
       const fd = new FormData();
       fd.append('remitente',             remitente);
       fd.append('dependencia_origen',    dependencia);
+      fd.append('unidad_interna',        unidadInterna);
+      fd.append('numero_oficio_origen',  numOficioOrigen.trim());
       fd.append('dirigido_a_id',         dirigidoA);
       fd.append('descripcion_solicitud', descripcion);
       fd.append('tiene_termino',         String(tieneTermino));
       if (tieneTermino) fd.append('fecha_vencimiento', fechaVence);
-      fd.append('pdf', pdfFile);
-      await createOficio(fd);
+      // Documentos categorizados opcionales (uno por tipo; "oficio" es el principal)
+      DOCUMENTOS_OFICIO.forEach(({ key }) => {
+        const f = docFiles[key];
+        if (f) fd.append(key, f);
+      });
+      // SIQROO
+      fd.append('siqroo_aplica', String(siqrooAplica));
+      if (siqrooAplica && siqrooControl.trim()) {
+        fd.append('siqroo_control_interno', siqrooControl.trim());
+      }
+      const resp = await createOficio(fd);
+      const aviso = textoCompresion(resp.compresion);
       setShowCreate(false); resetForm(); fetchOficios();
+      if (aviso) {
+        setAvisoCompresion(aviso);
+        setTimeout(() => setAvisoCompresion(null), 6000);
+      }
     } catch (err: any) { setCreateError(err.message); }
     finally { setSubmitting(false); }
   };
@@ -160,18 +347,83 @@ export const Dashboard_Oficial: React.FC = () => {
             </button>
           </div>
 
-          {/* Filter */}
-          <div style={{ paddingBottom: '14px' }}>
-            <select
-              value={estatus}
-              onChange={(e) => { setEstatus(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filtrar por estatus"
-            >
+          {avisoCompresion && (
+            <div style={{
+              display:      'flex',
+              alignItems:   'center',
+              gap:          '6px',
+              margin:       '0 0 12px',
+              padding:      '6px 10px',
+              borderRadius: theme.radius.sm,
+              backgroundColor: '#EAF7EE',
+              color:        '#1B7A3D',
+              fontSize:     '0.72rem',
+              fontWeight:   500,
+              width:        'fit-content',
+            }}>
+              <span aria-hidden>📉</span>{avisoCompresion}
+            </div>
+          )}
+
+          {/* Filtros */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', paddingBottom: '14px' }}>
+            {/* Buscador de texto */}
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍 Buscar folio, remitente, dependencia…"
+              style={{ ...inputStyle, flex: '1 1 240px', minWidth: '180px' }}
+              aria-label="Buscar"
+            />
+
+            {/* Estatus */}
+            <select value={estatus} onChange={(e) => { setEstatus(e.target.value); setPage(1); }} style={selectStyle} aria-label="Filtrar por estatus">
               {ESTATUS_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+
+            {/* Término / vencimiento */}
+            <select value={termino} onChange={(e) => { setTermino(e.target.value); setPage(1); }} style={selectStyle} aria-label="Filtrar por término">
+              <option value="">Término: todos</option>
+              <option value="con_termino">Con término</option>
+              <option value="por_vencer">Por vencer (3 días)</option>
+              <option value="vencidos">Vencidos</option>
+            </select>
+
+            {/* Rango de fechas */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+              Desde
+              <input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} style={{ ...inputStyle, padding: '6px 8px' }} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+              Hasta
+              <input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} style={{ ...inputStyle, padding: '6px 8px' }} />
+            </label>
+
+            {/* SIQROO pendiente */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
+              <input type="checkbox" checked={siqrooPend} onChange={(e) => { setSiqrooPend(e.target.checked); setPage(1); }} />
+              🚩 SIQROO pendiente
+            </label>
+
+            {/* Pendiente de firma (aprobados sin firmado subido) */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
+              <input type="checkbox" checked={firmaPend} onChange={(e) => { setFirmaPend(e.target.checked); setPage(1); }} />
+              🖊️ Pendiente de firma
+            </label>
+
+            {/* Limpiar */}
+            {(search || estatus || desde || hasta || siqrooPend || firmaPend || termino) && (
+              <button
+                type="button"
+                onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); setPage(1); }}
+                style={{ ...btnSecondary, padding: '7px 12px', fontSize: '0.78rem' }}
+              >
+                Limpiar
+              </button>
+            )}
           </div>
         </div>
 
@@ -182,16 +434,16 @@ export const Dashboard_Oficial: React.FC = () => {
           <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={tableHeaderStyle}>
-                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus'].map((h) => (
+                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={emptyCell}>Cargando…</td></tr>
+                <tr><td colSpan={8} style={emptyCell}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={6} style={emptyCell}>Sin registros</td></tr>
+                <tr><td colSpan={8} style={emptyCell}>Sin registros</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -210,7 +462,7 @@ export const Dashboard_Oficial: React.FC = () => {
                       <strong style={{ color: theme.colors.primary }}>{o.folio}</strong>
                     </td>
                     <td style={tdStyle}>{o.remitente}</td>
-                    <td style={{ ...tdStyle, color: theme.colors.textSecondary, fontSize: '0.8rem' }}>
+                    <td style={{ ...tdStyle, color: theme.colors.textSecondary, fontSize: '0.8rem', textTransform: 'uppercase' }}>
                       {o.dependencia_origen}
                     </td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
@@ -218,6 +470,18 @@ export const Dashboard_Oficial: React.FC = () => {
                       <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} />
                     </td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
+                    <td style={tdStyle}>
+                      {!o.siqroo_aplica ? (
+                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
+                      ) : siqrooPendiente(o) ? (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>🚩 Pendiente</span>
+                      ) : (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>✓ Completo</span>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
+                      {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
+                    </td>
                   </tr>
                 ))
               )}
@@ -273,210 +537,181 @@ export const Dashboard_Oficial: React.FC = () => {
           {/* Detail body */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
 
-            {/* Metadata grid */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-              gap: '12px',
-              marginBottom: '20px',
-            }}>
-              <InfoCard label="Folio"           value={selected.folio} />
-              <InfoCard label="Estatus"         value={<StatusBadge estatus={selected.estatus as EstatusOficio} />} />
-              <InfoCard label="Remitente"       value={selected.remitente} />
-              <InfoCard label="Dependencia"     value={selected.dependencia_origen} />
-              <InfoCard label="Fecha de Ingreso" value={new Date(selected.fecha_registro).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' })} />
-              <InfoCard label="Término"         value={<TerminoTimer tiene_termino={selected.tiene_termino} fecha_vencimiento={selected.fecha_vencimiento} />} />
-            </div>
+            <OficioDetalle
+              oficio={selected}
+              acciones={
+                <>
+                  {/* SIQROO — estado y completar datos pendientes */}
+                  {selected.siqroo_aplica && (
+                    <div style={{
+                      border: `1px solid ${siqrooPendiente(selected) ? '#F59E0B' : theme.colors.border}`,
+                      backgroundColor: siqrooPendiente(selected) ? '#FFFBEB' : theme.colors.background,
+                      borderRadius: '8px', padding: '14px', marginBottom: '14px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>SIQROO</span>
+                        {siqrooPendiente(selected)
+                          ? <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px' }}>🚩 Pendiente por completar</span>
+                          : <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px' }}>✓ Completo</span>}
+                      </div>
 
-            {/* Descripción */}
-            <div style={{
-              backgroundColor: '#F8FAFC',
-              border: `1px solid ${theme.colors.border}`,
-              borderRadius: '8px',
-              padding: '14px',
-              marginBottom: '20px',
-            }}>
-              <p style={{ margin: '0 0 6px', fontSize: '0.75rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Descripción de la Solicitud
-              </p>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: theme.colors.textPrimary, lineHeight: 1.6 }}>
-                {selected.descripcion_solicitud}
-              </p>
-            </div>
+                      <div style={{ fontSize: '0.8rem', color: theme.colors.textPrimary, marginBottom: siqrooPendiente(selected) ? '12px' : 0 }}>
+                        <div>Nº de control interno: <strong>{selected.siqroo_control_interno || '—'}</strong></div>
+                      </div>
 
-            {/* Texto OCR extraído */}
-            {(selected as any).texto_ocr && (
-              <div style={{
-                backgroundColor: '#FFFBF0',
-                border: `1px solid #F59E0B44`,
-                borderLeft: `3px solid ${theme.colors.gold}`,
-                borderRadius: '8px',
-                padding: '14px',
-                marginBottom: '20px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '1rem' }}>🔍</span>
-                  <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: theme.colors.gold, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Texto extraído por OCR
-                  </p>
-                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
-                    {(selected as any).ocr_metodo?.toUpperCase()}
-                  </span>
-                </div>
-                <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textPrimary, lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', fontFamily: 'monospace' }}>
-                  {(selected as any).texto_ocr}
-                </p>
-              </div>
-            )}
+                      {siqrooPendiente(selected) && (
+                        <div style={{ display: 'grid', gap: '8px', borderTop: `1px dashed ${theme.colors.border}`, paddingTop: '10px' }}>
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.textSecondary }}>Completa el número de control interno:</p>
+                          <input style={{ ...inputStyle, fontSize: '0.82rem' }} value={siqControl} onChange={(e) => setSiqControl(e.target.value)} placeholder="Número de control interno" />
+                          <button
+                            type="button"
+                            onClick={handleCompletarSiqroo}
+                            disabled={siqSaving || !siqControl.trim()}
+                            style={{ ...btnPrimary, alignSelf: 'flex-start', opacity: (siqSaving || !siqControl.trim()) ? 0.6 : 1 }}
+                          >
+                            {siqSaving ? 'Guardando…' : 'Guardar NCI'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-            {(selected as any).ocr_procesado === false && (
-              <div style={{ backgroundColor: '#F0F9FF', border: `1px solid #BAE6FD`, borderRadius: '8px', padding: '10px 14px', marginBottom: '20px', fontSize: '0.8rem', color: '#0369A1', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>⏳</span> Procesando OCR en segundo plano…
-              </div>
-            )}
+                  {/* El texto extraído por OCR se muestra al abrir el documento "Oficio"
+                      desde la tabla de documentos requisitos (visor). */}
 
-            {/* PDF Viewer */}
-            <PDFPreviewer
-              url={`/api/v1/files/${selected.id}/original`}
-              title={`Oficio ${selected.folio}`}
-              height={420}
+                  {(selected as any).ocr_procesado === false && (
+                    <div style={{ backgroundColor: '#F0F9FF', border: `1px solid #BAE6FD`, borderRadius: '8px', padding: '10px 14px', fontSize: '0.8rem', color: '#0369A1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>⏳</span> Procesando OCR en segundo plano…
+                    </div>
+                  )}
+                </>
+              }
             />
           </div>
         </div>
       )}
 
-      {/* ── Create Modal — 2 pasos ────────────────────────── */}
+      {/* ── Create Modal — un solo formulario ─────────────── */}
       <Modal
         open={showCreate}
-        title={paso === 1 ? 'Paso 1 — Subir Oficio' : 'Paso 2 — Verificar Datos Extraídos'}
+        title="Registrar Oficio"
         onClose={() => { setShowCreate(false); resetForm(); }}
         width={680}
       >
-        {/* ── PASO 1: subir PDF ──────────────────────────── */}
-        {paso === 1 && (
-          <div>
-            {/* Instrucción */}
-            <div style={{ padding: '14px 16px', backgroundColor: '#FDE8EF', borderLeft: `3px solid ${theme.colors.primary}`, borderRadius: '8px', marginBottom: '24px' }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem', color: theme.colors.primaryDark }}>
-                🤖 Análisis automático con IA
-              </p>
-              <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.textSecondary }}>
-                Sube el PDF del oficio y la IA extraerá automáticamente el remitente, dependencia y descripción para que solo tengas que verificar.
-              </p>
-            </div>
-
-            {/* Drop zone */}
-            <label
-              htmlFor="pdf-upload"
-              style={{
-                display:         'flex',
-                flexDirection:   'column',
-                alignItems:      'center',
-                justifyContent:  'center',
-                gap:             '12px',
-                padding:         '40px 24px',
-                border:          `2px dashed ${pdfFile ? theme.colors.primary : theme.colors.border}`,
-                borderRadius:    '12px',
-                backgroundColor: pdfFile ? '#FDE8EF22' : theme.colors.background,
-                cursor:          'pointer',
-                transition:      'all 0.2s',
-                marginBottom:    '20px',
-              }}
-            >
-              <span style={{ fontSize: '2.5rem' }}>{pdfFile ? '📄' : '📂'}</span>
-              {pdfFile ? (
-                <>
-                  <p style={{ margin: 0, fontWeight: 700, color: theme.colors.primary, fontSize: '0.9rem' }}>
-                    {pdfFile.name}
-                  </p>
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-                    {(pdfFile.size / 1024).toFixed(0)} KB · Clic para cambiar
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p style={{ margin: 0, fontWeight: 700, color: theme.colors.textPrimary, fontSize: '0.9rem' }}>
-                    Arrastra el PDF aquí o haz clic para seleccionar
-                  </p>
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-                    Solo archivos PDF · Máximo 20 MB
-                  </p>
-                </>
-              )}
-              <input
-                id="pdf-upload"
-                type="file"
-                accept="application/pdf"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setPdfFile(f);
-                }}
-              />
-            </label>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button type="button" onClick={() => { setShowCreate(false); resetForm(); }} style={btnSecondary}>
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={!pdfFile || analizando}
-                onClick={() => pdfFile && handleAnalizarPdf(pdfFile)}
-                style={{
-                  ...btnPrimary,
-                  opacity: (!pdfFile || analizando) ? 0.6 : 1,
-                  cursor:  (!pdfFile || analizando) ? 'not-allowed' : 'pointer',
-                  minWidth: '160px',
-                }}
-              >
-                {analizando ? '🤖 Analizando…' : '🤖 Analizar con IA →'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── PASO 2: verificar y guardar ────────────────── */}
-        {paso === 2 && (
           <form onSubmit={handleCreate} noValidate>
+            {/* Instrucción */}
+            <div style={{ padding: '12px 14px', backgroundColor: '#FDE8EF', borderLeft: `3px solid ${theme.colors.primary}`, borderRadius: '8px', marginBottom: '16px' }}>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem', color: theme.colors.primaryDark }}>
+                🤖 Ingreso de oficio
+              </p>
+              <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                Adjunta los documentos requisito. Al subir el <strong>Oficio</strong>, la IA extrae la descripción y sugiere la dependencia y el remitente del catálogo.
+              </p>
+            </div>
 
-            {/* Banner de confianza */}
-            <div style={{
-              display:         'flex',
-              alignItems:      'flex-start',
-              gap:             '10px',
-              padding:         '12px 14px',
-              borderRadius:    '8px',
-              marginBottom:    '16px',
-              backgroundColor: confianza === 'alta' ? '#D1FAE5' : confianza === 'media' ? '#FEF3C7' : '#FFF7ED',
-              borderLeft:      `3px solid ${confianza === 'alta' ? theme.colors.alert.green : confianza === 'media' ? theme.colors.alert.yellow : theme.colors.gold}`,
-            }}>
-              <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>
-                {confianza === 'alta' ? '✅' : confianza === 'media' ? '⚠️' : '📋'}
-              </span>
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal }}>
-                  {confianza === 'alta' ? 'Extracción exitosa — verifica los datos' :
-                   confianza === 'media' ? 'Extracción parcial — revisa y completa los campos' :
-                   'PDF escaneado — llena los campos manualmente'}
-                </p>
-                <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+            {/* Documentos requisito — arriba, como casillas con palomita de agregado */}
+            <div style={{ marginBottom: '18px' }}>
+              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                Documentos requisito <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: theme.colors.textSecondary }}>(opcionales)</span>
+              </label>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {DOCUMENTOS_OFICIO.map(({ key, label }) => {
+                  const file  = docFiles[key];
+                  const added = !!file;
+                  return (
+                    <label
+                      key={key}
+                      htmlFor={`doc-${key}`}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+                        border: `1.5px solid ${added ? theme.colors.alert.green : theme.colors.border}`,
+                        backgroundColor: added ? '#ECFDF5' : theme.colors.background,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {/* Casilla / palomita */}
+                      <span style={{
+                        width: '20px', height: '20px', borderRadius: '5px', flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: `1.5px solid ${added ? theme.colors.alert.green : theme.colors.border}`,
+                        backgroundColor: added ? theme.colors.alert.green : '#fff',
+                        color: '#fff', fontSize: '0.8rem', fontWeight: 800,
+                      }}>{added ? '✓' : ''}</span>
+
+                      <span style={{ fontWeight: 600, fontSize: '0.82rem', color: theme.colors.textPrimary, flexShrink: 0 }}>
+                        {label}
+                        {key === 'oficio' && <span style={{ color: theme.colors.primary, fontSize: '0.66rem', fontWeight: 700 }}> · IA 🤖</span>}
+                      </span>
+
+                      <span style={{ flex: 1, minWidth: 0, fontSize: '0.72rem', textAlign: 'right', color: added ? '#065F46' : theme.colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {added ? file!.name : 'Adjuntar…'}
+                      </span>
+
+                      {added && (
+                        <button
+                          type="button"
+                          title="Ver documento cargado"
+                          onClick={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            const url = URL.createObjectURL(file!);
+                            window.open(url, '_blank', 'noopener');
+                            setTimeout(() => URL.revokeObjectURL(url), 30000);
+                          }}
+                          style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0 2px', lineHeight: 1 }}
+                        >
+                          👁️
+                        </button>
+                      )}
+
+                      <input
+                        id={`doc-${key}`}
+                        type="file"
+                        accept={key === 'oficio' ? '.pdf,.doc,.docx' : '.pdf,.doc,.docx,.jpg,.jpeg,.png'}
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] ?? null;
+                          setDocFiles((prev) => ({ ...prev, [key]: f }));
+                          if (key === 'oficio' && f) handleAnalizarPdf(f);   // dispara OCR
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+              <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
+                El <strong>Oficio</strong> se analiza con IA (PDF/Word). Identificación y recibos también aceptan imágenes.
+              </p>
+            </div>
+
+            {/* El documento "Oficio" (uno de los 5) es el que dispara el OCR — ver más abajo */}
+            {analizando && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: '8px', marginBottom: '16px', fontSize: '0.8rem', color: '#0369A1' }}>
+                <span>🤖</span> Analizando el documento con IA…
+              </div>
+            )}
+
+            {/* Aviso de extracción (solo tras analizar el PDF) */}
+            {confianza && (
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: '10px',
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px',
+                backgroundColor: confianza === 'alta' ? '#D1FAE5' : confianza === 'media' ? '#FEF3C7' : '#FFF7ED',
+                borderLeft: `3px solid ${confianza === 'alta' ? theme.colors.alert.green : confianza === 'media' ? theme.colors.alert.yellow : theme.colors.gold}`,
+              }}>
+                <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
+                  {confianza === 'alta' ? '✅' : confianza === 'media' ? '⚠️' : '📋'}
+                </span>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary }}>
                   {confianza === 'baja'
-                    ? '📌 El PDF parece ser una imagen escaneada. Los campos marcados con ✨ fueron llenados por IA; los demás debes completarlos.'
-                    : `📄 ${pdfFile?.name} · Los campos marcados con ✨ fueron llenados por IA`
-                  }
+                    ? 'El PDF parece escaneado. Revisa/completa la descripción manualmente.'
+                    : 'La IA extrajo la descripción (marcada con ✨) — verifícala.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPaso(1)}
-                style={{ marginLeft: 'auto', background: 'transparent', border: 'none', fontSize: '0.75rem', color: theme.colors.primary, cursor: 'pointer', fontWeight: 700, textDecoration: 'underline', flexShrink: 0 }}
-              >
-                ← Cambiar PDF
-              </button>
-            </div>
+            )}
 
-            {/* ── Texto completo extraído por IA ─────────── */}
+            {/* ── Texto completo extraído por IA (solo si hay texto) ─── */}
+            {textoOcr && (
             <div style={{
               marginBottom:    '20px',
               border:          `1.5px solid ${theme.colors.border}`,
@@ -542,6 +777,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 💡 Selecciona y copia el texto que necesites para llenar los campos de abajo
               </div>
             </div>
+            )}
 
             {/* Folio automático */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', backgroundColor: '#EFF6FF', border: `1px solid #BFDBFE`, borderRadius: '8px', marginBottom: '16px' }}>
@@ -551,23 +787,85 @@ export const Dashboard_Oficial: React.FC = () => {
               </p>
             </div>
 
-            <Field label={`Remitente ${remitente ? '✨' : ''}`} required>
-              <input style={inputStyle} value={remitente} onChange={(e) => setRemitente(e.target.value)} required placeholder="Nombre del remitente" />
+            {/* Dependencia de origen — catálogo independiente */}
+            <Field label="Dependencia de Origen" required>
+              {addDepMode ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaDepNombre} onChange={(e) => setNuevaDepNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA NUEVA DEPENDENCIA" autoFocus />
+                  <button type="button" onClick={agregarDependencia} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                  <button type="button" onClick={() => { setAddDepMode(false); setNuevaDepNombre(''); }} style={btnSecondary}>✕</button>
+                </div>
+              ) : (
+                <SearchableSelect
+                  value={depSel === '' ? '' : String(depSel)}
+                  options={dependencias.map((d) => ({ value: String(d.id), label: d.nombre }))}
+                  onChange={(v) => seleccionarDependencia(v ? Number(v) : '')}
+                  placeholder="— Selecciona la dependencia —"
+                  addLabel="➕ Agregar nueva dependencia…"
+                  onAdd={() => setAddDepMode(true)}
+                />
+              )}
             </Field>
-            <Field label={`Dependencia de Origen ${dependencia ? '✨' : ''}`} required>
-              <input style={inputStyle} value={dependencia} onChange={(e) => setDependencia(e.target.value)} required />
+
+            {/* Unidad interna — catálogo independiente (opcional) */}
+            <Field label="Unidad interna (área/subdirección)">
+              {addUniMode ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA UNIDAD INTERNA" autoFocus />
+                  <button type="button" onClick={agregarUnidad} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                  <button type="button" onClick={() => { setAddUniMode(false); setNuevaUniNombre(''); }} style={btnSecondary}>✕</button>
+                </div>
+              ) : (
+                <SearchableSelect
+                  value={uniSel === '' ? '' : String(uniSel)}
+                  options={unidadesList.map((u) => ({ value: String(u.id), label: u.nombre }))}
+                  onChange={(v) => seleccionarUnidad(v ? Number(v) : '')}
+                  placeholder="— Selecciona la unidad interna —"
+                  addLabel="➕ Agregar nueva unidad interna…"
+                  onAdd={() => setAddUniMode(true)}
+                />
+              )}
+            </Field>
+
+            {/* Remitente (persona) — catálogo independiente */}
+            <Field label="Remitente" required>
+              {addRemMode ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevoRemNombre} onChange={(e) => setNuevoRemNombre(e.target.value.toUpperCase())} placeholder="NOMBRE COMPLETO DEL REMITENTE" autoFocus />
+                  <button type="button" onClick={agregarRemitente} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                  <button type="button" onClick={() => { setAddRemMode(false); setNuevoRemNombre(''); }} style={btnSecondary}>✕</button>
+                </div>
+              ) : (
+                <SearchableSelect
+                  value={remSel === '' ? '' : String(remSel)}
+                  options={remitentesList.map((r) => ({ value: String(r.id), label: r.nombre }))}
+                  onChange={(v) => seleccionarRemitente(v ? Number(v) : '')}
+                  placeholder="— Selecciona el remitente —"
+                  addLabel="➕ Agregar nuevo remitente…"
+                  onAdd={() => setAddRemMode(true)}
+                />
+              )}
+            </Field>
+            <Field label="Número de oficio de la dependencia">
+              <input
+                style={{ ...inputStyle, textTransform: 'uppercase' }}
+                value={numOficioOrigen}
+                onChange={(e) => setNumOficioOrigen(e.target.value.toUpperCase())}
+                placeholder="EJ. SEGOB/DGV/123/2026 — EL NÚMERO QUE TRAE EL OFICIO DE ORIGEN"
+              />
             </Field>
             <Field label="Dirigido a" required>
-              <select style={inputStyle} value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} required>
-                <option value="">— Selecciona el destinatario —</option>
-                {destinatarios.map((u) => (
-                  <option key={u.id} value={u.id}>{u.nombre}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={dirigidoA}
+                options={destinatarios.map((u) => ({ value: String(u.id), label: `${u.nombre}${u.cargo ? ` — ${u.cargo}` : ''}`.toUpperCase() }))}
+                onChange={(v) => setDirigidoA(v)}
+                placeholder="— Selecciona el destinatario —"
+              />
             </Field>
-            <Field label={`Descripción de la Solicitud ${descripcion ? '✨' : ''}`} required>
+            <Field label={`Asunto ${descripcion ? '✨' : ''}`} required>
               <textarea style={{ ...inputStyle, height: '90px', resize: 'vertical' }} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} required />
             </Field>
+
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
               <input id="tiene_termino" type="checkbox" checked={tieneTermino} onChange={(e) => setTieneTermino(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
@@ -582,6 +880,32 @@ export const Dashboard_Oficial: React.FC = () => {
               </Field>
             )}
 
+            {/* SIQROO */}
+            <div style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>
+                ¿Solicitud ingresada a SIQROO?
+              </label>
+              <div style={{ display: 'flex', gap: '18px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="radio" name="siqroo" checked={siqrooAplica} onChange={() => setSiqrooAplica(true)} /> Aplica
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="radio" name="siqroo" checked={!siqrooAplica} onChange={() => setSiqrooAplica(false)} /> No aplica
+                </label>
+              </div>
+              {siqrooAplica && (
+                <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+                  <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                    Si aún no tienes estos datos, registra el oficio y complétalos después desde el detalle. Quedará marcado como pendiente.
+                  </p>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>Número de control interno</label>
+                    <input style={inputStyle} value={siqrooControl} onChange={(e) => setSiqrooControl(e.target.value)} placeholder="Opcional — se puede completar después" />
+                  </div>
+                </div>
+              )}
+            </div>
+
             {createError && <div role="alert" style={alertStyle}>{createError}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
@@ -593,7 +917,6 @@ export const Dashboard_Oficial: React.FC = () => {
               </button>
             </div>
           </form>
-        )}
       </Modal>
     </div>
   );
@@ -607,22 +930,6 @@ const Field: React.FC<{ label: string; required?: boolean; children: React.React
       {label}{required && <span style={{ color: theme.colors.alert.red }}> *</span>}
     </label>
     {children}
-  </div>
-);
-
-const InfoCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div style={{
-    backgroundColor: '#F8FAFC',
-    border: `1px solid ${theme.colors.border}`,
-    borderRadius: '8px',
-    padding: '10px 14px',
-  }}>
-    <p style={{ margin: '0 0 4px', fontSize: '0.7rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-      {label}
-    </p>
-    <div style={{ fontSize: '0.875rem', color: theme.colors.textPrimary, fontWeight: 500 }}>
-      {value}
-    </div>
   </div>
 );
 

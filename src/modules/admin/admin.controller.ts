@@ -422,6 +422,8 @@ import {
   getRolesConfigurables,
   isCompatible,
   invalidateActorFlujoCache,
+  esRolPorUnidad,
+  esRolGlobal,
 } from '../../services/flujo-config.service';
 
 // ── GET /admin/flujos ─────────────────────────────────────────
@@ -487,7 +489,7 @@ export async function listarFlujos(
 
         return {
           rol_flujo:            rol,
-          por_unidad:           cfgs.length > 1 || cfgs.some((c: any) => c.unidad_id !== null),
+          por_unidad:           esRolPorUnidad(modulo.clave, rol) || cfgs.length > 1 || cfgs.some((c: any) => c.unidad_id !== null),
           configuraciones:      cfgs.map((c: any) => ({
             id:                     c.id,
             usuario_id:             c.usuario_id,
@@ -559,24 +561,18 @@ export async function actualizarFlujo(
     if (!usuario) throw new AppError('Usuario no encontrado', 422);
     if (!usuario.activo) throw new AppError('El usuario está inactivo', 422);
 
-    // Roles de un solo usuario global (sin unidad): ENCARGADO y SECRETARIA en oficialía
-    const ROLES_GLOBALES: Record<string, string[]> = {
-      oficialia_partes: ['ENCARGADO', 'SECRETARIA'],
-    };
-    const esRolGlobal = ROLES_GLOBALES[moduloClave]?.includes(rolFlujo);
-    const unidadIdVal = (unidad_id && !esRolGlobal) ? Number(unidad_id) : null;
+    // Rol global (un solo usuario, sin unidad): p.ej. SECRETARIA en oficialía.
+    const rolEsGlobal = esRolGlobal(moduloClave, rolFlujo);
+    const unidadIdVal = (unidad_id && !rolEsGlobal) ? Number(unidad_id) : null;
 
     // Si es rol global y se intenta pasar unidad_id, rechazar
-    if (esRolGlobal && unidad_id) {
+    if (rolEsGlobal && unidad_id) {
       throw new AppError(`El rol '${rolFlujo}' solo admite un usuario global, sin filtro por unidad`, 422);
     }
 
-    // Roles que SIEMPRE requieren delegación (uno por unidad). Sin unidad,
-    // el upsert crearía filas NULL duplicadas (NULLS DISTINCT). Se exige unidad.
-    const ROLES_POR_UNIDAD_OBLIGATORIA: Record<string, string[]> = {
-      oficialia_partes: ['OFICIAL'],
-    };
-    if (ROLES_POR_UNIDAD_OBLIGATORIA[moduloClave]?.includes(rolFlujo) && !unidadIdVal) {
+    // Roles por unidad (OFICIAL, ENCARGADO): exigen delegación. Sin unidad,
+    // el upsert crearía filas NULL duplicadas (NULLS DISTINCT).
+    if (esRolPorUnidad(moduloClave, rolFlujo) && !unidadIdVal) {
       throw new AppError(`El rol '${rolFlujo}' requiere seleccionar una delegación`, 422);
     }
 
@@ -682,4 +678,62 @@ export async function listarUsuariosDisponibles(
 
     res.json({ data: usuarios });
   } catch (err) { next(err); }
+}
+
+// ── VoBo por delegación ───────────────────────────────────────
+
+/**
+ * Lista las delegaciones con su configuración de VoBo (DELEGADO/ENCARGADO),
+ * junto al delegado y al encargado configurado, para el panel de Flujos.
+ */
+export async function listarDelegacionesVobo(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const delegaciones = await db('catalogo_unidades as cu')
+      .where('cu.tipo', 'DELEGACION')
+      .leftJoin('usuarios as d', function () {
+        this.on('d.unidad_id', '=', 'cu.id').andOnVal('d.rol', '=', 'DIRECTOR');
+      })
+      .leftJoin('configuracion_flujos as cf', function () {
+        this.on('cf.unidad_id', '=', 'cu.id')
+            .andOnVal('cf.modulo_clave', '=', 'oficialia_partes')
+            .andOnVal('cf.rol_flujo', '=', 'ENCARGADO');
+      })
+      .leftJoin('usuarios as e', 'e.id', 'cf.usuario_id')
+      .select(
+        'cu.id',
+        'cu.nombre',
+        'cu.vobo_por',
+        'd.nombre as delegado_nombre',
+        'e.nombre as encargado_nombre',
+      )
+      .orderBy('cu.nombre', 'asc');
+    res.json({ data: delegaciones });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Cambia quién da el VoBo en una delegación (DELEGADO o ENCARGADO). */
+export async function actualizarDelegacionVobo(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const unidadId = parseInt(req.params.unidadId, 10);
+    const vobo_por = String(req.body?.vobo_por ?? '').toUpperCase();
+    if (!['DELEGADO', 'ENCARGADO'].includes(vobo_por)) {
+      throw new AppError('vobo_por debe ser DELEGADO o ENCARGADO', 422);
+    }
+    const unidad = await db('catalogo_unidades').where({ id: unidadId, tipo: 'DELEGACION' }).first();
+    if (!unidad) throw new AppError('Delegación no encontrada', 404);
+    await db('catalogo_unidades').where({ id: unidadId }).update({ vobo_por });
+    res.json({ message: 'Configuración de VoBo actualizada', data: { id: unidadId, vobo_por } });
+  } catch (err) {
+    next(err);
+  }
 }

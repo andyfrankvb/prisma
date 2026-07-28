@@ -30,6 +30,8 @@ export interface Oficio {
   folio:                 string;
   remitente:             string;
   dependencia_origen:    string;
+  unidad_interna?:       string | null;
+  numero_oficio_origen?: string | null;
   dirigido_a_id:         number;
   oficial_registro_id:   number;
   oficina_registro_id:   number;
@@ -37,16 +39,39 @@ export interface Oficio {
   descripcion_solicitud: string;
   tiene_termino:         boolean;
   fecha_vencimiento:     string | null;
-  pdf_original_path:     string;
+  pdf_original_path:     string | null;
   estatus:               EstatusOficio;
+  // SIQROO
+  siqroo_aplica?:          boolean;
+  siqroo_control_interno?: string | null;
+  siqroo_boleta_url?:      string | null;
   // computed by API
   dias_restantes?:       number | null;
+  /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */
+  puede_vobo?:           boolean;
+  /** true si el usuario actual puede subir el firmado y finalizar este oficio */
+  puede_finalizar?:      boolean;
+  /** delegación a la que corresponde el oficio (según el "dirigido a") */
+  delegacion_nombre?:    string | null;
+  /** nombre del usuario que tiene el oficio en su bandeja ahora */
+  en_bandeja_de?:        string | null;
+  // ── Usuarios del oficio (para el panel de detalle) ──
+  dirigido_a_nombre?:    string | null;
+  dirigido_a_rol?:       RolUsuario | null;
+  abogado_nombre?:       string | null;
+  encargado_nombre?:     string | null;
+  ingresado_por_nombre?: string | null;
+  vobo_por_nombre?:      string | null;
+  secretaria_nombre?:    string | null;
+  /** fecha/hora en que se subió el documento firmado (paso a FINALIZADO) */
+  fecha_firmado?:        string | null;
 }
 
 export interface Abogado {
   id:     number;
   nombre: string;
   email:  string;
+  cargo?: string | null;
 }
 
 export interface AsignacionJuridica {

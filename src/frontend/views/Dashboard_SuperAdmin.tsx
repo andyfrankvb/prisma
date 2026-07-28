@@ -12,8 +12,9 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { AdminUsuarios } from './AdminUsuarios';
 import { SeccionModulos } from './SeccionModulos';
 import { ConfiguracionFlujos } from './ConfiguracionFlujos';
+import { SeccionCatalogos } from './SeccionCatalogos';
 
-type ModuloKey = 'usuarios' | 'modulos' | 'flujos';
+type ModuloKey = 'usuarios' | 'modulos' | 'flujos' | 'catalogos';
 
 interface NavItem {
   key:      ModuloKey;
@@ -27,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'usuarios', icon: '🛡',  label: 'Administración', sublabel: 'Usuarios del sistema', color: '#4C1D95' },
   { key: 'modulos',  icon: '🧩',  label: 'Módulos',        sublabel: 'Gestión de acceso',    color: '#4C1D95' },
   { key: 'flujos',   icon: '⚙️',  label: 'Flujos',         sublabel: 'Configuración de actores', color: '#4C1D95' },
+  { key: 'catalogos', icon: '📇', label: 'Catálogos',      sublabel: 'Dependencias y remitentes', color: '#4C1D95' },
 ];
 
 export const Dashboard_SuperAdmin: React.FC = () => {
@@ -159,9 +161,10 @@ export const Dashboard_SuperAdmin: React.FC = () => {
 
         {/* Vista del módulo */}
         <div style={{ height: 'calc(100% - 37px)', overflow: 'auto' }}>
-          {modulo === 'usuarios' && <AdminUsuarios />}
-          {modulo === 'modulos'  && <SeccionModulos />}
-          {modulo === 'flujos'   && <ConfiguracionFlujos />}
+          {modulo === 'usuarios'  && <AdminUsuarios />}
+          {modulo === 'modulos'   && <SeccionModulos />}
+          {modulo === 'flujos'    && <ConfiguracionFlujos />}
+          {modulo === 'catalogos' && <SeccionCatalogos />}
         </div>
       </div>
     </div>

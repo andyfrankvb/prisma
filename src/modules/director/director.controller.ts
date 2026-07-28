@@ -254,7 +254,11 @@ export async function getSupervision(
     requireDirector(req);
 
     // computeAll nunca lanza — errores individuales van en el campo `error`
-    const resumenes = await moduleRegistry.computeAll();
+    // Excluimos el propio tablero de la Dirección General: es el visor de
+    // métricas, no un módulo operativo con pendientes/alertas propios.
+    const MODULOS_NO_METRICA = ['tablero_direccion'];
+    const resumenes = (await moduleRegistry.computeAll())
+      .filter((r) => !MODULOS_NO_METRICA.includes(r.clave));
 
     res.json({ data: resumenes });
   } catch (err) { next(err); }

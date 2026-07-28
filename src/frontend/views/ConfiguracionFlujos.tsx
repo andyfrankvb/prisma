@@ -67,6 +67,14 @@ interface ModuloFlujo {
   unidades:      Unidad[];
 }
 
+interface DelegacionVobo {
+  id:               number;
+  nombre:           string;
+  vobo_por:         'DELEGADO' | 'ENCARGADO';
+  delegado_nombre:  string | null;
+  encargado_nombre: string | null;
+}
+
 interface AddState {
   moduloClave:  string;
   rolFlujo:     string;
@@ -83,6 +91,8 @@ interface AddState {
 export const ConfiguracionFlujos: React.FC = () => {
   const isMobile = useIsMobile();
   const [modulos,   setModulos]   = useState<ModuloFlujo[]>([]);
+  const [delegaciones, setDelegaciones] = useState<DelegacionVobo[]>([]);
+  const [voboSaving,   setVoboSaving]   = useState<number | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [addState,  setAddState]  = useState<AddState | null>(null);
@@ -91,12 +101,34 @@ export const ConfiguracionFlujos: React.FC = () => {
   const cargarFlujos = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const data = await apiFetch<{ data: ModuloFlujo[] }>(`${BASE}/admin/flujos`);
+      const [data, dele] = await Promise.all([
+        apiFetch<{ data: ModuloFlujo[] }>(`${BASE}/admin/flujos`),
+        apiFetch<{ data: DelegacionVobo[] }>(`${BASE}/admin/delegaciones-vobo`).catch(() => ({ data: [] as DelegacionVobo[] })),
+      ]);
       setModulos(data.data);
+      setDelegaciones(dele.data);
     } catch (err: any) {
       setError(err.message ?? 'Error al cargar');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Cambiar quién da el VoBo en una delegación
+  const cambiarVobo = useCallback(async (unidadId: number, vobo_por: 'DELEGADO' | 'ENCARGADO') => {
+    setVoboSaving(unidadId);
+    // Optimista
+    setDelegaciones(prev => prev.map(d => d.id === unidadId ? { ...d, vobo_por } : d));
+    try {
+      await apiFetch(`${BASE}/admin/delegaciones-vobo/${unidadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ vobo_por }),
+      });
+    } catch (err: any) {
+      alert(err.message);
+      cargarFlujos();
+    } finally {
+      setVoboSaving(null);
     }
   }, []);
 
@@ -379,6 +411,50 @@ export const ConfiguracionFlujos: React.FC = () => {
           })}
         </div>
       ))}
+
+      {/* ── VoBo en delegaciones ─────────────────────────────── */}
+      {delegaciones.length > 0 && (
+        <div style={{ background: theme.colors.surface, border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, marginBottom: '20px', overflow: 'hidden', boxShadow: theme.shadow.sm }}>
+          <div style={{ padding: '14px 20px', borderBottom: `1px solid ${theme.colors.border}`, backgroundColor: '#F9F7F5' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.primaryDark }}>Visto bueno en delegaciones</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+              Elige quién aprueba (VoBo) los oficios en cada delegación: el delegado o el encargado.
+            </p>
+          </div>
+
+          {delegaciones.map((d, i) => (
+            <div key={d.id} style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', borderTop: i === 0 ? 'none' : `1px solid ${theme.colors.border}` }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primary }}>🏛 {d.nombre}</p>
+                <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                  Delegado: {d.delegado_nombre ?? '—'} · Encargado: {d.encargado_nombre ?? '—'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {(['DELEGADO', 'ENCARGADO'] as const).map((opt) => {
+                  const activo = d.vobo_por === opt;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => !activo && cambiarVobo(d.id, opt)}
+                      disabled={voboSaving === d.id}
+                      style={{
+                        padding: '6px 14px', borderRadius: theme.radius.sm, fontSize: '0.78rem', fontWeight: 700, cursor: activo ? 'default' : 'pointer',
+                        border: `1px solid ${activo ? theme.colors.primary : theme.colors.border}`,
+                        background: activo ? theme.colors.primary : 'transparent',
+                        color: activo ? '#fff' : theme.colors.textSecondary,
+                        opacity: voboSaving === d.id ? 0.6 : 1,
+                      }}
+                    >
+                      {opt === 'DELEGADO' ? 'Delegado' : 'Encargado'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

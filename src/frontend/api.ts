@@ -8,6 +8,7 @@ import type {
   Abogado,
   PaginatedResponse,
 } from './types';
+import type { Compresion } from './utils/compresion';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -50,6 +51,9 @@ export async function getOficios(params?: {
   desde?:   string;
   hasta?:   string;
   search?:  string;
+  siqroo_pendiente?: boolean;
+  pendiente_firma?:  boolean;
+  termino?: string;
 }): Promise<PaginatedResponse<Oficio>> {
   const qs = new URLSearchParams();
   if (params?.page)    qs.set('page',    String(params.page));
@@ -58,6 +62,9 @@ export async function getOficios(params?: {
   if (params?.desde)   qs.set('desde',   params.desde);
   if (params?.hasta)   qs.set('hasta',   params.hasta);
   if (params?.search)  qs.set('search',  params.search);
+  if (params?.siqroo_pendiente) qs.set('siqroo_pendiente', 'true');
+  if (params?.pendiente_firma)  qs.set('pendiente_firma', 'true');
+  if (params?.termino) qs.set('termino', params.termino);
 
   const res = await fetch(`${BASE}/oficios?${qs}`, {
     headers: authHeaders(),
@@ -91,7 +98,7 @@ export async function createOficio(formData: FormData) {
     headers: authHeaders(),
     body:    formData,
   });
-  return handleResponse<{ data: Oficio }>(res);
+  return handleResponse<{ data: Oficio; compresion?: Compresion | null }>(res);
 }
 
 export async function reasignarOficio(
@@ -126,7 +133,7 @@ export async function subirProyecto(id: number, file: File) {
     headers: authHeaders(),
     body:    fd,
   });
-  return handleResponse<{ message: string }>(res);
+  return handleResponse<{ message: string; compresion?: Compresion | null }>(res);
 }
 
 export async function aprobarVobo(id: number) {
@@ -162,6 +169,143 @@ export async function getComentarios(id: number) {
   return handleResponse<{ data: ComentarioReconsideracion[] }>(res);
 }
 
+// ── Catálogos: dependencias y remitentes ──────────────────────
+export interface CatalogoItem { id: number; nombre: string; }
+
+export async function getDependencias() {
+  const res = await fetch(`${BASE}/catalogos/dependencias`, { headers: authHeaders() });
+  return handleResponse<{ data: CatalogoItem[] }>(res);
+}
+
+export async function crearDependencia(nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/dependencias`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+// ── Remitentes (personas) — catálogo independiente ──
+export async function getRemitentes() {
+  const res = await fetch(`${BASE}/catalogos/remitentes`, { headers: authHeaders() });
+  return handleResponse<{ data: CatalogoItem[] }>(res);
+}
+
+export async function crearRemitente(nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/remitentes`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+// ── Unidades internas — catálogo independiente ──
+export async function getUnidadesInternas() {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas`, { headers: authHeaders() });
+  return handleResponse<{ data: CatalogoItem[] }>(res);
+}
+
+export async function crearUnidadInterna(nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function editarUnidadInterna(id: number, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas/${id}`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function eliminarUnidadInterna(id: number) {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas/${id}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+export async function editarDependencia(id: number, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/dependencias/${id}`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function editarRemitente(id: number, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/remitentes/${id}`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function eliminarDependencia(id: number) {
+  const res = await fetch(`${BASE}/catalogos/dependencias/${id}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+export async function eliminarRemitente(id: number) {
+  const res = await fetch(`${BASE}/catalogos/remitentes/${id}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+export interface OficioDocumento {
+  id:                number;
+  tipo:              string;
+  archivo_url:       string;
+  nombre_original:   string | null;
+  subido_en:         string;
+  subido_por_nombre: string | null;
+}
+
+export async function getOficioDocumentos(id: number) {
+  const res = await fetch(`${BASE}/oficios/${id}/documentos`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<{ data: OficioDocumento[] }>(res);
+}
+
+export interface RegistroMovimiento {
+  id:              number;
+  estado_anterior: string | null;
+  estado_nuevo:    string;
+  fecha_cambio:    string;
+  usuario_nombre:  string;
+}
+
+/** Historial de movimientos (auditoría de estados) de un oficio. */
+export async function getHistorial(id: number) {
+  const res = await fetch(`${BASE}/oficios/${id}/historial`, { headers: authHeaders() });
+  return handleResponse<{ data: RegistroMovimiento[] }>(res);
+}
+
+/** Completa el número de control interno (NCI) pendiente de SIQROO. */
+export async function completarSiqroo(id: number, control?: string) {
+  const fd = new FormData();
+  if (control && control.trim()) fd.append('control_interno', control.trim());
+  const res = await fetch(`${BASE}/oficios/${id}/siqroo`, {
+    method:  'PATCH',
+    headers: authHeaders(),
+    body:    fd,
+  });
+  return handleResponse<{ data: Oficio; message: string }>(res);
+}
+
 export async function finalizarOficio(id: number, file: File) {
   const fd = new FormData();
   fd.append('file', file);
@@ -170,7 +314,7 @@ export async function finalizarOficio(id: number, file: File) {
     headers: authHeaders(),
     body:    fd,
   });
-  return handleResponse<{ message: string }>(res);
+  return handleResponse<{ message: string; compresion?: Compresion | null }>(res);
 }
 
 // ── Usuarios / Abogados ───────────────────────────────────────────────────────
@@ -180,6 +324,14 @@ export async function getAbogados(): Promise<Abogado[]> {
     headers: authHeaders(),
   });
   return handleResponse<Abogado[]>(res).then((r: any) => r.data ?? r);
+}
+
+/** Candidatos a asignar/reasignar: usuarios de la unidad del encargado con el módulo de oficios */
+export async function getCandidatosAsignacion(): Promise<Abogado[]> {
+  const res = await fetch(`${BASE}/oficios/candidatos-asignacion`, {
+    headers: authHeaders(),
+  });
+  return handleResponse<{ data: Abogado[] }>(res).then((r) => r.data);
 }
 
 export async function getUsuarios(params?: { rol?: string; search?: string }): Promise<Abogado[]> {

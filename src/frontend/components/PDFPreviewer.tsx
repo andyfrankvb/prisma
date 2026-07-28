@@ -13,6 +13,8 @@ interface Props {
   height?:        string | number;
   /** Si se pasa, se usa para detectar Word sin llamar al endpoint /info */
   textoProyecto?: string | null;
+  /** Para Word: no volcar el texto extraído, solo ofrecer la descarga. */
+  hideExtractedText?: boolean;
 }
 
 export const PDFPreviewer: React.FC<Props> = ({
@@ -20,6 +22,7 @@ export const PDFPreviewer: React.FC<Props> = ({
   title  = 'Documento',
   height = 600,
   textoProyecto,
+  hideExtractedText = false,
 }) => {
   const [blobUrl,   setBlobUrl]   = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -162,8 +165,8 @@ export const PDFPreviewer: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Texto extraído */}
-          {textoWord ? (
+          {/* Texto extraído (se oculta cuando hideExtractedText, p.ej. en el proyecto) */}
+          {textoWord && !hideExtractedText ? (
             <div>
               <div style={{
                 display:         'flex',
@@ -209,7 +212,9 @@ export const PDFPreviewer: React.FC<Props> = ({
           ) : (
             <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#FAFAF8' }}>
               <p style={{ margin: 0, fontSize: '0.875rem', color: theme.colors.textSecondary }}>
-                No se pudo extraer texto de este archivo Word.
+                {hideExtractedText
+                  ? 'Descarga el archivo para abrirlo en tu equipo.'
+                  : 'No se pudo extraer texto de este archivo Word.'}
               </p>
               {downloadUrl && (
                 <a

@@ -117,3 +117,23 @@ export function isCompatible(
 export function getRolesConfigurables(moduloClave: string): string[] {
   return Object.keys((COMPATIBILITY_RULES as any)[moduloClave] ?? {});
 }
+
+// ── Clasificación de roles: por unidad vs global ──────────────
+
+/** Roles que se configuran POR UNIDAD (un actor por delegación). Exigen unidad. */
+const ROLES_POR_UNIDAD: Record<string, string[]> = {
+  oficialia_partes: ['OFICIAL', 'ENCARGADO'],
+};
+
+/** Roles GLOBALES (un solo actor, sin unidad). */
+const ROLES_GLOBALES: Record<string, string[]> = {
+  oficialia_partes: ['SECRETARIA'],
+};
+
+export function esRolPorUnidad(moduloClave: string, rolFlujo: string): boolean {
+  return ROLES_POR_UNIDAD[moduloClave]?.includes(rolFlujo) ?? false;
+}
+
+export function esRolGlobal(moduloClave: string, rolFlujo: string): boolean {
+  return ROLES_GLOBALES[moduloClave]?.includes(rolFlujo) ?? false;
+}

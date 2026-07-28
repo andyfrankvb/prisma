@@ -15,12 +15,15 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { db }           from '../../db';
-import { storage }      from '../../services/storage.service';
+import { storage, compresionInfo } from '../../services/storage.service';
 import { processOcr }   from '../../services/ocr.service';
 import { notifyVoboAprobado } from '../../notifications/notification.dispatcher';
 import { AppError }     from '../../utils/AppError';
 import { logger }       from '../../utils/logger';
 import { RolUsuario, EstatusOficio } from './oficios.types';
+
+/** Documentos categorizados que acompañan al ingreso de oficio (uno por tipo) */
+export const OFICIO_DOC_FIELDS = ['anexos', 'identificacion', 'oficio', 'recibos', 'solicitud'] as const;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -50,19 +53,99 @@ async function getOficioOrFail(trx: any, id: number) {
 
 /**
  * Verifica si el usuario puede actuar como ENCARGADO en Oficialía de Partes.
- * Acepta rol ENCARGADO nativo O usuario configurado como ENCARGADO en flujos.
+ * Acepta rol ENCARGADO nativo O usuario configurado como ENCARGADO en flujos
+ * (en cualquier delegación — el rol ahora es por unidad).
  */
 async function canActAsEncargado(user: any): Promise<boolean> {
   if (user.rol === 'ENCARGADO') return true;
   try {
     const row = await db('configuracion_flujos')
-      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO' })
-      .select('usuario_id')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO', usuario_id: user.id })
       .first();
-    return row?.usuario_id === user.id;
+    return !!row;
   } catch {
     return false;
   }
+}
+
+/**
+ * Unidades de las que el usuario es ENCARGADO configurado. El encargado recibe los
+ * oficios cuyo "dirigido a" pertenece a alguna de estas unidades.
+ */
+async function getUnidadesEncargado(userId: number): Promise<number[]> {
+  try {
+    return await db('configuracion_flujos')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO', usuario_id: userId })
+      .whereNotNull('unidad_id')
+      .pluck('unidad_id');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resuelve qué ENCARGADO debe recibir un oficio, según la unidad de su "dirigido a".
+ * (Oficio dirigido a la DG → encargado de la unidad de la DG; a un delegado → el de su delegación.)
+ */
+async function resolverEncargadoDeOficio(dirigidoAId: number | null): Promise<number | null> {
+  if (!dirigidoAId) return null;
+  try {
+    const dirigido = await db('usuarios').where({ id: dirigidoAId }).select('unidad_id').first();
+    if (!dirigido?.unidad_id) return null;
+    const row = await db('configuracion_flujos')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO', unidad_id: dirigido.unidad_id })
+      .select('usuario_id')
+      .first();
+    return row?.usuario_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ¿Puede este usuario aprobar (VoBo) / reconsiderar este oficio?
+ * En las DELEGACIONES lo hace el DELEGADO (el "dirigido a", que es DIRECTOR de la
+ * delegación), NO el encargado. En el resto (Dirección General) lo hace el encargado.
+ */
+async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promise<boolean> {
+  if (dirigidoAId) {
+    const dirigido = await db('usuarios as u')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('u.id', dirigidoAId)
+      .select('u.rol', 'cu.tipo', 'cu.vobo_por')
+      .first();
+    if (dirigido?.rol === 'DIRECTOR' && dirigido.tipo === 'DELEGACION') {
+      // Configurable por delegación: el VoBo lo da el ENCARGADO o el DELEGADO.
+      if (dirigido.vobo_por === 'ENCARGADO') {
+        const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
+        return encargadoId === user.id;
+      }
+      return user.id === dirigidoAId;   // por defecto, el delegado
+    }
+  }
+  return canActAsEncargado(user);   // DG u otro: el encargado
+}
+
+/**
+ * ¿Puede este usuario subir el documento firmado y finalizar el oficio?
+ * En las DELEGACIONES lo puede hacer TANTO el DELEGADO como el ENCARGADO de esa
+ * delegación (el primero que lo suba finaliza; el otro ya no puede porque el oficio
+ * deja de estar en VOBO_APROBADO). En la Dirección General lo hace la SECRETARIA.
+ */
+async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise<boolean> {
+  if (dirigidoAId) {
+    const dirigido = await db('usuarios as u')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('u.id', dirigidoAId)
+      .select('u.rol', 'cu.tipo')
+      .first();
+    if (dirigido?.rol === 'DIRECTOR' && dirigido.tipo === 'DELEGACION') {
+      if (user.id === dirigidoAId) return true;                 // el delegado
+      const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
+      return encargadoId === user.id;                           // el encargado de la delegación
+    }
+  }
+  return user.rol === 'SECRETARIA';   // Dirección General: la secretaría
 }
 
 // ─── POST /oficios/analizar-pdf ──────────────────────────────────────────────
@@ -141,23 +224,56 @@ export async function listarOficios(
         'ultima_asignacion.oficio_id', 'oficios.id'
       )
       .leftJoin('usuarios as abogado_u', 'abogado_u.id', 'ultima_asignacion.abogado_id')
+      .leftJoin('usuarios as dir_u', 'dir_u.id', 'oficios.dirigido_a_id')
+      .leftJoin('catalogo_unidades as dir_cu', 'dir_cu.id', 'dir_u.unidad_id')
+      // Encargado configurado para la unidad del "dirigido a" (para saber quién lo tiene si no está asignado)
+      .leftJoin('configuracion_flujos as cf_enc', function () {
+        this.on('cf_enc.unidad_id', '=', 'dir_u.unidad_id')
+            .andOnVal('cf_enc.modulo_clave', '=', 'oficialia_partes')
+            .andOnVal('cf_enc.rol_flujo', '=', 'ENCARGADO');
+      })
+      .leftJoin('usuarios as enc_u', 'enc_u.id', 'cf_enc.usuario_id')
+      .leftJoin('usuarios as oficial_u', 'oficial_u.id', 'oficios.oficial_registro_id')
+      // Fecha en que se subió el firmado = cuando el oficio pasó a FINALIZADO.
+      .leftJoin(
+        db.raw(`(
+          SELECT DISTINCT ON (oficio_id) oficio_id, fecha_cambio
+          FROM auditoria_estados
+          WHERE estado_nuevo = 'FINALIZADO'
+          ORDER BY oficio_id, fecha_cambio DESC
+        ) as fin_aud`),
+        'fin_aud.oficio_id', 'oficios.id'
+      )
       .select(
         'oficios.*',
         'abogado_u.nombre as abogado_nombre',
         'abogado_u.id as abogado_id',
+        'dir_u.rol as dirigido_a_rol',
+        'dir_u.nombre as dirigido_a_nombre',
+        'dir_u.unidad_id as dirigido_a_unidad_id',
+        'dir_cu.tipo as dirigido_a_unidad_tipo',
+        'dir_cu.nombre as delegacion_nombre',
+        'dir_cu.vobo_por as vobo_por_unidad',
+        'enc_u.nombre as encargado_nombre',
+        'fin_aud.fecha_cambio as fecha_firmado',
+        'oficial_u.nombre as ingresado_por_nombre',
       );
 
-    // Verificar si el usuario es el ENCARGADO configurado en flujos
-    const encargadoId = await db('configuracion_flujos')
-      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO' })
-      .select('usuario_id')
-      .first()
-      .then((r: any) => r?.usuario_id ?? null)
-      .catch(() => null);
+    // Unidades de las que el usuario es ENCARGADO (routing por "dirigido a")
+    const unidadesEncargado = await getUnidadesEncargado(user.id);
+    const esEncargadoFlujo   = unidadesEncargado.length > 0;
 
-    const esEncargadoFlujo = encargadoId !== null && user.id === encargadoId;
+    // Restringe la query a oficios cuyo "dirigido a" pertenece a esas unidades
+    // (reusa el leftJoin dir_u de arriba).
+    const scopeEncargado = (q: any) =>
+      q.whereIn('dir_u.unidad_id', unidadesEncargado);
 
-    switch (user.rol as RolUsuario) {
+    // Ser ENCARGADO (configurado por unidad) tiene PRIORIDAD sobre el rol de sistema:
+    // ve los oficios dirigidos a su(s) delegación(es) aunque su rol sea OPERATIVO,
+    // DIRECTOR, etc. Solo si NO es encargado se aplica la lógica por rol.
+    if (esEncargadoFlujo) {
+      query = scopeEncargado(query);
+    } else switch (user.rol as RolUsuario) {
       case 'OFICIAL':
         query = query
           .where('oficios.unidad_registro_id', user.oficina_id)
@@ -202,17 +318,25 @@ export async function listarOficios(
       }
 
       case 'ENCARGADO':
-        // Director Jurídico — ve todos los oficios del sistema sin filtro de oficina
+        // Encargado nativo — ve los oficios dirigidos a su(s) delegación(es)
+        if (esEncargadoFlujo) query = scopeEncargado(query);
         break;
 
       case 'DIRECTOR':
         if (esEncargadoFlujo) {
-          // Es el ENCARGADO configurado en flujos — ve todos los oficios
+          // Encargado configurado (por unidad) — ve los oficios dirigidos a su delegación
+          query = scopeEncargado(query);
           break;
         }
         // La Directora General ve TODOS los oficios en cualquier estatus
         // (los ingresados, los firmados, etc.) para supervisión general.
         if ((user as any).unidad_tipo === 'DIRECCION_GENERAL') {
+          break;
+        }
+        // Jefe de delegación (DIRECTOR de una DELEGACION, aunque no sea el encargado):
+        // ve los oficios dirigidos a él, para estar al tanto de lo que le llega.
+        if ((user as any).unidad_tipo === 'DELEGACION') {
+          query = query.where('oficios.dirigido_a_id', user.id);
           break;
         }
         // Director de área — solo oficios ya aprobados/finalizados
@@ -282,21 +406,29 @@ export async function listarOficios(
       query = query.andWhere('oficios.estatus', req.query.estatus as string);
     }
 
-    // Full-text search on folio, remitente, dependencia, texto OCR y texto del proyecto
+    // Búsqueda de texto sobre TODA la información del oficio: folio, remitente,
+    // dependencia, descripción, texto OCR, número SIQROO, fecha de término, texto
+    // del proyecto y el NOMBRE de los documentos subidos.
     if (req.query.search) {
       const term = `%${req.query.search}%`;
-      // LEFT JOIN gestiones_contestacion para poder buscar en texto_proyecto.
-      // DISTINCT evita filas duplicadas si hubiera múltiples gestiones por oficio.
+      // LEFT JOINs para buscar en el proyecto y en los documentos adjuntos.
+      // DISTINCT evita filas duplicadas por la relación 1-a-muchos de documentos.
       query = query
         .leftJoin('gestiones_contestacion as gc', 'gc.oficio_id', 'oficios.id')
+        .leftJoin('oficio_documentos as od', 'od.oficio_id', 'oficios.id')
         .distinct()
         .andWhere((q) =>
           q.whereILike('oficios.folio', term)
            .orWhereILike('oficios.remitente', term)
            .orWhereILike('oficios.dependencia_origen', term)
+           .orWhereILike('oficios.unidad_interna', term)
+           .orWhereILike('oficios.numero_oficio_origen', term)
            .orWhereILike('oficios.descripcion_solicitud', term)
            .orWhereILike('oficios.texto_ocr', term)
-           .orWhereILike('gc.texto_proyecto', term),
+           .orWhereILike('oficios.siqroo_control_interno', term)
+           .orWhereILike('gc.texto_proyecto', term)
+           .orWhereILike('od.nombre_original', term)
+           .orWhereRaw('oficios.fecha_vencimiento::text ILIKE ?', [term]),
         );
     }
 
@@ -311,10 +443,50 @@ export async function listarOficios(
       query = query.andWhere('oficios.fecha_registro', '<=', hasta);
     }
 
-    // Count: clonar la query sin el SELECT para evitar error de GROUP BY en PostgreSQL
-    const countRows = await query.clone().clearSelect().count('oficios.id as count');
+    // Filtro SIQROO pendiente: aplica a SIQROO pero sin control ni boleta
+    if (req.query.siqroo_pendiente === 'true') {
+      query = query
+        .andWhere('oficios.siqroo_aplica', true)
+        .whereNull('oficios.siqroo_control_interno')
+        .whereNull('oficios.siqroo_boleta_url');
+    }
+
+    // Aprobados sin documento de firma subido: tienen VoBo pero aún no se finalizan.
+    if (req.query.pendiente_firma === 'true') {
+      query = query.andWhere('oficios.estatus', 'VOBO_APROBADO');
+    }
+
+    // Filtro por término / vencimiento
+    if (req.query.termino) {
+      const t = String(req.query.termino);
+      if (t === 'con_termino') {
+        query = query.andWhere('oficios.tiene_termino', true);
+      } else if (t === 'vencidos') {
+        query = query
+          .andWhere('oficios.tiene_termino', true)
+          .andWhereNot('oficios.estatus', 'FINALIZADO')
+          .andWhereRaw('oficios.fecha_vencimiento::date < CURRENT_DATE');
+      } else if (t === 'por_vencer') {
+        query = query
+          .andWhere('oficios.tiene_termino', true)
+          .andWhereNot('oficios.estatus', 'FINALIZADO')
+          .andWhereRaw(`oficios.fecha_vencimiento::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'`);
+      }
+    }
+
+    // Count: clonar sin el SELECT. countDistinct porque el join de documentos
+    // (1-a-muchos) puede duplicar filas del mismo oficio.
+    const countRows = await query.clone().clearSelect().countDistinct('oficios.id as count');
     const total     = Number((countRows[0] as any)?.count ?? 0);
     const rows      = await query.orderBy('oficios.fecha_registro', 'desc').limit(limit).offset(offset);
+
+    // Nombre de la secretaría (para "en bandeja de" cuando ya tiene VoBo)
+    const secretariaRow = await db('configuracion_flujos as cf')
+      .join('usuarios as u', 'u.id', 'cf.usuario_id')
+      .where({ 'cf.modulo_clave': 'oficialia_partes', 'cf.rol_flujo': 'SECRETARIA' })
+      .select('u.nombre')
+      .first();
+    const secretariaNombre: string | null = secretariaRow?.nombre ?? null;
 
     // Compute dias_restantes client-side to avoid DB timezone issues
     const today = new Date();
@@ -327,7 +499,57 @@ export async function listarOficios(
         vence.setHours(0, 0, 0, 0);
         dias_restantes = Math.ceil((vence.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       }
-      return { ...o, dias_restantes };
+
+      // ¿Quién tiene el oficio en su bandeja ahora? (según el estatus del flujo)
+      const esOficioDelegacion = o.dirigido_a_rol === 'DIRECTOR' && o.dirigido_a_unidad_tipo === 'DELEGACION';
+      // En delegaciones el VoBo lo da el DELEGADO por defecto, o el ENCARGADO si así
+      // se configuró esa delegación (catalogo_unidades.vobo_por). En la DG, el encargado.
+      const voboLoDaElEncargado = esOficioDelegacion
+        ? o.vobo_por_unidad === 'ENCARGADO'
+        : true;
+      // Nombre de quien aprueba (para bandeja EN_REVISION y "vobo_por_nombre").
+      const aprobadorNombre = voboLoDaElEncargado ? o.encargado_nombre : o.dirigido_a_nombre;
+
+      let en_bandeja_de: string | null;
+      switch (o.estatus) {
+        case 'RECIBIDO':                              // sin reasignar → el encargado
+          en_bandeja_de = o.encargado_nombre; break;
+        case 'ASIGNADO':
+        case 'EN_RECONSIDERACION':                    // reasignado → el jurídico
+          en_bandeja_de = o.abogado_nombre ?? o.encargado_nombre; break;
+        case 'EN_REVISION':                           // esperando VoBo → quien aprueba
+          en_bandeja_de = aprobadorNombre; break;
+        case 'VOBO_APROBADO':                         // listo para firma
+        case 'FINALIZADO':                            // firmado/cerrado
+          // Delegación: el encargado sube el firmado (o el delegado). DG: la secretaría.
+          en_bandeja_de = esOficioDelegacion ? o.encargado_nombre : secretariaNombre; break;
+        default:
+          en_bandeja_de = o.encargado_nombre;
+      }
+
+      // ¿Puede el usuario actual dar el VoBo?
+      const puede_vobo = voboLoDaElEncargado
+        ? unidadesEncargado.includes(o.dirigido_a_unidad_id)   // el encargado de esa unidad
+        : o.dirigido_a_id === user.id;                          // el delegado (dirigido a)
+
+      // Responsable del visto bueno (nombre).
+      const vobo_por_nombre = aprobadorNombre;
+
+      // ¿Puede el usuario actual subir el firmado / finalizar este oficio?
+      // Delegación: el delegado (dirigido a) o el encargado de esa unidad. DG: la secretaría.
+      const puede_finalizar = esOficioDelegacion
+        ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
+        : user.rol === 'SECRETARIA';
+
+      return {
+        ...o,
+        dias_restantes,
+        puede_vobo,
+        puede_finalizar,
+        en_bandeja_de,
+        vobo_por_nombre,
+        secretaria_nombre: secretariaNombre,
+      };
     });
 
     res.json({
@@ -364,17 +586,27 @@ export async function crearOficio(
     const {
       remitente,
       dependencia_origen,
+      unidad_interna,
+      numero_oficio_origen,
       dirigido_a_id,
       descripcion_solicitud,
       tiene_termino,
       fecha_vencimiento,
     } = req.body;
 
-    // ── Validaciones ──────────────────────────────────────────
-    if (!req.file) {
-      throw new AppError('El archivo PDF es obligatorio', 400);
-    }
+    // ── Archivos: 5 documentos (opcionales) + boleta SIQROO (opcional) ──
+    // El documento "Oficio" es el principal (se OCR-ea). Ninguno es obligatorio aún.
+    const files      = (req.files ?? {}) as Record<string, Express.Multer.File[]>;
+    const oficioFile = files['oficio']?.[0];
+    const boletaFile = files['boleta']?.[0];
 
+    // ── SIQROO ────────────────────────────────────────────────
+    const siqroo_aplica = req.body.siqroo_aplica === true || req.body.siqroo_aplica === 'true';
+    const siqroo_control_interno = siqroo_aplica
+      ? (String(req.body.siqroo_control_interno ?? '').trim() || null)
+      : null;
+
+    // ── Validaciones ──────────────────────────────────────────
     if (tiene_termino === true || tiene_termino === 'true') {
       if (!fecha_vencimiento) {
         throw new AppError(
@@ -406,17 +638,27 @@ export async function crearOficio(
       throw new AppError(`Folio ${folio} ya existe, intenta de nuevo`, 409);
     }
 
-    // ── Guardar PDF ───────────────────────────────────────────
-    const pdf_original_path = await storage.save(req.file, 'oficios/originales');
+    // ── Guardar el "Oficio" como documento principal (si viene) ──
+    // Es el único que se comprime y se OCR-ea. Si no se sube, pdf_original_path
+    // queda nulo y no hay OCR ni autocompletado.
+    let guardado: Awaited<ReturnType<typeof storage.saveWithInfo>> | null = null;
+    let pdf_original_path: string | null = null;
+    if (oficioFile) {
+      guardado          = await storage.saveWithInfo(oficioFile, 'oficios/originales', { compress: true });
+      pdf_original_path = guardado.url;
+    }
 
     // ── Transacción ───────────────────────────────────────────
     const oficio = await db.transaction(async (trx) => {
       const [newOficio] = await trx('oficios')
         .insert({
           folio,
-          remitente,
-          dependencia_origen,
-          dirigido_a_id,
+          // Dependencia, unidad interna y remitente siempre en MAYÚSCULAS.
+          remitente:            (remitente ?? '').toUpperCase(),
+          dependencia_origen:   (dependencia_origen ?? '').toUpperCase(),
+          unidad_interna:       unidad_interna?.trim().toUpperCase() || null,
+          numero_oficio_origen: numero_oficio_origen?.trim().toUpperCase() || null,
+          dirigido_a_id:        dirigido_a_id ? Number(dirigido_a_id) : null,   // vacío → sin destinatario
           oficial_registro_id:  user.id,
           unidad_registro_id:   user.oficina_id,
           fecha_registro:       new Date(),
@@ -424,22 +666,106 @@ export async function crearOficio(
           tiene_termino:        Boolean(tiene_termino),
           fecha_vencimiento:    fecha_vencimiento ?? null,
           pdf_original_path,
+          siqroo_aplica,
+          siqroo_control_interno,
           estatus:              'RECIBIDO' as EstatusOficio,
         })
         .returning('*');
 
       await createAuditLog(trx, newOficio.id, null, 'RECIBIDO', user.id);
 
+      // ── Documentos categorizados (opcionales) ────────────────
+      // El "Oficio" reutiliza el archivo ya guardado como principal; los otros 4
+      // se guardan aparte con nombre trazable `${oficioId}_${tipo}_${timestamp}`.
+      for (const tipo of OFICIO_DOC_FIELDS) {
+        const doc = files[tipo]?.[0];
+        if (!doc) continue;
+
+        let archivo_url: string;
+        if (tipo === 'oficio') {
+          archivo_url = pdf_original_path!;   // ya guardado arriba
+        } else {
+          const res = await storage.saveWithInfo(doc, `oficios/documentos/${tipo}`, {
+            filename: `${newOficio.id}_${tipo}_${Date.now()}`,
+          });
+          archivo_url = res.url;
+        }
+
+        await trx('oficio_documentos').insert({
+          oficio_id:       newOficio.id,
+          tipo,
+          archivo_url,
+          nombre_original: doc.originalname,
+          subido_por_id:   user.id,
+          subido_en:       new Date(),
+        });
+      }
+
+      // ── Boleta SIQROO (si aplica y viene) ────────────────────
+      if (siqroo_aplica && boletaFile) {
+        const res = await storage.saveWithInfo(boletaFile, 'oficios/siqroo', {
+          filename: `${newOficio.id}_boleta_${Date.now()}`,
+        });
+        await trx('oficios').where({ id: newOficio.id }).update({ siqroo_boleta_url: res.url });
+        newOficio.siqroo_boleta_url = res.url;
+      }
+
       return newOficio;
     });
 
-    // ── OCR asíncrono — no bloquea la respuesta ───────────────
-    // Se lanza en background; el oficio ya está guardado
-    processOcr(oficio.id, oficio.pdf_original_path).catch((err) =>
-      logger.error({ err, oficio_id: oficio.id }, 'OCR background task failed'),
-    );
+    // ── OCR asíncrono — solo si se subió el "Oficio" ──────────
+    if (oficio.pdf_original_path) {
+      processOcr(oficio.id, oficio.pdf_original_path).catch((err) =>
+        logger.error({ err, oficio_id: oficio.id }, 'OCR background task failed'),
+      );
+    }
 
-    res.status(201).json({ data: oficio });
+    res.status(201).json({ data: oficio, compresion: guardado ? compresionInfo(guardado) : null });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── PATCH /oficios/:id/siqroo ───────────────────────────────────────────────
+
+/**
+ * Completa los datos SIQROO pendientes (número de control interno y/o boleta),
+ * que no se tienen al momento del ingreso. Se llama desde el detalle del oficio.
+ */
+export async function completarSiqroo(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const oficio = await db('oficios').where({ id: oficio_id }).first();
+    if (!oficio) throw new AppError('Oficio no encontrado', 404);
+    if (!oficio.siqroo_aplica) {
+      throw new AppError('Este oficio no está marcado como ingresado a SIQROO', 422);
+    }
+
+    const control = String(req.body?.control_interno ?? '').trim();
+    const boleta  = (req as any).file as Express.Multer.File | undefined;
+
+    if (!control && !boleta) {
+      throw new AppError('Indica el número de control interno o adjunta la boleta', 422);
+    }
+
+    const update: Record<string, unknown> = {};
+    if (control) update.siqroo_control_interno = control;
+    if (boleta) {
+      const r = await storage.saveWithInfo(boleta, 'oficios/siqroo', {
+        filename: `${oficio_id}_boleta_${Date.now()}`,
+      });
+      update.siqroo_boleta_url = r.url;
+    }
+
+    await db('oficios').where({ id: oficio_id }).update(update);
+    const actualizado = await db('oficios').where({ id: oficio_id }).first();
+
+    res.json({ data: actualizado, message: 'Datos SIQROO actualizados' });
   } catch (err) {
     next(err);
   }
@@ -613,26 +939,37 @@ export async function subirProyecto(
   try {
     const user = req.user!;
 
-    if (user.rol !== 'JURIDICO' && user.rol !== 'OPERATIVO' && user.rol !== 'OFICIAL') {
-      throw new AppError('Solo el área jurídica puede subir proyectos', 403);
-    }
-
     if (!req.file) {
       throw new AppError('El archivo del proyecto es obligatorio', 400);
     }
 
     const oficio_id = parseInt(req.params.id, 10);
 
-    const asignacion = await db('asignaciones_juridicas')
-      .where({ oficio_id, abogado_id: user.id })
-      .orderBy('id', 'desc')
-      .first();
+    // El ENCARGADO de este oficio (según su "dirigido a") puede trabajarlo él mismo,
+    // sin auto-asignarse: sube el proyecto directo. Los demás deben ser del área
+    // jurídica y tener una asignación.
+    const oficioRow = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
+    if (!oficioRow) throw new AppError('Oficio no encontrado', 404);
+    const encargadoDeEsteOficio = await resolverEncargadoDeOficio(oficioRow.dirigido_a_id);
+    const esEncargadoDirecto = encargadoDeEsteOficio === user.id;
 
-    if (!asignacion) {
-      throw new AppError('No tienes una asignación para este oficio', 403);
+    if (!esEncargadoDirecto && user.rol !== 'JURIDICO' && user.rol !== 'OPERATIVO' && user.rol !== 'OFICIAL') {
+      throw new AppError('Solo el área jurídica puede subir proyectos', 403);
     }
 
-    const proyecto_url = await storage.save(req.file, 'oficios/proyectos');
+    if (!esEncargadoDirecto) {
+      const asignacion = await db('asignaciones_juridicas')
+        .where({ oficio_id, abogado_id: user.id })
+        .orderBy('id', 'desc')
+        .first();
+
+      if (!asignacion) {
+        throw new AppError('No tienes una asignación para este oficio', 403);
+      }
+    }
+
+    const guardadoProyecto = await storage.saveWithInfo(req.file, 'oficios/proyectos');
+    const proyecto_url = guardadoProyecto.url;
 
     // ── Extraer texto del Word con mammoth ────────────────────
     let texto_proyecto: string | null = null;
@@ -678,7 +1015,7 @@ export async function subirProyecto(
       await createAuditLog(trx, oficio_id, oficio.estatus, 'EN_REVISION', user.id);
     });
 
-    res.json({ message: 'Proyecto subido correctamente' });
+    res.json({ message: 'Proyecto subido correctamente', compresion: compresionInfo(guardadoProyecto) });
   } catch (err) {
     next(err);
   }
@@ -704,13 +1041,15 @@ export async function reconsiderarOficio(
 ): Promise<void> {
   try {
     const user = req.user!;
-
-    if (!(await canActAsEncargado(user))) {
-      throw new AppError('Solo el ENCARGADO puede solicitar reconsideración', 403);
-    }
-
     const oficio_id  = parseInt(req.params.id, 10);
     const { comentario } = req.body;
+
+    // En delegaciones lo decide el delegado; en la DG, el encargado (misma regla que el VoBo).
+    const oficioAuth = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
+    if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
+    if (!(await puedeAprobarOficio(user, oficioAuth.dirigido_a_id))) {
+      throw new AppError('No estás autorizado para solicitar correcciones de este oficio', 403);
+    }
 
     if (!comentario?.trim()) {
       throw new AppError('El comentario de corrección es obligatorio', 400);
@@ -811,6 +1150,62 @@ export async function getHistorial(
   }
 }
 
+// ─── GET /oficios/:id/documentos ─────────────────────────────────────────────
+
+/**
+ * Lista los documentos categorizados adjuntos al oficio (para ver/descargar).
+ * Roles: cualquiera con acceso al módulo (ruta ya autenticada).
+ */
+export async function getDocumentos(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const documentos = await db('oficio_documentos as d')
+      .leftJoin('usuarios as u', 'u.id', 'd.subido_por_id')
+      .where('d.oficio_id', oficio_id)
+      .select(
+        'd.id', 'd.tipo', 'd.archivo_url', 'd.nombre_original', 'd.subido_en',
+        'u.nombre as subido_por_nombre',
+      )
+      .orderBy('d.id', 'asc');
+
+    res.json({ data: documentos });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── GET /oficios/candidatos-asignacion ──────────────────────────────────────
+
+/**
+ * Usuarios de la unidad del encargado que tienen habilitado el módulo de oficios.
+ * Son los candidatos a quienes el encargado puede asignar/reasignar un oficio
+ * (jurídicos de su misma delegación).
+ */
+export async function getCandidatosAsignacion(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user = req.user!;
+    const candidatos = await db('usuarios as u')
+      .join('usuario_modulos as um', 'um.usuario_id', 'u.id')
+      .join('modulos as m', 'm.id', 'um.modulo_id')
+      .where('u.unidad_id', user.oficina_id)
+      .andWhere('u.activo', true)
+      .andWhere('m.clave', 'oficialia_partes')
+      .andWhereNot('u.id', user.id)
+      .distinct('u.id', 'u.nombre', 'u.cargo', 'u.email')
+      .orderBy('u.nombre', 'asc');
+    res.json({ data: candidatos });
+  } catch (err) { next(err); }
+}
+
 // ─── PATCH /oficios/:id/vobo ─────────────────────────────────────────────────
 
 /**
@@ -831,12 +1226,14 @@ export async function aprobarVobo(
 ): Promise<void> {
   try {
     const user = req.user!;
-
-    if (!(await canActAsEncargado(user))) {
-      throw new AppError('Solo el ENCARGADO puede otorgar el VoBo', 403);
-    }
-
     const oficio_id = parseInt(req.params.id, 10);
+
+    // En delegaciones el VoBo lo da el delegado; en la DG, el encargado.
+    const oficioAuth = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
+    if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
+    if (!(await puedeAprobarOficio(user, oficioAuth.dirigido_a_id))) {
+      throw new AppError('No estás autorizado para otorgar el VoBo de este oficio', 403);
+    }
 
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
@@ -908,18 +1305,21 @@ export async function finalizarOficio(
 ): Promise<void> {
   try {
     const user = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
 
-    if (user.rol !== 'SECRETARIA') {
-      throw new AppError('Solo SECRETARIA puede finalizar oficios', 403);
+    // Autorización: SECRETARIA (Dirección General) o el delegado/encargado (delegaciones).
+    const oficioAuth = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
+    if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
+    if (!(await puedeSubirFirmado(user, oficioAuth.dirigido_a_id))) {
+      throw new AppError('No autorizado para subir el documento firmado', 403);
     }
 
     if (!req.file) {
       throw new AppError('El archivo escaneado y firmado es obligatorio', 400);
     }
 
-    const oficio_id = parseInt(req.params.id, 10);
-
-    const escaneo_firmado_url = await storage.save(req.file, 'oficios/firmados');
+    const guardadoFirmado = await storage.saveWithInfo(req.file, 'oficios/firmados');
+    const escaneo_firmado_url = guardadoFirmado.url;
 
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
@@ -945,7 +1345,7 @@ export async function finalizarOficio(
       await createAuditLog(trx, oficio_id, oficio.estatus, 'FINALIZADO', user.id);
     });
 
-    res.json({ message: 'Oficio finalizado correctamente' });
+    res.json({ message: 'Oficio finalizado correctamente', compresion: compresionInfo(guardadoFirmado) });
   } catch (err) {
     next(err);
   }

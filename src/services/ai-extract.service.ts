@@ -14,6 +14,7 @@ import { logger }             from '../utils/logger';
 export interface ExtractedFields {
   remitente?:          string;
   dependencia_origen?: string;
+  dirigido_a?:         string;
   descripcion?:        string;
   tiene_termino?:      boolean;
   fecha_vencimiento?:  string | null;
@@ -80,6 +81,21 @@ function extractWithPatterns(text: string): Omit<ExtractedFields, 'texto_complet
     if (depMatch) dependencia = depMatch[1].trim().slice(0, 100);
   }
 
+  // ── Dirigido a (destinatario interno) ─────────────────────
+  let dirigido_a: string | undefined;
+
+  // "DIRIGIDO A:", "PARA:", "DESTINATARIO:"
+  const dirMatch = text.match(/(?:dirigido a|destinatario|para)\s*[:\-]\s*([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.]{4,80})/i);
+  if (dirMatch) dirigido_a = dirMatch[1].trim();
+
+  // Fallback: "C. NOMBRE ... PRESENTE" (patrón típico del destinatario)
+  if (!dirigido_a) {
+    const presenteMatch = text.match(
+      /(?:C\.|Lic\.|Ing\.|Dr\.|Dra\.|Mtra?\.|Mtro\.|Arq\.)\s+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.]{4,60}?)\s*\n?\s*P\s*R\s*E\s*S\s*E\s*N\s*T\s*E/i,
+    );
+    if (presenteMatch) dirigido_a = presenteMatch[1].trim();
+  }
+
   // ── Asunto / descripción ──────────────────────────────────
   let descripcion: string | undefined;
 
@@ -142,7 +158,7 @@ function extractWithPatterns(text: string): Omit<ExtractedFields, 'texto_complet
   const confianza: 'alta' | 'media' | 'baja' =
     found === 3 ? 'alta' : found >= 1 ? 'media' : 'baja';
 
-  return { remitente, dependencia_origen: dependencia, descripcion, tiene_termino, fecha_vencimiento, confianza };
+  return { remitente, dependencia_origen: dependencia, dirigido_a, descripcion, tiene_termino, fecha_vencimiento, confianza };
 }
 
 // ── Extractor con OpenAI (opcional, mayor precisión) ─────────
@@ -165,6 +181,7 @@ Extrae estos campos del texto OCR y responde SOLO con JSON válido:
 {
   "remitente": "nombre completo de quien firma",
   "dependencia_origen": "nombre de la institución que envía",
+  "dirigido_a": "nombre de la persona a quien va dirigido el oficio (destinatario)",
   "descripcion": "resumen del asunto en máximo 200 caracteres",
   "tiene_termino": true/false,
   "fecha_vencimiento": "YYYY-MM-DD o null",
