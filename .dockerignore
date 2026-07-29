@@ -1,0 +1,8 @@
+# Archivos que NO deben entrar al contexto de build de Docker.
+# (las imágenes reinstalan dependencias por su cuenta)
+**/node_modules
+.git
+**/.DS_Store
+backups/
+storage/
+*.sql

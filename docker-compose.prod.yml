@@ -87,13 +87,10 @@ services:
     container_name: prisma_web
     restart: unless-stopped
     environment:
+      # Por ahora se entra por IP (http://IP-DE-LA-VM). DOMAIN sale del .env.
       DOMAIN: ${DOMAIN}
     ports:
       - "80:80"
-      - "443:443"
-    # Certificados TLS (Let's Encrypt) del host. Quita este volumen si sirves solo por HTTP.
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
     networks: [app_net]
     depends_on:
       - app_api
