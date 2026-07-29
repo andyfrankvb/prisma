@@ -39,6 +39,12 @@ COPY --from=deps     /app/node_modules ./node_modules
 COPY --from=builder  /app/dist         ./dist
 COPY package.json ./
 
+# Scripts de base de datos: runner de migraciones, seed del admin,
+# baseline (schema + catálogos) y migraciones SQL.
+# Necesarios para `npm run db:migrate` y `npm run db:seed:admin`.
+COPY db ./db
+COPY infra/postgres/migrations ./infra/postgres/migrations
+
 # Storage volume mount point
 RUN mkdir -p /app/storage && chown appuser:appgroup /app/storage
 
