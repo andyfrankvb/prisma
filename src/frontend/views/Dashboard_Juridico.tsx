@@ -8,10 +8,13 @@ import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
-import { PDFPreviewer } from '../components/PDFPreviewer';
+import { OficioDetalle } from '../components/OficioDetalle';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
+import { FiltrosOficios } from '../components/FiltrosOficios';
+import type { OficiosFiltros } from '../components/FiltrosOficios';
+import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion } from '../api';
 
@@ -29,7 +32,8 @@ const COLUMNS: KanbanColumn[] = [
   { key: 'completados',     label: 'Completados',        statuses: ['VOBO_APROBADO', 'FINALIZADO'],           color: '#D1FAE5' },
 ];
 
-type DetalleTab = 'pdf' | 'texto' | 'proyecto' | 'comentarios';
+// Botón desde el que se abre el detalle (solo controla la carga de comentarios).
+type DetalleTab = 'pdf' | 'texto' | 'proyecto' | 'comentarios' | 'firmado';
 
 export const Dashboard_Juridico: React.FC = () => {
   const { user } = useAuth();
@@ -40,9 +44,8 @@ export const Dashboard_Juridico: React.FC = () => {
   const [listError,  setListError]  = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // ── Modal de detalle (PDF + Texto IA + Subir Proyecto) ────
+  // ── Modal de detalle (secciones + subir proyecto) ────
   const [detalleOficio, setDetalleOficio] = useState<Oficio | null>(null);
-  const [detalleTab,    setDetalleTab]    = useState<DetalleTab>('pdf');
 
   // ── Upload draft ──────────────────────────────────────────
   const [draftFile,   setDraftFile]   = useState<File | null>(null);
@@ -53,35 +56,43 @@ export const Dashboard_Juridico: React.FC = () => {
   const [comentarios,    setComentarios]    = useState<ComentarioReconsideracion[]>([]);
   const [loadingComents, setLoadingComents] = useState(false);
 
+  const [filtros, setFiltros] = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false });
+
   const fetchOficios = useCallback(async () => {
     setLoading(true); setListError(null);
     try {
-      const res = await getOficios({ limit: 200 });
+      const res = await getOficios({
+        limit: 200,
+        search:           filtros.search || undefined,
+        estatus:          filtros.estatus || undefined,
+        termino:          filtros.termino || undefined,
+        desde:            filtros.desde || undefined,
+        hasta:            filtros.hasta || undefined,
+        siqroo_pendiente: filtros.siqroo_pendiente || undefined,
+        pendiente_firma:  filtros.pendiente_firma || undefined,
+      });
       setOficios(res.data);
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
-  }, []);
+  }, [filtros]);
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
-  // Abrir detalle — tab por defecto según estatus
-  const openDetalle = (oficio: Oficio, tab?: DetalleTab) => {
+  // Abrir detalle. El argumento `tab` se conserva por compatibilidad con las
+  // tarjetas del kanban; ahora el detalle es una sola vista por secciones.
+  const openDetalle = (oficio: Oficio, _tab?: DetalleTab) => {
     setDetalleOficio(oficio);
     setDraftFile(null);
     setUploadError(null);
     setComentarios([]);
 
-    // Si está en reconsideración: abrir directo en tab de correcciones y cargar comentarios
+    // Si está en reconsideración, cargar los comentarios de correcciones.
     if (oficio.estatus === 'EN_RECONSIDERACION') {
-      setDetalleTab(tab ?? 'comentarios');
       setLoadingComents(true);
       getComentarios(oficio.id)
         .then(({ data }) => setComentarios(data))
         .catch(() => {})
         .finally(() => setLoadingComents(false));
-    } else {
-      const textoOcr = (oficio as any).texto_ocr;
-      setDetalleTab(tab ?? (textoOcr ? 'texto' : 'pdf'));
     }
   };
 
@@ -97,8 +108,11 @@ export const Dashboard_Juridico: React.FC = () => {
     if (!detalleOficio || !draftFile) return;
     setUploading(true); setUploadError(null);
     try {
-      await subirProyecto(detalleOficio.id, draftFile);
-      setSuccessMsg(`Proyecto subido para oficio ${detalleOficio.folio}`);
+      const resp = await subirProyecto(detalleOficio.id, draftFile);
+      const aviso = textoCompresion(resp.compresion);
+      setSuccessMsg(
+        `Proyecto subido para oficio ${detalleOficio.folio}` + (aviso ? ` · 📉 ${aviso}` : ''),
+      );
       closeDetalle();
       fetchOficios();
     } catch (err: any) { setUploadError(err.message); }
@@ -133,6 +147,9 @@ export const Dashboard_Juridico: React.FC = () => {
         </div>
       )}
       {listError && <div role="alert" style={{ ...alertError, marginBottom: '16px' }}>{listError}</div>}
+
+      {/* Filtros */}
+      <FiltrosOficios onChange={setFiltros} />
 
       {/* Kanban */}
       {loading ? (
@@ -199,84 +216,13 @@ export const Dashboard_Juridico: React.FC = () => {
       >
         {detalleOficio && (
           <div>
-            {/* Info rápida */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', fontSize: '0.82rem' }}>
-              <span style={{ color: theme.colors.textSecondary }}><strong>Remitente:</strong> {detalleOficio.remitente}</span>
-              <span style={{ color: theme.colors.textSecondary }}>·</span>
-              <span style={{ color: theme.colors.textSecondary }}><strong>Dependencia:</strong> {detalleOficio.dependencia_origen}</span>
-              <span style={{ color: theme.colors.textSecondary }}>·</span>
-              <StatusBadge estatus={detalleOficio.estatus as EstatusOficio} />
-              <span style={{ marginLeft: 'auto' }}>
-                <TerminoTimer tiene_termino={detalleOficio.tiene_termino} fecha_vencimiento={detalleOficio.fecha_vencimiento} />
-              </span>
-            </div>
+            {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
+            <OficioDetalle oficio={detalleOficio} />
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', borderBottom: `2px solid ${theme.colors.border}`, marginBottom: '16px' }}>
-              {([
-                { key: 'pdf',          label: '📄 Oficio Original'                                                        },
-                { key: 'texto',        label: '🤖 Texto IA'                                                               },
-                { key: 'comentarios',  label: '💬 Correcciones', show: detalleOficio.estatus === 'EN_RECONSIDERACION'     },
-                { key: 'proyecto',     label: detalleOficio.estatus === 'EN_RECONSIDERACION' ? '⬆ Subir Corrección' : '⬆ Subir Proyecto', show: puedeSubirProyecto },
-              ] as { key: DetalleTab; label: string; show?: boolean | null }[])
-                .filter((t) => t.show !== false)
-                .map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setDetalleTab(t.key)}
-                    style={{
-                      padding:         '9px 18px',
-                      border:          'none',
-                      borderBottom:    detalleTab === t.key ? `2px solid ${t.key === 'comentarios' ? theme.colors.alert.red : theme.colors.primary}` : '2px solid transparent',
-                      marginBottom:    '-2px',
-                      backgroundColor: 'transparent',
-                      color:           detalleTab === t.key
-                        ? (t.key === 'comentarios' ? theme.colors.alert.red : theme.colors.primary)
-                        : theme.colors.textSecondary,
-                      fontWeight:      detalleTab === t.key ? 700 : 400,
-                      fontSize:        '0.85rem',
-                      cursor:          'pointer',
-                      whiteSpace:      'nowrap',
-                      fontFamily:      theme.font.family,
-                      position:        'relative' as const,
-                    }}
-                  >
-                    {t.label}
-                    {/* Badge con número de comentarios pendientes */}
-                    {t.key === 'comentarios' && comentarios.filter(c => !c.resuelto).length > 0 && (
-                      <span style={{
-                        marginLeft: '6px',
-                        backgroundColor: theme.colors.alert.red,
-                        color: '#fff',
-                        borderRadius: '10px',
-                        padding: '1px 6px',
-                        fontSize: '0.65rem',
-                        fontWeight: 700,
-                      }}>
-                        {comentarios.filter(c => !c.resuelto).length}
-                      </span>
-                    )}
-                  </button>
-                ))}
-            </div>
-
-            {/* ── Tab: PDF Original ──────────────────────── */}
-            {detalleTab === 'pdf' && (
-              <PDFPreviewer
-                url={`/api/v1/files/${detalleOficio.id}/original`}
-                title={`Oficio ${detalleOficio.folio}`}
-                height={480}
-              />
-            )}
-
-            {/* ── Tab: Texto IA ──────────────────────────── */}
-            {detalleTab === 'texto' && (() => {
-              const textoOcr    = (detalleOficio as any).texto_ocr as string | null;
-              const ocrMetodo   = (detalleOficio as any).ocr_metodo as string | null;
-              const ocrProcesado = (detalleOficio as any).ocr_procesado as boolean;
-              return (
+            {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}
+            {(detalleOficio as any).texto_ocr && (
+              <section style={{ marginTop: '22px' }}>
                 <div style={{ border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
-                  {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: theme.colors.charcoal, color: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>🤖</span>
@@ -284,64 +230,42 @@ export const Dashboard_Juridico: React.FC = () => {
                         Texto extraído por IA
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {ocrMetodo && (
-                        <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
-                          {ocrMetodo.toUpperCase()}
-                        </span>
-                      )}
-                      <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                        {textoOcr ? `${textoOcr.length} chars` : 'Sin texto'}
-                      </span>
-                    </div>
+                    <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                      {((detalleOficio as any).ocr_metodo ?? '').toUpperCase()}
+                    </span>
                   </div>
-
-                  {/* Cuerpo */}
-                  {textoOcr ? (
-                    <div style={{ padding: '16px', backgroundColor: '#FAFAF8', maxHeight: '420px', overflowY: 'auto', fontSize: '0.82rem', lineHeight: 1.8, color: theme.colors.textPrimary, whiteSpace: 'pre-wrap', fontFamily: 'monospace', userSelect: 'text' }}>
-                      {textoOcr}
-                    </div>
-                  ) : !ocrProcesado ? (
-                    <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#FAFAF8' }}>
-                      <p style={{ margin: 0, color: '#0369A1', fontSize: '0.875rem' }}>⏳ El OCR está procesando este documento…</p>
-                      <p style={{ margin: '6px 0 0', color: theme.colors.textSecondary, fontSize: '0.75rem' }}>Recarga en unos segundos</p>
-                    </div>
-                  ) : (
-                    <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#FAFAF8' }}>
-                      <p style={{ margin: 0, color: theme.colors.textSecondary, fontSize: '0.875rem' }}>📋 No se pudo extraer texto de este documento.</p>
-                    </div>
-                  )}
-
-                  {textoOcr && (
-                    <div style={{ padding: '8px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                      💡 Texto seleccionable — puedes copiar cualquier fragmento para tu proyecto de contestación
-                    </div>
-                  )}
+                  <div style={{ padding: '16px', backgroundColor: '#FAFAF8', maxHeight: '320px', overflowY: 'auto', fontSize: '0.82rem', lineHeight: 1.8, color: theme.colors.textPrimary, whiteSpace: 'pre-wrap', fontFamily: 'monospace', userSelect: 'text' }}>
+                    {(detalleOficio as any).texto_ocr}
+                  </div>
+                  <div style={{ padding: '8px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                    💡 Texto seleccionable — puedes copiar cualquier fragmento para tu proyecto de contestación
+                  </div>
                 </div>
-              );
-            })()}
+              </section>
+            )}
 
-            {/* ── Tab: Correcciones (EN_RECONSIDERACION) ── */}
-            {detalleTab === 'comentarios' && (
-              <div>
-                {/* Banner de alerta */}
+            {/* ── Correcciones (EN_RECONSIDERACION) ── */}
+            {detalleOficio.estatus === 'EN_RECONSIDERACION' && (
+              <section style={{ marginTop: '22px' }}>
+                <h3 style={{ margin: '0 0 10px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, color: theme.colors.alert.red, borderBottom: `2px solid ${theme.colors.border}`, paddingBottom: '6px' }}>
+                  Correcciones solicitadas
+                </h3>
                 <div style={{
                   padding: '12px 16px',
                   backgroundColor: '#FEF2F2',
                   border: `1px solid #FECACA`,
                   borderLeft: `4px solid ${theme.colors.alert.red}`,
                   borderRadius: '8px',
-                  marginBottom: '20px',
+                  marginBottom: '16px',
                 }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#991B1B' }}>
                     ⚠️ Este oficio requiere correcciones
                   </p>
                   <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#B91C1C' }}>
-                    El Director Jurídico ha solicitado cambios en tu proyecto. Revisa los comentarios y sube una versión corregida desde la pestaña <strong>"⬆ Subir Corrección"</strong>.
+                    El Director Jurídico ha solicitado cambios. Revisa los comentarios y sube una versión corregida en la sección de abajo.
                   </p>
                 </div>
 
-                {/* Lista de comentarios */}
                 {loadingComents ? (
                   <p style={{ color: theme.colors.textSecondary, fontSize: '0.85rem', textAlign: 'center', padding: '24px' }}>
                     Cargando comentarios…
@@ -351,7 +275,7 @@ export const Dashboard_Juridico: React.FC = () => {
                     Sin comentarios registrados.
                   </p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '380px', overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
                     {comentarios.map((c) => (
                       <div key={c.id} style={{
                         padding: '14px 16px',
@@ -388,32 +312,16 @@ export const Dashboard_Juridico: React.FC = () => {
                     ))}
                   </div>
                 )}
-
-                {/* CTA para ir a subir corrección */}
-                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => setDetalleTab('proyecto')}
-                    style={{
-                      padding: '10px 20px',
-                      backgroundColor: theme.colors.primary,
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '7px',
-                      fontWeight: 700,
-                      fontSize: '0.875rem',
-                      cursor: 'pointer',
-                      fontFamily: theme.font.family,
-                    }}
-                  >
-                    ⬆ Ir a Subir Corrección →
-                  </button>
-                </div>
-              </div>
+              </section>
             )}
 
-            {/* ── Tab: Subir Proyecto ────────────────────── */}
-            {detalleTab === 'proyecto' && puedeSubirProyecto && (
-              <form onSubmit={handleUploadDraft} noValidate>
+            {/* ── Subir Proyecto / Corrección ── */}
+            {puedeSubirProyecto && (
+              <section style={{ marginTop: '22px' }}>
+                <h3 style={{ margin: '0 0 10px', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, color: theme.colors.primary, borderBottom: `2px solid ${theme.colors.border}`, paddingBottom: '6px' }}>
+                  {detalleOficio.estatus === 'EN_RECONSIDERACION' ? 'Subir corrección' : 'Subir proyecto de contestación'}
+                </h3>
+                <form onSubmit={handleUploadDraft} noValidate>
                 <div style={{
                   padding: '16px',
                   backgroundColor: detalleOficio.estatus === 'EN_RECONSIDERACION' ? '#FEF2F2' : '#FFF7ED',
@@ -483,7 +391,8 @@ export const Dashboard_Juridico: React.FC = () => {
                     {uploading ? 'Subiendo…' : '⬆ Subir Proyecto'}
                   </button>
                 </div>
-              </form>
+                </form>
+              </section>
             )}
           </div>
         )}

@@ -12,6 +12,7 @@ import type { TareaEvento, EstadoTarea, RegistroHistorial } from '../types';
 import { SeccionEventos } from './SeccionEventos';
 import { SeguimientoTarea } from '../components/SeguimientoTarea';
 import { esAsistenteDG } from '../utils/asistentesDG';
+import { textoCompresion } from '../utils/compresion';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -409,13 +410,17 @@ interface EnviarRevisionModalProps {
   tarea:     TareaConEvento | null;
   onClose:   () => void;
   onSuccess: () => void;
+  /** true cuando quien envía es un director: el mensaje es opcional (redacción neutra,
+   *  sirve tanto si el avance sube a la DG como si se finaliza en su propio evento) */
+  mensajeOpcional?: boolean;
 }
 
-const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, onClose, onSuccess }) => {
+const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, onClose, onSuccess, mensajeOpcional = false }) => {
   const [comentario, setComentario] = useState('');
   const [archivo,    setArchivo]    = useState<File | null>(null);
   const [enviando,   setEnviando]   = useState(false);
   const [error,      setError]      = useState<string | null>(null);
+  const [aviso,      setAviso]      = useState<string | null>(null);
 
   // Limpiar estado al abrir/cerrar
   useEffect(() => {
@@ -424,6 +429,7 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
       setArchivo(null);
       setEnviando(false);
       setError(null);
+      setAviso(null);
     }
   }, [open]);
 
@@ -457,9 +463,18 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
         });
       }
 
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(body?.message ?? `HTTP ${res.status}`);
+      }
+
+      // Aviso sutil de optimización; si hubo, se muestra un momento antes de cerrar
+      const textoAviso = textoCompresion(body?.compresion);
+      if (textoAviso) {
+        setAviso(textoAviso);
+        setEnviando(false);
+        setTimeout(() => onSuccess(), 2200);
+        return;
       }
 
       onSuccess();
@@ -488,21 +503,23 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
         fontFamily: theme.font.family,
       }}>
         <h3 id="revision-modal-title" style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>
-          Enviar para revisión
+          {mensajeOpcional ? 'Enviar avance' : 'Enviar para revisión'}
         </h3>
         <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>
           {tarea.titulo}
         </p>
 
-        {/* Comentario */}
+        {/* Comentario / Mensaje */}
         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: theme.colors.textPrimary, marginBottom: '6px' }}>
-          Comentario de avance
+          {mensajeOpcional
+            ? <>Mensaje <span style={{ fontWeight: 400, color: theme.colors.textSecondary }}>(opcional)</span></>
+            : 'Comentario de avance'}
         </label>
         <textarea
           value={comentario}
           onChange={(e) => setComentario(e.target.value)}
           rows={4}
-          placeholder="Describe el avance realizado…"
+          placeholder={mensajeOpcional ? 'Agrega un mensaje para acompañar tu avance (opcional)…' : 'Describe el avance realizado…'}
           disabled={enviando}
           style={{
             width: '100%', boxSizing: 'border-box', padding: '8px 10px',
@@ -541,6 +558,18 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
           </p>
         )}
 
+        {/* Aviso sutil de optimización */}
+        {aviso && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            margin: '0 0 12px', padding: '6px 10px', borderRadius: '6px',
+            backgroundColor: '#EAF7EE', color: '#1B7A3D',
+            fontSize: '0.72rem', fontWeight: 500,
+          }}>
+            <span aria-hidden>📉</span>{aviso} · Enviado ✓
+          </div>
+        )}
+
         {/* Acciones */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
           <button
@@ -567,7 +596,7 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
               fontFamily: theme.font.family,
             }}
           >
-            {enviando ? 'Enviando…' : 'Enviar para revisión'}
+            {enviando ? 'Enviando…' : (mensajeOpcional ? 'Enviar avance' : 'Enviar para revisión')}
           </button>
         </div>
       </div>
@@ -865,6 +894,9 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
       <EnviarRevisionModal
         open={showRevisionModal}
         tarea={tarea}
+        // Un director enviando su propia tarea (no delegada): el mensaje es opcional.
+        // Redacción neutra: sirve tanto si sube a la DG como si se finaliza su evento.
+        mensajeOpcional={esDirector && !tarea.reasignado_a_id}
         onClose={() => setShowRevisionModal(false)}
         onSuccess={() => {
           setShowRevisionModal(false);

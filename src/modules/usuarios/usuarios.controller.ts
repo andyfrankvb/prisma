@@ -35,6 +35,7 @@ export async function listarUsuarios(
       .select(
         'u.id',
         'u.nombre',
+        'u.cargo',
         'u.email',
         'u.rol',
         'u.unidad_id',

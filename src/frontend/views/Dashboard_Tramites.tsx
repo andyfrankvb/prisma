@@ -10,6 +10,8 @@ import { theme }   from '../theme';
 import { Modal }   from '../components/Modal';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { SeguimientoTramite } from '../components/SeguimientoTramite';
+import { textoCompresion } from '../utils/compresion';
+import type { Compresion } from '../utils/compresion';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -217,6 +219,7 @@ export const Dashboard_Tramites: React.FC = () => {
   const [nuevoCheckProyecto, setNuevoCheckProyecto] = useState(false);
   const [creando,            setCreando]            = useState(false);
   const [errorNuevo,         setErrorNuevo]         = useState<string | null>(null);
+  const [avisoCompresion,    setAvisoCompresion]    = useState<string | null>(null);
 
   // Enviar a Mesa de Control (aprobar)
   const [showTurnar,    setShowTurnar]    = useState(false);
@@ -354,12 +357,17 @@ export const Dashboard_Tramites: React.FC = () => {
           checklist_proyecto:      nuevoCheckProyecto,
         });
       }
-      const res = await apiFetch<{ data: Tramite }>('/tramites', { method: 'POST', body });
+      const res = await apiFetch<{ data: Tramite; compresion?: Compresion | null }>('/tramites', { method: 'POST', body });
       setTramites(prev => [res.data, ...prev]);
       setShowNuevo(false);
       setNuevoTicket(''); setNuevoNombre(''); setNuevoCorreo(''); setNuevoTelefono('');
       setNuevoDesc(''); setNuevoArchivos([]);
       setNuevoCheckDoc(false); setNuevoCheckProyecto(false);
+      const aviso = textoCompresion(res.compresion);
+      if (aviso) {
+        setAvisoCompresion(aviso);
+        setTimeout(() => setAvisoCompresion(null), 6000);
+      }
     } catch (err: any) { setErrorNuevo(err.message); }
     finally { setCreando(false); }
   };
@@ -527,6 +535,19 @@ export const Dashboard_Tramites: React.FC = () => {
         </div>
       </div>
 
+      {avisoCompresion && (
+        <div style={{ padding: `10px ${padX} 0` }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '6px 10px', borderRadius: '6px', width: 'fit-content',
+            backgroundColor: '#EAF7EE', color: '#1B7A3D',
+            fontSize: '0.72rem', fontWeight: 500,
+          }}>
+            <span aria-hidden>📉</span>{avisoCompresion}
+          </div>
+        </div>
+      )}
+
       {/* Tarjetas de conteo */}
       <div style={{ padding: `16px ${padX} 0`, display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
         {(Object.keys(grupos) as Categoria[]).map(cat => {
@@ -663,11 +684,11 @@ export const Dashboard_Tramites: React.FC = () => {
             <div style={{ backgroundColor: '#F9FAFB', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: theme.colors.textPrimary, lineHeight: 1.4 }}>
                 <input type="checkbox" checked={nuevoCheckDoc} onChange={e => setNuevoCheckDoc(e.target.checked)} style={{ marginTop: '2px', flexShrink: 0 }} />
-                <span><strong>Checklist 1</strong> — Confirmo que toda la documentación necesaria está correctamente adjunta al ID. <Req /></span>
+                <span>Confirmo que toda la documentación necesaria está correctamente adjunta al ID. <Req /></span>
               </label>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: theme.colors.textPrimary, lineHeight: 1.4 }}>
                 <input type="checkbox" checked={nuevoCheckProyecto} onChange={e => setNuevoCheckProyecto(e.target.checked)} style={{ marginTop: '2px', flexShrink: 0 }} />
-                <span><strong>Checklist 2</strong> — Confirmo que el proyecto de resolución ha sido remitido a la Dirección Jurídica mediante correo electrónico. <Req /></span>
+                <span>Confirmo que el proyecto de resolución ha sido remitido a la Dirección Jurídica mediante correo electrónico. <Req /></span>
               </label>
             </div>
           </div>
@@ -1010,7 +1031,11 @@ const DetallePanel: React.FC<DetallePanelProps> = ({
   const puedeReenviarJuridico = esRevisor && detalle.estatus === 'DEVUELTO_JURIDICO';
   const puedeCerrar           = esFinalizador && detalle.estatus === 'EN_PROCESO';
   const puedeDevolverJuridico = esFinalizador && detalle.estatus === 'EN_PROCESO';
-  const puedeCommentar        = rol !== 'supervisora';
+  // El equipo de la delegación (creador/observador) solo aporta información
+  // mientras el trámite sigue en su proceso; si ya está cerrado, no comenta.
+  const estaCerrado           = ['FINALIZADO', 'RECHAZADO'].includes(detalle.estatus);
+  const esEquipoDelegacion    = rol === 'creador' || rol === 'observador';
+  const puedeCommentar        = rol !== 'supervisora' && !(esEquipoDelegacion && estaCerrado);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '70vh', overflowY: 'auto' }}>

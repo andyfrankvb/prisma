@@ -12,8 +12,12 @@
  *     y la subida continúa normal (nunca rompe la carga por comprimir).
  *
  * Configurable por entorno:
- *   PDF_COMPRESS_THRESHOLD_MB   (default 0.5)    → desde qué tamaño comprime
- *   PDF_COMPRESS_PRESET         (default /ebook) → /screen (+chico) /ebook /printer
+ *   PDF_COMPRESS_THRESHOLD_MB   (default 0.5)      → desde qué tamaño comprime
+ *   PDF_COMPRESS_PRESET         (default /printer) → /screen /ebook /printer (+calidad)
+ *
+ * Se usa /printer (300 DPI) por defecto: reduce peso SIN pérdida visible de
+ * calidad (calidad de impresión). NO usar /screen (72 DPI) ni /ebook (150 DPI)
+ * como default en documentos escaneados: degradan la nitidez del texto.
  */
 
 import { execFile }   from 'child_process';
@@ -27,7 +31,7 @@ import { logger }     from '../utils/logger';
 const execFileAsync = promisify(execFile);
 
 const THRESHOLD_BYTES = Number(process.env.PDF_COMPRESS_THRESHOLD_MB ?? 0.5) * 1024 * 1024;
-const GS_PRESET       = process.env.PDF_COMPRESS_PRESET ?? '/ebook';
+const GS_PRESET       = process.env.PDF_COMPRESS_PRESET ?? '/printer';
 const GS_TIMEOUT_MS   = 45_000;
 
 // Se resuelve una sola vez y se cachea

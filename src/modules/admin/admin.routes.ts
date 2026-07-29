@@ -27,6 +27,8 @@ import {
   actualizarFlujo,
   eliminarFlujoUnidad,
   listarUsuariosDisponibles,
+  listarDelegacionesVobo,
+  actualizarDelegacionVobo,
 } from './admin.controller';
 
 const router = Router();
@@ -63,5 +65,9 @@ router.get('/flujos',                                          listarFlujos);
 router.put('/flujos/:modulo/:rol',                             actualizarFlujo);
 router.delete('/flujos/:modulo/:rol/:unidadId',                eliminarFlujoUnidad);
 router.get('/flujos/:modulo/:rol/usuarios-disponibles',        listarUsuariosDisponibles);
+
+// ── VoBo por delegación ───────────────────────────────────────
+router.get('/delegaciones-vobo',                               listarDelegacionesVobo);
+router.patch('/delegaciones-vobo/:unidadId',                   actualizarDelegacionVobo);
 
 export default router;

@@ -22,6 +22,7 @@ const EVENT_ICON: Record<string, string> = {
   TRAMITE_FINALIZADO:          '🔒',
   TRAMITE_DEVUELTO_DELEGADO:   '↩️',
   TRAMITE_DEVUELTO_JURIDICO:   '↪️',
+  TRAMITE_NUEVO_COMENTARIO:    '💬',
 };
 
 const EVENT_COLOR: Record<string, string> = {
@@ -38,6 +39,7 @@ const EVENT_COLOR: Record<string, string> = {
   TRAMITE_FINALIZADO:          '#374151',
   TRAMITE_DEVUELTO_DELEGADO:   '#92400E',
   TRAMITE_DEVUELTO_JURIDICO:   '#991B1B',
+  TRAMITE_NUEVO_COMENTARIO:    theme.colors.primary,
 };
 
 export const NotificationBell: React.FC = () => {

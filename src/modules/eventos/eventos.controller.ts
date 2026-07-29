@@ -21,7 +21,7 @@ import { Request, Response, NextFunction } from 'express';
 import type { Knex } from 'knex';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
-import { storage }  from '../../services/storage.service';
+import { storage, compresionInfo } from '../../services/storage.service';
 import { notifyEventoTarea } from '../../notifications/notification.dispatcher';
 import { logger }   from '../../utils/logger';
 import {
@@ -1096,8 +1096,11 @@ export async function enviarRevision(
 
     // 5. Guardar archivo si viene
     let documento_url: string | null = null;
+    let compresion: ReturnType<typeof compresionInfo> = null;
     if (tieneArchivo) {
-      documento_url = await storage.save(file!, 'eventos/avances');
+      const guardado = await storage.saveWithInfo(file!, 'eventos/avances');
+      documento_url  = guardado.url;
+      compresion     = compresionInfo(guardado);
     }
 
     // 6. Determinar estado destino:
@@ -1138,7 +1141,7 @@ export async function enviarRevision(
       });
     });
 
-    res.json({ message: 'Avance enviado correctamente' });
+    res.json({ message: 'Avance enviado correctamente', compresion });
 
     // El evento NO se cierra automáticamente: queda ABIERTO para poder agregar
     // más tareas. El cierre es manual, con justificación (ver cerrarEvento).
@@ -1415,9 +1418,10 @@ export async function listarHistorial(
       .where('h.tarea_id', tareaId);
 
     if (esDG) {
-      // La DG ve: sus propias acciones (nivel 2), la aprobación del director
-      // (APROBACION_N1) y los AVANCES entregados con su documento adjunto, para
-      // poder revisar el trabajo real antes de finalizar o devolver.
+      // Traemos nivel 2 (acciones de la DG y avances directos de un director),
+      // APROBACION_N1 (el envío del director a la DG) y los AVANCE nivel 1 SOLO
+      // para poder rescatar su documento entregado. Los avances nivel 1 se ocultan
+      // después (registrosVisibles); su documento se traslada a la APROBACION_N1.
       query = query.where(function () {
         this.where('h.nivel_revision', 2)
             .orWhere('h.tipo', 'APROBACION_N1')
@@ -1427,12 +1431,39 @@ export async function listarHistorial(
 
     const registrosRaw = await query.orderBy('h.creado_en', 'asc');
 
+    // La DG solo debe ver el movimiento director de área → Dirección General.
+    // Las transacciones operativo↔director (avances nivel 1 y sus correcciones)
+    // se ocultan: no necesita ver todo lo que viene desde atrás. Pero el documento
+    // ENTREGADO por el operativo sí debe llegar a ella, así que lo trasladamos a la
+    // aprobación del director (APROBACION_N1), que es el movimiento que sí ve.
+    const registrosVisibles = (() => {
+      if (!esDG) return registrosRaw;
+
+      const avancesN1 = registrosRaw
+        .filter((r: any) => r.tipo === 'AVANCE' && r.nivel_revision === 1)
+        .sort((a: any, b: any) => a.id - b.id);
+
+      return registrosRaw
+        // Ocultar los avances internos del operativo (nivel 1)
+        .filter((r: any) => !(r.tipo === 'AVANCE' && r.nivel_revision === 1))
+        // Adjuntar a cada aprobación del director el documento del avance que aprobó
+        .map((r: any) => {
+          if (r.tipo === 'APROBACION_N1' && !r.documento_url) {
+            const avancePrevio = [...avancesN1].reverse().find((a: any) => a.id < r.id);
+            if (avancePrevio?.documento_url) {
+              return { ...r, documento_url: avancePrevio.documento_url };
+            }
+          }
+          return r;
+        });
+    })();
+
     // Para la DG, los operativos se muestran bajo el director de su área (no su
     // nombre real), consistente con el resto de sus vistas.
     const directorPorUnidad = new Map<number, string>();
     if (esDG) {
       const unidades = [...new Set(
-        registrosRaw.filter((r: any) => r.autor_rol === 'OPERATIVO').map((r: any) => r.autor_unidad_id),
+        registrosVisibles.filter((r: any) => r.autor_rol === 'OPERATIVO').map((r: any) => r.autor_unidad_id),
       )];
       if (unidades.length > 0) {
         const dirs = await db('usuarios')
@@ -1451,7 +1482,7 @@ export async function listarHistorial(
     // etiqueta institucional "Dirección General".
     const viewerVeNombreDG = req.user!.rol === 'DIRECTOR' || esDG;
 
-    const registros = registrosRaw.map((r: any) => {
+    const registros = registrosVisibles.map((r: any) => {
       let autor_nombre = r.autor_nombre;
       if (r.autor_unidad_tipo === 'DIRECCION_GENERAL') {
         autor_nombre = viewerVeNombreDG
