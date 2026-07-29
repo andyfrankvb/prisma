@@ -1,0 +1,99 @@
+# Orquestación de PRODUCCIÓN.
+# La base de datos vive en OTRO servidor (DATABASE_URL). Aquí solo corren los
+# contenedores de la app + Redis. Los archivos se guardan en la carpeta de red SMB.
+#
+# Todos los valores sensibles vienen del archivo .env (ver .env.example). NO subir .env a git.
+#
+# Despliegue:
+#   1) docker compose -f docker-compose.prod.yml build
+#   2) docker compose -f docker-compose.prod.yml run --rm app_api npm run db:migrate
+#   3) docker compose -f docker-compose.prod.yml run --rm app_api npm run db:seed:admin
+#   4) docker compose -f docker-compose.prod.yml up -d
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  # Carpeta de red SMB (\\10.1.100.175\direccion_tics\prisma) montada como volumen.
+  storage_prisma:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${SMB_HOST}/${SMB_SHARE}"
+      o: "username=${SMB_USER},password=${SMB_PASS},uid=1000,gid=1000,vers=3.0,file_mode=0660,dir_mode=0770"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: prisma_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks: [app_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  app_api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: prisma_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_PATH: /app/storage
+      INAPP_TRANSPORT: websocket
+      OCR_PROVIDER: tesseract
+      TZ: America/Cancun
+    volumes:
+      - storage_prisma:/app/storage
+    networks: [app_net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  app_worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+    container_name: prisma_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_PATH: /app/storage
+      OCR_PROVIDER: tesseract
+      TZ: America/Cancun
+    volumes:
+      - storage_prisma:/app/storage
+    networks: [app_net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  app_web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: prisma_web
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    # Certificados TLS (Let's Encrypt) del host. Quita este volumen si sirves solo por HTTP.
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks: [app_net]
+    depends_on:
+      - app_api

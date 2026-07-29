@@ -13,8 +13,8 @@
     "test:integration": "vitest run src/tests/integration",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "db:migrate": "node -e \"require('./src/db').db.migrate.latest()\"",
-    "db:seed": "node -e \"require('./src/db').db.seed.run()\""
+    "db:migrate": "node db/migrate.mjs",
+    "db:seed:admin": "node db/seed-admin.mjs"
   },
   "dependencies": {
     "bcrypt": "5.1.1",

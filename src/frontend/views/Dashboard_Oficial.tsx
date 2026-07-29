@@ -111,6 +111,7 @@ export const Dashboard_Oficial: React.FC = () => {
   const [dependencia,  setDependencia]  = useState('');
   const [unidadInterna, setUnidadInterna] = useState('');
   const [numOficioOrigen, setNumOficioOrigen] = useState('');
+  const [fechaOficio,  setFechaOficio]  = useState('');
   const [dirigidoA,    setDirigidoA]    = useState('');
   const [descripcion,  setDescripcion]  = useState('');
   const [tieneTermino, setTieneTermino] = useState(false);
@@ -119,7 +120,7 @@ export const Dashboard_Oficial: React.FC = () => {
   // Documentos categorizados (opcionales): { anexos, identificacion, oficio, recibos, solicitud }
   const [docFiles,     setDocFiles]     = useState<Record<string, File | null>>({});
 
-  // ── Catálogos INDEPENDIENTES (dependencia, unidad interna, remitente) ──
+  // ── Catálogos: Dependencia → Sub-unidad (cascada) + Remitente (global, libre) ──
   const [dependencias,   setDependencias]   = useState<CatalogoItem[]>([]);
   const [unidadesList,   setUnidadesList]   = useState<CatalogoItem[]>([]);
   const [remitentesList, setRemitentesList] = useState<CatalogoItem[]>([]);
@@ -133,13 +134,18 @@ export const Dashboard_Oficial: React.FC = () => {
   const [nuevaUniNombre, setNuevaUniNombre] = useState('');
   const [nuevoRemNombre, setNuevoRemNombre] = useState('');
 
-  // Cargar los tres catálogos al abrir el modal (ninguno depende de otro)
+  // Dependencias (raíz) y remitentes (global) al abrir el modal
   useEffect(() => {
     if (!showCreate) return;
     getDependencias().then((r) => setDependencias(r.data)).catch(() => {});
-    getUnidadesInternas().then((r) => setUnidadesList(r.data)).catch(() => {});
     getRemitentes().then((r) => setRemitentesList(r.data)).catch(() => {});
   }, [showCreate]);
+
+  // Sub-unidades al cambiar la dependencia (cascada)
+  useEffect(() => {
+    if (!depSel) { setUnidadesList([]); return; }
+    getUnidadesInternas(Number(depSel)).then((r) => setUnidadesList(r.data)).catch(() => setUnidadesList([]));
+  }, [depSel]);
 
   // ── SIQROO ────────────────────────────────────────────────
   const [siqrooAplica,  setSiqrooAplica]  = useState(false);
@@ -181,14 +187,16 @@ export const Dashboard_Oficial: React.FC = () => {
     setAnalizando(true);
     setCreateError(null);
     try {
-      const { data } = await analizarPdf(file);
-      if (data.descripcion)        setDescripcion(data.descripcion);
-      if (data.tiene_termino)      setTieneTermino(data.tiene_termino);
-      if (data.fecha_vencimiento)  setFechaVence(data.fecha_vencimiento);
-      setTextoOcr(data.texto_completo ?? '');
-      setConfianza(data.confianza);
-      await autocompletarCatalogo(data.dependencia_origen, data.remitente);
-      autoseleccionarDirigidoA((data as any).dirigido_a);
+      const d: any = (await analizarPdf(file)).data;
+      if (d.descripcion)            setDescripcion(d.descripcion);
+      if (d.tiene_termino)          setTieneTermino(d.tiene_termino);
+      if (d.fecha_vencimiento)      setFechaVence(d.fecha_vencimiento);
+      if (d.numero_oficio_origen)   setNumOficioOrigen(String(d.numero_oficio_origen).toUpperCase());
+      if (d.fecha_oficio)           setFechaOficio(d.fecha_oficio);
+      setTextoOcr(d.texto_completo ?? '');
+      setConfianza(d.confianza);
+      await autocompletarCatalogo(d);
+      autoseleccionarDirigidoA(d.dirigido_a);
     } catch (err: any) {
       setConfianza('baja');
     } finally {
@@ -196,21 +204,43 @@ export const Dashboard_Oficial: React.FC = () => {
     }
   };
 
-  // Empareja el texto del OCR con los catálogos (independientes entre sí).
-  const autocompletarCatalogo = (depText?: string, remText?: string) => {
-    const dep = (depText ?? '').trim();
-    const rem = (remText ?? '').trim();
-    const norm = (s: string) => s.trim().toLowerCase();
+  // Empareja el texto del OCR con los catálogos: dependencia → sub-unidad → remitente.
+  // Si no encuentra coincidencia, propone el texto detectado para que el oficial lo
+  // agregue/corrija. Todo queda editable.
+  const autocompletarCatalogo = async (d: any) => {
+    const norm = (s: string) => (s ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const contiene = (a: string, b: string) =>
+      a === b || (a.length >= 8 && b.length >= 8 && (a.includes(b) || b.includes(a)));
 
+    // Dependencia
+    const dep = (d.dependencia_origen ?? '').trim();
+    let depId: number | '' = '';
     if (dep) {
-      const depMatch = dependencias.find((d) => norm(d.nombre) === norm(dep));
-      if (depMatch) seleccionarDependencia(depMatch.id);
-      else { setAddDepMode(true); setNuevaDepNombre(dep.toUpperCase()); }   // propone el texto, editable
+      const nd = norm(dep);
+      const m = dependencias.find((x) => norm(x.nombre) === nd) ?? dependencias.find((x) => contiene(norm(x.nombre), nd));
+      if (m) { seleccionarDependencia(m.id); depId = m.id; }
+      else { setAddDepMode(true); setNuevaDepNombre(dep.toUpperCase()); }
     }
+
+    // Sub-unidad (dentro de la dependencia encontrada)
+    const sub = (d.sub_unidad ?? '').trim();
+    if (depId && sub) {
+      try {
+        const subs = (await getUnidadesInternas(Number(depId))).data;
+        setUnidadesList(subs);
+        const ns = norm(sub);
+        const sm = subs.find((u) => norm(u.nombre) === ns) ?? subs.find((u) => contiene(norm(u.nombre), ns));
+        if (sm) { setUniSel(sm.id); setUnidadInterna(sm.nombre); }
+      } catch { /* noop */ }
+    }
+
+    // Remitente (catálogo global)
+    const rem = (d.remitente ?? '').trim();
     if (rem) {
-      const remMatch = remitentesList.find((r) => norm(r.nombre) === norm(rem));
-      if (remMatch) seleccionarRemitente(remMatch.id);
-      else { setAddRemMode(true); setNuevoRemNombre(rem); }
+      const nr = norm(rem);
+      const m = remitentesList.find((r) => norm(r.nombre) === nr) ?? remitentesList.find((r) => contiene(norm(r.nombre), nr));
+      if (m) seleccionarRemitente(m.id);
+      else { setAddRemMode(true); setNuevoRemNombre(rem.toUpperCase()); }
     }
   };
 
@@ -220,17 +250,25 @@ export const Dashboard_Oficial: React.FC = () => {
   const autoseleccionarDirigidoA = (detectado?: string) => {
     const det = (detectado ?? '').trim();
     if (!det) return;
-    const norm = (s: string) => s.trim().toLowerCase();
-    const match =
-      destinatarios.find((u) => norm(u.nombre) === norm(det)) ??
-      destinatarios.find((u) => norm(u.nombre).includes(norm(det)) || norm(det).includes(norm(u.nombre)));
+    // Acento/mayúscula-insensible (igual que el emparejamiento de catálogos).
+    const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+    const nd = norm(det);
+    // Usuarios cuyo nombre completo aparece dentro del bloque detectado (antes de "PRESENTE").
+    const candidatos = destinatarios.filter((u) => {
+      const nu = norm(u.nombre);
+      return nu.length >= 6 && (nd === nu || nd.includes(nu) || nu.includes(nd));
+    });
+    // Gana el nombre más largo (más específico).
+    const match = candidatos.sort((a, b) => b.nombre.length - a.nombre.length)[0];
     if (match) setDirigidoA(String(match.id));
   };
 
-  // ── Catálogos: selección y alta al vuelo (independientes) ──
+  // ── Catálogos: selección y alta al vuelo (cascada) ──
   const seleccionarDependencia = (id: number | '') => {
     setDepSel(id);
     setDependencia(id ? (dependencias.find((d) => d.id === id)?.nombre ?? '') : '');
+    // Cambió la dependencia → limpiar sub-unidad (cuelga de ella). El remitente es libre, no se toca.
+    setUniSel(''); setUnidadInterna(''); setAddUniMode(false);
   };
   const seleccionarUnidad = (id: number | '') => {
     setUniSel(id);
@@ -253,9 +291,9 @@ export const Dashboard_Oficial: React.FC = () => {
   };
   const agregarUnidad = async () => {
     const nombre = nuevaUniNombre.trim();
-    if (!nombre) return;
+    if (!nombre || !depSel) return;
     try {
-      const { data } = await crearUnidadInterna(nombre);
+      const { data } = await crearUnidadInterna(Number(depSel), nombre);
       setUnidadesList((prev) =>
         [...prev.filter((u) => u.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarUnidad(data.id);
@@ -282,7 +320,7 @@ export const Dashboard_Oficial: React.FC = () => {
     setPdfFile(null); setDocFiles({}); setCreateError(null);
     setDepSel(''); setUniSel(''); setRemSel('');
     setAddDepMode(false); setAddUniMode(false); setAddRemMode(false);
-    setNuevaDepNombre(''); setNuevaUniNombre(''); setNuevoRemNombre(''); setNumOficioOrigen('');
+    setNuevaDepNombre(''); setNuevaUniNombre(''); setNuevoRemNombre(''); setNumOficioOrigen(''); setFechaOficio('');
     setSiqrooAplica(false); setSiqrooControl('');
   };
 
@@ -298,6 +336,7 @@ export const Dashboard_Oficial: React.FC = () => {
       fd.append('dependencia_origen',    dependencia);
       fd.append('unidad_interna',        unidadInterna);
       fd.append('numero_oficio_origen',  numOficioOrigen.trim());
+      fd.append('fecha_oficio',          fechaOficio);
       fd.append('dirigido_a_id',         dirigidoA);
       fd.append('descripcion_solicitud', descripcion);
       fd.append('tiene_termino',         String(tieneTermino));
@@ -667,7 +706,7 @@ export const Dashboard_Oficial: React.FC = () => {
                       <input
                         id={`doc-${key}`}
                         type="file"
-                        accept={key === 'oficio' ? '.pdf,.doc,.docx' : '.pdf,.doc,.docx,.jpg,.jpeg,.png'}
+                        accept={key === 'oficio' ? '.pdf' : '.pdf,.doc,.docx,.jpg,.jpeg,.png'}
                         style={{ display: 'none' }}
                         onChange={(e) => {
                           const f = e.target.files?.[0] ?? null;
@@ -680,7 +719,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 })}
               </div>
               <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
-                El <strong>Oficio</strong> se analiza con IA (PDF/Word). Identificación y recibos también aceptan imágenes.
+                El <strong>Oficio</strong> se analiza con IA (solo PDF). Identificación y recibos también aceptan imágenes.
               </p>
             </div>
 
@@ -807,11 +846,15 @@ export const Dashboard_Oficial: React.FC = () => {
               )}
             </Field>
 
-            {/* Unidad interna — catálogo independiente (opcional) */}
-            <Field label="Unidad interna (área/subdirección)">
-              {addUniMode ? (
+            {/* Sub-unidad — cuelga de la dependencia (opcional) */}
+            <Field label="Sub-unidad (área/subdirección)">
+              {!depSel ? (
+                <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>
+                  Selecciona primero la dependencia.
+                </p>
+              ) : addUniMode ? (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA UNIDAD INTERNA" autoFocus />
+                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA SUB-UNIDAD" autoFocus />
                   <button type="button" onClick={agregarUnidad} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
                   <button type="button" onClick={() => { setAddUniMode(false); setNuevaUniNombre(''); }} style={btnSecondary}>✕</button>
                 </div>
@@ -820,14 +863,14 @@ export const Dashboard_Oficial: React.FC = () => {
                   value={uniSel === '' ? '' : String(uniSel)}
                   options={unidadesList.map((u) => ({ value: String(u.id), label: u.nombre }))}
                   onChange={(v) => seleccionarUnidad(v ? Number(v) : '')}
-                  placeholder="— Selecciona la unidad interna —"
-                  addLabel="➕ Agregar nueva unidad interna…"
+                  placeholder="— Selecciona la sub-unidad —"
+                  addLabel="➕ Agregar nueva sub-unidad…"
                   onAdd={() => setAddUniMode(true)}
                 />
               )}
             </Field>
 
-            {/* Remitente (persona) — catálogo independiente */}
+            {/* Remitente (persona) — catálogo GLOBAL, independiente de dependencia/sub-unidad */}
             <Field label="Remitente" required>
               {addRemMode ? (
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -852,6 +895,14 @@ export const Dashboard_Oficial: React.FC = () => {
                 value={numOficioOrigen}
                 onChange={(e) => setNumOficioOrigen(e.target.value.toUpperCase())}
                 placeholder="EJ. SEGOB/DGV/123/2026 — EL NÚMERO QUE TRAE EL OFICIO DE ORIGEN"
+              />
+            </Field>
+            <Field label="Fecha del oficio">
+              <input
+                style={inputStyle}
+                type="date"
+                value={fechaOficio}
+                onChange={(e) => setFechaOficio(e.target.value)}
               />
             </Field>
             <Field label="Dirigido a" required>

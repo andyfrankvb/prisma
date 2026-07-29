@@ -186,29 +186,14 @@ export async function crearDependencia(nombre: string) {
   return handleResponse<{ data: CatalogoItem }>(res);
 }
 
-// ── Remitentes (personas) — catálogo independiente ──
-export async function getRemitentes() {
-  const res = await fetch(`${BASE}/catalogos/remitentes`, { headers: authHeaders() });
+// ── Sub-unidades (dentro de una dependencia) ──
+export async function getUnidadesInternas(dependenciaId: number) {
+  const res = await fetch(`${BASE}/catalogos/dependencias/${dependenciaId}/unidades-internas`, { headers: authHeaders() });
   return handleResponse<{ data: CatalogoItem[] }>(res);
 }
 
-export async function crearRemitente(nombre: string) {
-  const res = await fetch(`${BASE}/catalogos/remitentes`, {
-    method:  'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ nombre }),
-  });
-  return handleResponse<{ data: CatalogoItem }>(res);
-}
-
-// ── Unidades internas — catálogo independiente ──
-export async function getUnidadesInternas() {
-  const res = await fetch(`${BASE}/catalogos/unidades-internas`, { headers: authHeaders() });
-  return handleResponse<{ data: CatalogoItem[] }>(res);
-}
-
-export async function crearUnidadInterna(nombre: string) {
-  const res = await fetch(`${BASE}/catalogos/unidades-internas`, {
+export async function crearUnidadInterna(dependenciaId: number, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/dependencias/${dependenciaId}/unidades-internas`, {
     method:  'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify({ nombre }),
@@ -230,6 +215,21 @@ export async function eliminarUnidadInterna(id: number) {
     method: 'DELETE', headers: authHeaders(),
   });
   return handleResponse<{ message: string }>(res);
+}
+
+// ── Remitentes (personas) — catálogo GLOBAL independiente ──
+export async function getRemitentes() {
+  const res = await fetch(`${BASE}/catalogos/remitentes`, { headers: authHeaders() });
+  return handleResponse<{ data: CatalogoItem[] }>(res);
+}
+
+export async function crearRemitente(nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/remitentes`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
 }
 
 export async function editarDependencia(id: number, nombre: string) {

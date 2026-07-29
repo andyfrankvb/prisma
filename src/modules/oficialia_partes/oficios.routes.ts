@@ -53,7 +53,7 @@ const IMAGENES = ['image/jpeg', 'image/png'];
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 20 * 1024 * 1024 },
+  limits:  { fileSize: 200 * 1024 * 1024 },   // 200 MB — prácticamente sin límite para oficios
   fileFilter: (_req, file, cb) => {
     if (PDF_WORD.includes(file.mimetype)) cb(null, true);
     else {
@@ -71,7 +71,7 @@ const upload = multer({
  */
 const uploadOficio = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 20 * 1024 * 1024 },
+  limits:  { fileSize: 200 * 1024 * 1024 },   // 200 MB — prácticamente sin límite para oficios
   fileFilter: (_req, file, cb) => {
     const permitidos = file.fieldname === 'oficio' ? PDF_WORD : [...PDF_WORD, ...IMAGENES];
     if (permitidos.includes(file.mimetype)) cb(null, true);
@@ -132,21 +132,21 @@ router.post('/oficios/:id/finalizar', upload.single('file'), finalizarOficio);
 /** PATCH /oficios/:id/siqroo — completar datos SIQROO pendientes (nro. control y/o boleta) */
 router.patch('/oficios/:id/siqroo', uploadOficio.single('boleta'), completarSiqroo);
 
-// ── Catálogos independientes para el ingreso de oficio ──
-// Dependencias
+// ── Catálogos en cascada: Dependencia → Sub-unidad → Remitente ──
+// Dependencias (raíz)
 router.get ('/catalogos/dependencias',        listarDependencias);
 router.post('/catalogos/dependencias',        crearDependencia);
 router.patch('/catalogos/dependencias/:id',   editarDependencia);
 router.delete('/catalogos/dependencias/:id',  eliminarDependencia);
-// Unidades internas
-router.get ('/catalogos/unidades-internas',       listarUnidadesInternas);
-router.post('/catalogos/unidades-internas',       crearUnidadInterna);
-router.patch('/catalogos/unidades-internas/:id',  editarUnidadInterna);
-router.delete('/catalogos/unidades-internas/:id', eliminarUnidadInterna);
-// Remitentes (personas)
-router.get ('/catalogos/remitentes',       listarRemitentes);
-router.post('/catalogos/remitentes',       crearRemitente);
-router.patch('/catalogos/remitentes/:id',  editarRemitente);
-router.delete('/catalogos/remitentes/:id', eliminarRemitente);
+// Sub-unidades (dentro de una dependencia)
+router.get ('/catalogos/dependencias/:id/unidades-internas',  listarUnidadesInternas);
+router.post('/catalogos/dependencias/:id/unidades-internas',  crearUnidadInterna);
+router.patch('/catalogos/unidades-internas/:id',              editarUnidadInterna);
+router.delete('/catalogos/unidades-internas/:id',             eliminarUnidadInterna);
+// Remitentes (personas) — catálogo GLOBAL independiente
+router.get ('/catalogos/remitentes',        listarRemitentes);
+router.post('/catalogos/remitentes',        crearRemitente);
+router.patch('/catalogos/remitentes/:id',   editarRemitente);
+router.delete('/catalogos/remitentes/:id',  eliminarRemitente);
 
 export default router;

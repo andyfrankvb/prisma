@@ -588,6 +588,7 @@ export async function crearOficio(
       dependencia_origen,
       unidad_interna,
       numero_oficio_origen,
+      fecha_oficio,
       dirigido_a_id,
       descripcion_solicitud,
       tiene_termino,
@@ -658,6 +659,7 @@ export async function crearOficio(
           dependencia_origen:   (dependencia_origen ?? '').toUpperCase(),
           unidad_interna:       unidad_interna?.trim().toUpperCase() || null,
           numero_oficio_origen: numero_oficio_origen?.trim().toUpperCase() || null,
+          fecha_oficio:         fecha_oficio?.trim() || null,
           dirigido_a_id:        dirigido_a_id ? Number(dirigido_a_id) : null,   // vacío → sin destinatario
           oficial_registro_id:  user.id,
           unidad_registro_id:   user.oficina_id,
@@ -687,6 +689,7 @@ export async function crearOficio(
         } else {
           const res = await storage.saveWithInfo(doc, `oficios/documentos/${tipo}`, {
             filename: `${newOficio.id}_${tipo}_${Date.now()}`,
+            compress: true,   // optimiza los requisitos PDF (imágenes/Word pasan sin cambio)
           });
           archivo_url = res.url;
         }

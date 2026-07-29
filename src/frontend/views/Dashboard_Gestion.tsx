@@ -72,6 +72,7 @@ export const Dashboard_Gestion: React.FC = () => {
   const [page,      setPage]      = useState(1);
   const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false });
   const [loading,   setLoading]   = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
   // ── Selected oficio (detail panel) ───────────────────────
@@ -283,24 +284,66 @@ export const Dashboard_Gestion: React.FC = () => {
     }
   };
 
-  const exportCSV = () => {
-    const headers = ['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Estatus', 'Vencimiento'];
-    const rows = oficios.map((o) => [
-      o.folio,
-      o.remitente,
-      o.dependencia_origen,
-      new Date(o.fecha_registro).toLocaleDateString('es-MX'),
-      o.estatus,
-      o.fecha_vencimiento ?? '',
-    ]);
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `oficios_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Fecha "sólo día" (columna DATE) sin desfase por zona horaria.
+  const soloFecha = (s: string) => {
+    const [y, m, d] = s.slice(0, 10).split('-');
+    return d && m && y ? `${d}/${m}/${y}` : s;
+  };
+
+  const exportCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const filtroBase = {
+        search:           filtros.search || undefined,
+        estatus:          filtros.estatus || undefined,
+        termino:          filtros.termino || undefined,
+        desde:            filtros.desde || undefined,
+        hasta:            filtros.hasta || undefined,
+        siqroo_pendiente: filtros.siqroo_pendiente || undefined,
+        pendiente_firma:  filtros.pendiente_firma || undefined,
+      };
+      // Traer TODOS los resultados filtrados (no solo la página visible)
+      const todos: Oficio[] = [];
+      for (let pagina = 1; ; pagina++) {
+        const res = await getOficios({ ...filtroBase, page: pagina, limit: 100 });
+        todos.push(...res.data);
+        if (res.data.length === 0 || todos.length >= res.meta.total) break;
+      }
+
+      const headers = [
+        'N° OFICIO INTERNO', 'N° OFICIO ORIGEN', 'DIRECCIÓN O DEPENDENCIA', 'SUBUNIDAD',
+        'FECHA DEL OFICIO', 'FECHA ACUSE', 'TURNADO A', 'ASUNTO',
+      ];
+      const rows = todos.map((o) => [
+        o.folio,
+        o.numero_oficio_origen ?? '',
+        o.dependencia_origen ?? '',
+        o.unidad_interna ?? '',
+        o.fecha_oficio ? soloFecha(o.fecha_oficio) : '',
+        new Date(o.fecha_registro).toLocaleDateString('es-MX'),
+        o.dirigido_a_nombre ?? '',
+        o.descripcion_solicitud ?? '',
+      ]);
+
+      // Escape CSV robusto; BOM para que Excel muestre bien los acentos.
+      const esc = (c: unknown) => {
+        const s = String(c ?? '');
+        return /["\n\r,;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `oficios_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setListError('No se pudo exportar el reporte: ' + err.message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -322,8 +365,8 @@ export const Dashboard_Gestion: React.FC = () => {
             <h1 style={{ margin: 0, color: theme.colors.primary, fontSize: '1.4rem', fontWeight: 700 }}>
               Gestión de Oficios
             </h1>
-            <button onClick={exportCSV} style={btnSecondary} title="Exportar a CSV/Excel">
-              ⬇ Exportar Excel
+            <button onClick={exportCSV} disabled={exporting} style={{ ...btnSecondary, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'wait' : 'pointer' }} title="Exportar los oficios filtrados a Excel/CSV">
+              {exporting ? '⏳ Exportando…' : '⬇ Exportar Excel'}
             </button>
           </div>
 

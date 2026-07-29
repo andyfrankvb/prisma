@@ -139,6 +139,11 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
   const fmtFecha = (iso: string) => new Date(iso).toLocaleString('es-MX', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
+  // Fecha "sólo día" (columna DATE) sin desfase por zona horaria: se formatea del texto.
+  const fmtSoloFecha = (s: string) => {
+    const [y, m, d] = s.slice(0, 10).split('-');
+    return d && m && y ? `${d}/${m}/${y}` : s;
+  };
 
   const siqrooTexto =
     oficio.siqroo_aplica === false ? 'No aplica'
@@ -187,6 +192,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
         <div style={gridCampos}>
           <Campo label="Folio"        value={oficio.folio} />
           <Campo label="Nº de oficio de origen" value={oficio.numero_oficio_origen || '—'} />
+          <Campo label="Fecha del oficio" value={oficio.fecha_oficio ? fmtSoloFecha(oficio.fecha_oficio) : '—'} />
           <Campo label="Remitente"    value={oficio.remitente} />
           <Campo label="Dependencia"  value={oficio.dependencia_origen?.toUpperCase()} />
           <Campo label="Unidad interna" value={oficio.unidad_interna || '—'} />

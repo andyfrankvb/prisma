@@ -32,6 +32,7 @@ export interface Oficio {
   dependencia_origen:    string;
   unidad_interna?:       string | null;
   numero_oficio_origen?: string | null;
+  fecha_oficio?:         string | null;
   dirigido_a_id:         number;
   oficial_registro_id:   number;
   oficina_registro_id:   number;
