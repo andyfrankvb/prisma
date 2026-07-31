@@ -69,6 +69,25 @@ async function canActAsEncargado(user: any): Promise<boolean> {
 }
 
 /**
+ * Verifica si el usuario puede actuar como SECRETARIA en Oficialía de Partes.
+ * Acepta rol SECRETARIA nativo O usuario configurado como SECRETARIA en flujos.
+ * Mismo criterio que canActAsEncargado: así, quien esté designado como secretaria
+ * en la configuración del flujo también puede subir el firmado en Dirección General,
+ * aunque su rol de cuenta no sea literalmente 'SECRETARIA'.
+ */
+async function canActAsSecretaria(user: any): Promise<boolean> {
+  if (user.rol === 'SECRETARIA') return true;
+  try {
+    const row = await db('configuracion_flujos')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'SECRETARIA', usuario_id: user.id })
+      .first();
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Unidades de las que el usuario es ENCARGADO configurado. El encargado recibe los
  * oficios cuyo "dirigido a" pertenece a alguna de estas unidades.
  */
@@ -145,7 +164,7 @@ async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise
       return encargadoId === user.id;                           // el encargado de la delegación
     }
   }
-  return user.rol === 'SECRETARIA';   // Dirección General: la secretaría
+  return canActAsSecretaria(user);   // DG: la secretaría (rol nativo o configurada en flujos)
 }
 
 // ─── POST /oficios/analizar-pdf ──────────────────────────────────────────────
@@ -488,6 +507,9 @@ export async function listarOficios(
       .first();
     const secretariaNombre: string | null = secretariaRow?.nombre ?? null;
 
+    // ¿El usuario actual es la SECRETARIA? (rol nativo o designada en configuracion_flujos)
+    const esSecretaria = await canActAsSecretaria(user);
+
     // Compute dias_restantes client-side to avoid DB timezone issues
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -539,7 +561,7 @@ export async function listarOficios(
       // Delegación: el delegado (dirigido a) o el encargado de esa unidad. DG: la secretaría.
       const puede_finalizar = esOficioDelegacion
         ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
-        : user.rol === 'SECRETARIA';
+        : esSecretaria;
 
       return {
         ...o,

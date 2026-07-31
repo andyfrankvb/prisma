@@ -264,19 +264,19 @@ export const Dashboard_Oficial: React.FC = () => {
   };
 
   // ── Catálogos: selección y alta al vuelo (cascada) ──
-  const seleccionarDependencia = (id: number | '') => {
+  const seleccionarDependencia = (id: number | '', nombre?: string) => {
     setDepSel(id);
-    setDependencia(id ? (dependencias.find((d) => d.id === id)?.nombre ?? '') : '');
+    setDependencia(id ? (nombre ?? dependencias.find((d) => d.id === id)?.nombre ?? '') : '');
     // Cambió la dependencia → limpiar sub-unidad (cuelga de ella). El remitente es libre, no se toca.
     setUniSel(''); setUnidadInterna(''); setAddUniMode(false);
   };
-  const seleccionarUnidad = (id: number | '') => {
+  const seleccionarUnidad = (id: number | '', nombre?: string) => {
     setUniSel(id);
-    setUnidadInterna(id ? (unidadesList.find((u) => u.id === id)?.nombre ?? '') : '');
+    setUnidadInterna(id ? (nombre ?? unidadesList.find((u) => u.id === id)?.nombre ?? '') : '');
   };
-  const seleccionarRemitente = (id: number | '') => {
+  const seleccionarRemitente = (id: number | '', nombre?: string) => {
     setRemSel(id);
-    setRemitente(id ? (remitentesList.find((r) => r.id === id)?.nombre ?? '') : '');
+    setRemitente(id ? (nombre ?? remitentesList.find((r) => r.id === id)?.nombre ?? '') : '');
   };
   const agregarDependencia = async () => {
     const nombre = nuevaDepNombre.trim().toUpperCase();
@@ -285,7 +285,7 @@ export const Dashboard_Oficial: React.FC = () => {
       const { data } = await crearDependencia(nombre);
       setDependencias((prev) =>
         [...prev.filter((d) => d.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
-      seleccionarDependencia(data.id);
+      seleccionarDependencia(data.id, data.nombre);
       setAddDepMode(false); setNuevaDepNombre('');
     } catch (err: any) { setCreateError(err.message); }
   };
@@ -296,7 +296,7 @@ export const Dashboard_Oficial: React.FC = () => {
       const { data } = await crearUnidadInterna(Number(depSel), nombre);
       setUnidadesList((prev) =>
         [...prev.filter((u) => u.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
-      seleccionarUnidad(data.id);
+      seleccionarUnidad(data.id, data.nombre);
       setAddUniMode(false); setNuevaUniNombre('');
     } catch (err: any) { setCreateError(err.message); }
   };
@@ -307,7 +307,7 @@ export const Dashboard_Oficial: React.FC = () => {
       const { data } = await crearRemitente(nombre);
       setRemitentesList((prev) =>
         [...prev.filter((r) => r.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
-      seleccionarRemitente(data.id);
+      seleccionarRemitente(data.id, data.nombre);
       setAddRemMode(false); setNuevoRemNombre('');
     } catch (err: any) { setCreateError(err.message); }
   };
