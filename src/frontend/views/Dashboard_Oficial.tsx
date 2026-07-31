@@ -17,7 +17,7 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
-import { getOficios, createOficio, getUsuarios, analizarPdf,
+import { getOficios, createOficio, getUsuarios, analizarPdf, finalizarOficio,
          getDependencias, crearDependencia, getRemitentes, crearRemitente,
          getUnidadesInternas, crearUnidadInterna, completarSiqroo } from '../api';
 import type { CatalogoItem } from '../api';
@@ -120,6 +120,12 @@ export const Dashboard_Oficial: React.FC = () => {
   // Documentos categorizados (opcionales): { anexos, identificacion, oficio, recibos, solicitud }
   const [docFiles,     setDocFiles]     = useState<Record<string, File | null>>({});
 
+  // ── Subir documento firmado (para quien también es secretaría/finaliza) ──
+  const [firmarOficio, setFirmarOficio] = useState<Oficio | null>(null);
+  const [signedFile,   setSignedFile]   = useState<File | null>(null);
+  const [uploadError,  setUploadError]  = useState<string | null>(null);
+  const [uploading,    setUploading]    = useState(false);
+
   // ── Catálogos: Dependencia → Sub-unidad (cascada) + Remitente (global, libre) ──
   const [dependencias,   setDependencias]   = useState<CatalogoItem[]>([]);
   const [unidadesList,   setUnidadesList]   = useState<CatalogoItem[]>([]);
@@ -178,6 +184,22 @@ export const Dashboard_Oficial: React.FC = () => {
     finally { setLoading(false); }
   }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino]);
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
+
+  // Subir el documento firmado y finalizar el oficio (VOBO_APROBADO → FINALIZADO).
+  const handleUploadSigned = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!firmarOficio || !signedFile) return;
+    setUploading(true); setUploadError(null);
+    try {
+      await finalizarOficio(firmarOficio.id, signedFile);
+      setFirmarOficio(null); setSignedFile(null);
+      fetchOficios();
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // ── Analizar el "Oficio" con IA (OCR) ─────────────────────
   // Autocompleta descripción y trata de emparejar dependencia + remitente con el
@@ -473,16 +495,16 @@ export const Dashboard_Oficial: React.FC = () => {
           <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={tableHeaderStyle}>
-                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de'].map((h) => (
+                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de', 'Acciones'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={emptyCell}>Cargando…</td></tr>
+                <tr><td colSpan={9} style={emptyCell}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={8} style={emptyCell}>Sin registros</td></tr>
+                <tr><td colSpan={9} style={emptyCell}>Sin registros</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -520,6 +542,20 @@ export const Dashboard_Oficial: React.FC = () => {
                     </td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
                       {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      {o.puede_finalizar && o.estatus === 'VOBO_APROBADO' ? (
+                        <button
+                          style={{ padding: '6px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#fff', backgroundColor: theme.colors.primary, border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          onClick={() => { setFirmarOficio(o); setSignedFile(null); setUploadError(null); }}
+                        >
+                          ✍️ Subir Firmado
+                        </button>
+                      ) : o.estatus === 'FINALIZADO' ? (
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#065F46' }}>✓ Firmado</span>
+                      ) : (
+                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -968,6 +1004,22 @@ export const Dashboard_Oficial: React.FC = () => {
               </button>
             </div>
           </form>
+      </Modal>
+
+      {/* Modal: subir documento firmado y finalizar (para quien también finaliza) */}
+      <Modal open={!!firmarOficio} title={`Subir Documento Firmado — ${firmarOficio?.folio ?? ''}`} onClose={() => { setFirmarOficio(null); setSignedFile(null); setUploadError(null); }}>
+        <form onSubmit={handleUploadSigned} noValidate>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Documento escaneado y firmado (PDF) <span style={{ color: theme.colors.alert.red }}> *</span></label>
+            <input type="file" accept=".pdf,application/pdf" onChange={(e) => setSignedFile(e.target.files?.[0] ?? null)} />
+            {signedFile && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.alert.green }}>✓ {signedFile.name}</p>}
+          </div>
+          {uploadError && <div role="alert" style={alertStyle}>{uploadError}</div>}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button type="button" onClick={() => { setFirmarOficio(null); setSignedFile(null); setUploadError(null); }} style={btnSecondary}>Cancelar</button>
+            <button type="submit" disabled={uploading || !signedFile} style={btnPrimary}>{uploading ? 'Subiendo…' : 'Finalizar Oficio'}</button>
+          </div>
+        </form>
       </Modal>
     </div>
   );
