@@ -9,6 +9,7 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
+import { SiqrooPanel }   from '../components/SiqrooPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
@@ -218,6 +219,11 @@ export const Dashboard_Juridico: React.FC = () => {
           <div>
             {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
             <OficioDetalle oficio={detalleOficio} />
+
+            {/* SIQROO — el abogado asignado también puede capturar el NCI pendiente */}
+            <div style={{ marginTop: '18px' }}>
+              <SiqrooPanel oficio={detalleOficio} onDone={() => fetchOficios()} />
+            </div>
 
             {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}
             {(detalleOficio as any).texto_ocr && (

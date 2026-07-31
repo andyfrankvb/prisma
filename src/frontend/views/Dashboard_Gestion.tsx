@@ -17,6 +17,7 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
+import { SiqrooPanel }   from '../components/SiqrooPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import {
@@ -533,7 +534,9 @@ export const Dashboard_Gestion: React.FC = () => {
             <OficioDetalle
               oficio={selected}
               acciones={
-                selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
+                <>
+                <SiqrooPanel oficio={selected} onDone={() => fetchOficios()} />
+                {selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
                   <div style={{
                     padding: '14px 16px',
                     backgroundColor: '#F0FDF4', border: `1px solid #86EFAC`,
@@ -559,7 +562,8 @@ export const Dashboard_Gestion: React.FC = () => {
                       ✓ Otorgar VoBo
                     </button>
                   </div>
-                ) : null
+                ) : null}
+                </>
               }
             />
             {/* La línea de tiempo ahora vive dentro del modal "Ver historial". */}
