@@ -12,7 +12,9 @@ import {
   getDependencias, crearDependencia, editarDependencia, eliminarDependencia,
   getUnidadesInternas, crearUnidadInterna, editarUnidadInterna, eliminarUnidadInterna,
   getRemitentes, crearRemitente, editarRemitente, eliminarRemitente,
+  dependenciaASubunidad, subunidadADependencia, moverSubunidad,
 } from '../api';
+import { Modal } from '../components/Modal';
 import type { CatalogoItem } from '../api';
 
 // ── Columna genérica de un nivel ─────────────────────────────
@@ -22,6 +24,7 @@ interface ColumnaProps {
   items:        CatalogoItem[];
   selectedId?:  number | null;
   onSelect?:    (it: CatalogoItem) => void;   // drill-down (dependencia)
+  onMover?:     (it: CatalogoItem) => void;   // reorganizar jerarquía
   crear:        (nombre: string) => Promise<{ data: CatalogoItem }>;
   editar:       (id: number, nombre: string) => Promise<{ data: CatalogoItem }>;
   eliminar:     (id: number) => Promise<{ message: string }>;
@@ -34,7 +37,7 @@ interface ColumnaProps {
 }
 
 const Columna: React.FC<ColumnaProps> = ({
-  titulo, subtitulo, items, selectedId, onSelect, crear, editar, eliminar, reload, onError,
+  titulo, subtitulo, items, selectedId, onSelect, onMover, crear, editar, eliminar, reload, onError,
   placeholder, emptyMsg, promptMsg, activo,
 }) => {
   const [nuevo,    setNuevo]    = useState('');
@@ -110,6 +113,9 @@ const Columna: React.FC<ColumnaProps> = ({
                         ) : (
                           <span style={{ flex: 1, fontSize: '0.82rem', color: theme.colors.textPrimary, padding: '2px 4px' }}>{it.nombre}</span>
                         )}
+                        {onMover && (
+                          <button onClick={() => onMover(it)} title="Reorganizar (mover de nivel)" style={btnMove}>⇄</button>
+                        )}
                         <button onClick={() => { setEditId(it.id); setEditVal(it.nombre); }} title="Editar" style={btnEdit}>✏️</button>
                         <button onClick={() => quitar(it)} title="Eliminar" style={btnDel}>✕</button>
                       </>
@@ -131,6 +137,50 @@ export const SeccionCatalogos: React.FC = () => {
   const [unis,   setUnis]   = useState<CatalogoItem[]>([]);
   const [rems,   setRems]   = useState<CatalogoItem[]>([]);
   const [selDep, setSelDep] = useState<CatalogoItem | null>(null);
+
+  // ── Reorganizar jerarquía ──
+  const [mover, setMover]       = useState<{ tipo: 'dep' | 'uni'; item: CatalogoItem } | null>(null);
+  const [destino, setDestino]   = useState<number | ''>('');
+  const [buscaDest, setBuscaDest] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso]       = useState<string | null>(null);
+
+  const cerrarMover = () => { setMover(null); setDestino(''); setBuscaDest(''); };
+
+  const hacerDegradar = async () => {
+    if (!mover || !destino) return;
+    setGuardando(true);
+    try {
+      const r = await dependenciaASubunidad(mover.item.id, Number(destino));
+      setAviso(r.message); cerrarMover();
+      cargarDeps(); if (selDep) cargarUnis(selDep.id);
+      if (selDep?.id === mover.item.id) setSelDep(null);
+    } catch (e: any) { setError(e.message); }
+    finally { setGuardando(false); }
+  };
+
+  const hacerPromover = async () => {
+    if (!mover) return;
+    if (!confirm(`«${mover.item.nombre}» dejará de ser sub-unidad y pasará a ser una dependencia independiente. ¿Continuar?`)) return;
+    setGuardando(true);
+    try {
+      const r = await subunidadADependencia(mover.item.id);
+      setAviso(r.message); cerrarMover();
+      cargarDeps(); if (selDep) cargarUnis(selDep.id);
+    } catch (e: any) { setError(e.message); }
+    finally { setGuardando(false); }
+  };
+
+  const hacerMoverUni = async () => {
+    if (!mover || !destino) return;
+    setGuardando(true);
+    try {
+      const r = await moverSubunidad(mover.item.id, Number(destino));
+      setAviso(r.message); cerrarMover();
+      if (selDep) cargarUnis(selDep.id);
+    } catch (e: any) { setError(e.message); }
+    finally { setGuardando(false); }
+  };
 
   const cargarDeps = useCallback(() => {
     getDependencias().then((r) => setDeps(r.data)).catch((e) => setError(e.message));
@@ -167,6 +217,7 @@ export const SeccionCatalogos: React.FC = () => {
           items={deps}
           selectedId={selDep?.id ?? null}
           onSelect={setSelDep}
+          onMover={(it) => { setMover({ tipo: 'dep', item: it }); setDestino(''); setBuscaDest(''); }}
           crear={crearDependencia} editar={editarDependencia} eliminar={eliminarDependencia}
           reload={cargarDeps} onError={setError}
           placeholder="NUEVA DEPENDENCIA…" emptyMsg="Sin dependencias." activo
@@ -175,6 +226,7 @@ export const SeccionCatalogos: React.FC = () => {
           titulo="Sub-unidades"
           subtitulo={selDep ? selDep.nombre : null}
           items={unis}
+          onMover={(it) => { setMover({ tipo: 'uni', item: it }); setDestino(''); setBuscaDest(''); }}
           crear={(n) => crearUnidadInterna(selDep!.id, n)} editar={editarUnidadInterna} eliminar={eliminarUnidadInterna}
           reload={() => selDep && cargarUnis(selDep.id)} onError={setError}
           placeholder="NUEVA SUB-UNIDAD…" emptyMsg="Esta dependencia no tiene sub-unidades."
@@ -188,6 +240,91 @@ export const SeccionCatalogos: React.FC = () => {
           placeholder="NUEVO REMITENTE…" emptyMsg="Sin remitentes." activo
         />
       </div>
+
+      {/* ── Modal: reorganizar jerarquía ─────────────────────── */}
+      <Modal
+        open={!!mover}
+        title={mover?.tipo === 'dep' ? 'Convertir dependencia en sub-unidad' : 'Reorganizar sub-unidad'}
+        onClose={cerrarMover}
+        width={560}
+      >
+        {mover && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ padding: '10px 12px', backgroundColor: theme.colors.background, borderRadius: '8px', fontSize: '0.85rem' }}>
+              <strong>{mover.item.nombre}</strong>
+            </div>
+
+            {mover.tipo === 'uni' && (
+              <div style={{ padding: '12px', border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+                <p style={{ margin: '0 0 8px', fontSize: '0.82rem', fontWeight: 700 }}>Convertir en dependencia</p>
+                <p style={{ margin: '0 0 10px', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                  Deja de colgar de «{selDep?.nombre}» y pasa a ser una autoridad independiente.
+                </p>
+                <button onClick={hacerPromover} disabled={guardando} style={btnAdd}>↑ Convertir en dependencia</button>
+              </div>
+            )}
+
+            <div style={{ padding: '12px', border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+              <p style={{ margin: '0 0 8px', fontSize: '0.82rem', fontWeight: 700 }}>
+                {mover.tipo === 'dep' ? 'Convertir en sub-unidad de…' : 'Mover a otra dependencia…'}
+              </p>
+              {mover.tipo === 'dep' && (
+                <p style={{ margin: '0 0 10px', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                  Si tiene sub-unidades propias, se reasignarán a la dependencia destino.
+                </p>
+              )}
+              <input
+                value={buscaDest}
+                onChange={(e) => setBuscaDest(e.target.value)}
+                placeholder="🔍 Buscar dependencia destino…"
+                style={{ ...input, width: '100%', marginBottom: '8px' }}
+              />
+              <div style={{ maxHeight: '190px', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: '6px' }}>
+                {deps
+                  .filter((d) => d.id !== mover.item.id
+                    && (!buscaDest.trim() || d.nombre.toUpperCase().includes(buscaDest.trim().toUpperCase())))
+                  .slice(0, 60)
+                  .map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => setDestino(d.id)}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left', border: 'none',
+                        padding: '7px 10px', cursor: 'pointer', fontSize: '0.8rem',
+                        fontFamily: theme.font.family,
+                        backgroundColor: destino === d.id ? theme.colors.primary : 'transparent',
+                        color: destino === d.id ? '#fff' : theme.colors.textPrimary,
+                      }}
+                    >
+                      {d.nombre}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={cerrarMover} style={{ ...btnAdd, backgroundColor: 'transparent', color: theme.colors.primary, border: `1px solid ${theme.colors.primary}` }}>Cancelar</button>
+              <button
+                onClick={mover.tipo === 'dep' ? hacerDegradar : hacerMoverUni}
+                disabled={!destino || guardando}
+                style={{ ...btnAdd, opacity: (!destino || guardando) ? 0.5 : 1 }}
+              >
+                {guardando ? 'Aplicando…' : '⇄ Aplicar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {aviso && (
+        <div
+          role="status"
+          onClick={() => setAviso(null)}
+          style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 1100, padding: '12px 16px', backgroundColor: '#D1FAE5', color: '#065F46', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, boxShadow: theme.shadow.lg, cursor: 'pointer' }}
+        >
+          ✓ {aviso}
+        </div>
+      )}
     </div>
   );
 };
@@ -199,6 +336,7 @@ const input: React.CSSProperties = { flex: 1, padding: '8px 10px', border: `1px 
 const btnAdd: React.CSSProperties = { padding: '8px 14px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap' };
 const btnDel: React.CSSProperties = { padding: '2px 8px', backgroundColor: 'transparent', color: '#DC2626', border: 'none', borderRadius: '5px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', flexShrink: 0 };
 const btnEdit: React.CSSProperties = { padding: '2px 6px', backgroundColor: 'transparent', border: 'none', borderRadius: '5px', fontSize: '0.8rem', cursor: 'pointer', flexShrink: 0, opacity: 0.75 };
+const btnMove: React.CSSProperties = { padding: '2px 7px', backgroundColor: 'transparent', color: theme.colors.primary, border: 'none', borderRadius: '5px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', flexShrink: 0 };
 const btnSave: React.CSSProperties = { padding: '2px 8px', backgroundColor: 'transparent', color: '#16A34A', border: 'none', borderRadius: '5px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', flexShrink: 0 };
 const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid', borderRadius: '7px', padding: '4px 6px' };
 const rowLabel: React.CSSProperties = { flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.82rem', color: theme.colors.textPrimary, padding: '2px 4px', fontFamily: theme.font.family };

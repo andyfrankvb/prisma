@@ -4,9 +4,13 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Instalar dependencias (se cachean en una capa separada)
-COPY frontend/package*.json ./
-RUN npm install
+# Instalar dependencias (se cachean en una capa separada).
+# OJO: se copia SOLO package.json (no package-lock.json). El lock puede venir de
+# otra plataforma (p. ej. macOS) y por el bug de npm #4828 dejaría sin instalar el
+# binario nativo de Rollup para Linux/musl (@rollup/rollup-linux-x64-musl),
+# haciendo que Vite crashee. Sin el lock, npm resuelve el binario correcto.
+COPY frontend/package.json ./
+RUN npm install --no-package-lock
 
 EXPOSE 5173
 

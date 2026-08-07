@@ -40,6 +40,9 @@ import {
   crearRemitente,
   editarRemitente,
   eliminarRemitente,
+  dependenciaASubunidad,
+  subunidadADependencia,
+  moverSubunidad,
 } from './catalogos.controller';
 
 const router = Router();
@@ -143,6 +146,10 @@ router.get ('/catalogos/dependencias/:id/unidades-internas',  listarUnidadesInte
 router.post('/catalogos/dependencias/:id/unidades-internas',  crearUnidadInterna);
 router.patch('/catalogos/unidades-internas/:id',              editarUnidadInterna);
 router.delete('/catalogos/unidades-internas/:id',             eliminarUnidadInterna);
+// Reorganizar la jerarquía (SUPERADMIN)
+router.post ('/catalogos/dependencias/:id/convertir-en-subunidad',      dependenciaASubunidad);
+router.post ('/catalogos/unidades-internas/:id/convertir-en-dependencia', subunidadADependencia);
+router.patch('/catalogos/unidades-internas/:id/mover',                  moverSubunidad);
 // Remitentes (personas) — catálogo GLOBAL independiente
 router.get ('/catalogos/remitentes',        listarRemitentes);
 router.post('/catalogos/remitentes',        crearRemitente);

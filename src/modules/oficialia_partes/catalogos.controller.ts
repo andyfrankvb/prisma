@@ -153,6 +153,117 @@ export async function eliminarUnidadInterna(
   } catch (err) { next(err); }
 }
 
+// ═══════════════════════════ Reorganización de la jerarquía ═══════════════════════════
+//
+// Los oficios guardan `dependencia_origen` y `unidad_interna` como TEXTO (snapshot
+// de lo capturado ese día), NO como llave foránea. Por eso reorganizar el catálogo
+// no altera ni un oficio histórico: solo cambia la estructura del catálogo.
+
+// POST /catalogos/dependencias/:id/convertir-en-subunidad   body: { dependencia_destino_id }
+// Degrada una dependencia a sub-unidad de otra. Si tenía sub-unidades propias,
+// se reasignan al destino (el catálogo solo tiene 2 niveles).
+export async function dependenciaASubunidad(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    const id      = parseInt(req.params.id, 10);
+    const destino = parseInt(req.body?.dependencia_destino_id, 10);
+    if (!destino)      throw new AppError('Selecciona la dependencia destino', 422);
+    if (id === destino) throw new AppError('La dependencia destino debe ser distinta', 422);
+
+    const origen = await db('catalogo_dependencias').where({ id }).first();
+    if (!origen) throw new AppError('Dependencia no encontrada', 404);
+    const dep = await db('catalogo_dependencias').where({ id: destino }).first();
+    if (!dep) throw new AppError('Dependencia destino no encontrada', 404);
+
+    const movidas = await db.transaction(async (trx) => {
+      // 1) La dependencia pasa a ser sub-unidad del destino.
+      await trx('catalogo_unidades_internas')
+        .insert({ dependencia_id: destino, nombre: origen.nombre, creado_por_id: req.user!.id })
+        .onConflict(['dependencia_id', 'nombre']).merge({ activo: true });
+
+      // 2) Sus sub-unidades se reasignan al destino (evitando chocar con las que ya existan).
+      const hijas = await trx('catalogo_unidades_internas').where({ dependencia_id: id });
+      let n = 0;
+      for (const h of hijas) {
+        const ya = await trx('catalogo_unidades_internas')
+          .where({ dependencia_id: destino, nombre: h.nombre }).first();
+        if (ya) {
+          await trx('catalogo_unidades_internas').where({ id: h.id }).delete();
+        } else {
+          await trx('catalogo_unidades_internas').where({ id: h.id }).update({ dependencia_id: destino });
+          n++;
+        }
+      }
+
+      // 3) Se elimina la dependencia original (ya no quedan hijas colgando).
+      await trx('catalogo_dependencias').where({ id }).delete();
+      return n;
+    });
+
+    res.json({
+      message: `«${origen.nombre}» ahora es sub-unidad de «${dep.nombre}»`
+        + (movidas ? ` · ${movidas} sub-unidad(es) reasignada(s)` : ''),
+    });
+  } catch (err) { next(err); }
+}
+
+// POST /catalogos/unidades-internas/:id/convertir-en-dependencia
+// Promueve una sub-unidad a dependencia independiente.
+export async function subunidadADependencia(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    const id = parseInt(req.params.id, 10);
+    const uni = await db('catalogo_unidades_internas').where({ id }).first();
+    if (!uni) throw new AppError('Sub-unidad no encontrada', 404);
+
+    const row = await db.transaction(async (trx) => {
+      const [nueva] = await trx('catalogo_dependencias')
+        .insert({ nombre: uni.nombre, creado_por_id: req.user!.id })
+        .onConflict('nombre').merge({ activo: true })
+        .returning(['id', 'nombre']);
+      await trx('catalogo_unidades_internas').where({ id }).delete();
+      return nueva;
+    });
+
+    res.json({ data: row, message: `«${uni.nombre}» ahora es una dependencia independiente` });
+  } catch (err) { next(err); }
+}
+
+// PATCH /catalogos/unidades-internas/:id/mover   body: { dependencia_destino_id }
+// Reasigna una sub-unidad a otra dependencia (se capturó bajo el padre equivocado).
+export async function moverSubunidad(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    const id      = parseInt(req.params.id, 10);
+    const destino = parseInt(req.body?.dependencia_destino_id, 10);
+    if (!destino) throw new AppError('Selecciona la dependencia destino', 422);
+
+    const uni = await db('catalogo_unidades_internas').where({ id }).first();
+    if (!uni) throw new AppError('Sub-unidad no encontrada', 404);
+    if (uni.dependencia_id === destino) throw new AppError('Ya pertenece a esa dependencia', 422);
+    const dep = await db('catalogo_dependencias').where({ id: destino }).first();
+    if (!dep) throw new AppError('Dependencia destino no encontrada', 404);
+
+    // Si el destino ya tiene una sub-unidad con ese nombre, se fusionan (se elimina la duplicada).
+    const ya = await db('catalogo_unidades_internas')
+      .where({ dependencia_id: destino, nombre: uni.nombre }).first();
+    if (ya) {
+      await db('catalogo_unidades_internas').where({ id }).delete();
+      res.json({ message: `«${uni.nombre}» ya existía en «${dep.nombre}»; se fusionaron` });
+      return;
+    }
+
+    await db('catalogo_unidades_internas').where({ id }).update({ dependencia_id: destino });
+    res.json({ message: `«${uni.nombre}» se movió a «${dep.nombre}»` });
+  } catch (err) { next(err); }
+}
+
 // ═══════════════════════════ Remitentes (personas, dentro de una sub-unidad) ═══════════════════════════
 
 // GET /catalogos/remitentes  (lista GLOBAL, independiente)

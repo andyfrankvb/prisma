@@ -219,6 +219,35 @@ export async function eliminarUnidadInterna(id: number) {
   return handleResponse<{ message: string }>(res);
 }
 
+// ── Reorganizar la jerarquía del catálogo (SUPERADMIN) ──
+/** Degrada una dependencia a sub-unidad de otra (sus sub-unidades se reasignan). */
+export async function dependenciaASubunidad(id: number, dependencia_destino_id: number) {
+  const res = await fetch(`${BASE}/catalogos/dependencias/${id}/convertir-en-subunidad`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ dependencia_destino_id }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Promueve una sub-unidad a dependencia independiente. */
+export async function subunidadADependencia(id: number) {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas/${id}/convertir-en-dependencia`, {
+    method: 'POST', headers: authHeaders(),
+  });
+  return handleResponse<{ data: CatalogoItem; message: string }>(res);
+}
+
+/** Reasigna una sub-unidad a otra dependencia. */
+export async function moverSubunidad(id: number, dependencia_destino_id: number) {
+  const res = await fetch(`${BASE}/catalogos/unidades-internas/${id}/mover`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ dependencia_destino_id }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 // ── Remitentes (personas) — catálogo GLOBAL independiente ──
 export async function getRemitentes() {
   const res = await fetch(`${BASE}/catalogos/remitentes`, { headers: authHeaders() });
