@@ -42,7 +42,7 @@ function getAdapter(): OcrAdapter {
  * Extrae texto de un PDF escaneado.
  * Usa el adaptador configurado en OCR_PROVIDER.
  */
-export async function extractTextFromPdf(pdfBuffer: Buffer): Promise<OcrResult> {
+export async function extractTextFromPdf(pdfBuffer: Buffer, maxPages?: number): Promise<OcrResult> {
   const adapter = getAdapter();
 
   logger.info({ provider: adapter.name }, 'OCR extraction started');
@@ -59,7 +59,7 @@ export async function extractTextFromPdf(pdfBuffer: Buffer): Promise<OcrResult> 
     };
   }
 
-  const result = await adapter.extractText(pdfBuffer);
+  const result = await adapter.extractText(pdfBuffer, maxPages);
 
   logger.info({
     provider:    result.provider,

@@ -14,5 +14,5 @@ export interface OcrResult {
 export interface OcrAdapter {
   name:      string;
   isAvailable(): Promise<boolean>;
-  extractText(pdfBuffer: Buffer): Promise<OcrResult>;
+  extractText(pdfBuffer: Buffer, maxPages?: number): Promise<OcrResult>;
 }

@@ -73,6 +73,7 @@ export interface Abogado {
   nombre: string;
   email:  string;
   cargo?: string | null;
+  oficina_nombre?: string | null;
 }
 
 export interface AsignacionJuridica {

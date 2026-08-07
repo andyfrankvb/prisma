@@ -15,6 +15,7 @@ import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
 import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
+import { OficiosResumen } from '../components/OficiosResumen';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion } from '../api';
@@ -41,6 +42,7 @@ export const Dashboard_Juridico: React.FC = () => {
   const isMobile = useIsMobile();
 
   const [oficios,    setOficios]    = useState<Oficio[]>([]);
+  const [conteos,    setConteos]    = useState<Record<string, number>>({});
   const [loading,    setLoading]    = useState(false);
   const [listError,  setListError]  = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export const Dashboard_Juridico: React.FC = () => {
   const [comentarios,    setComentarios]    = useState<ComentarioReconsideracion[]>([]);
   const [loadingComents, setLoadingComents] = useState(false);
 
-  const [filtros, setFiltros] = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false });
+  const [filtros, setFiltros] = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '' });
 
   const fetchOficios = useCallback(async () => {
     setLoading(true); setListError(null);
@@ -71,8 +73,10 @@ export const Dashboard_Juridico: React.FC = () => {
         hasta:            filtros.hasta || undefined,
         siqroo_pendiente: filtros.siqroo_pendiente || undefined,
         pendiente_firma:  filtros.pendiente_firma || undefined,
+        dirigido_a_id:    filtros.area ? Number(filtros.area) : undefined,
       });
       setOficios(res.data);
+      setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
   }, [filtros]);
@@ -129,7 +133,7 @@ export const Dashboard_Juridico: React.FC = () => {
      detalleOficio.estatus === 'EN_RECONSIDERACION');
 
   return (
-    <div style={{ padding: isMobile ? '16px 12px' : '24px', backgroundColor: theme.colors.background, minHeight: '100vh', fontFamily: theme.font.family }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px', backgroundColor: theme.colors.background, height: 'calc(100vh - 58px)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', fontFamily: theme.font.family }}>
 
       {/* Header */}
       <div style={{ marginBottom: '24px' }}>
@@ -149,62 +153,51 @@ export const Dashboard_Juridico: React.FC = () => {
       )}
       {listError && <div role="alert" style={{ ...alertError, marginBottom: '16px' }}>{listError}</div>}
 
-      {/* Filtros */}
-      <FiltrosOficios onChange={setFiltros} />
+      {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
+        <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
+          <OficiosResumen conteos={conteos} estatus={filtros.estatus} />
+        </div>
+        <div style={{ flex: '3 1 420px', display: 'flex' }}>
+          <FiltrosOficios onChange={setFiltros} />
+        </div>
+      </div>
 
-      {/* Kanban */}
+      {/* Lista — único scroll vertical de la vista */}
       {loading ? (
         <p style={{ color: theme.colors.textSecondary }}>Cargando…</p>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '16px', alignItems: 'start' }}>
-          {COLUMNS.map((col) => {
-            const items = getColumnOficios(col);
-            return (
-              <div key={col.key}>
-                <div style={{
-                  padding:         '10px 16px',
-                  background:      `linear-gradient(90deg, ${theme.colors.primaryDark} 0%, ${theme.colors.primary} 100%)`,
-                  color:           '#fff',
-                  borderRadius:    '8px 8px 0 0',
-                  fontWeight:      700,
-                  fontSize:        '0.85rem',
-                  display:         'flex',
-                  alignItems:      'center',
-                  justifyContent:  'space-between',
-                  letterSpacing:   '0.03em',
-                  textTransform:   'uppercase',
-                }}>
-                  <span>{col.label}</span>
-                  <span style={{ backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: '12px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 700 }}>
-                    {items.length}
-                  </span>
-                </div>
-                <div style={{
-                  backgroundColor: col.color,
-                  borderRadius:    '0 0 8px 8px',
-                  padding:         '10px',
-                  minHeight:       '120px',
-                  display:         'flex',
-                  flexDirection:   'column',
-                  gap:             '10px',
-                }}>
-                  {items.length === 0 ? (
-                    <p style={{ textAlign: 'center', color: theme.colors.textSecondary, fontSize: '0.8rem', margin: '16px 0' }}>
-                      Sin oficios
-                    </p>
-                  ) : (
-                    items.map((o) => (
-                      <KanbanCard
-                        key={o.id}
-                        oficio={o}
-                        onOpen={(tab) => openDetalle(o, tab)}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        <div className="scroll-x" style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
+          <table style={{ width: '100%', minWidth: '820px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+              <tr style={{ backgroundColor: theme.colors.surface }}>
+                {['Folio', 'Remitente', 'Dependencia', 'Ingreso', 'Término', 'Estatus'].map((h) => (
+                  <th key={h} style={{ padding: '13px 14px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', color: theme.colors.textSecondary, borderBottom: `2px solid ${theme.colors.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {oficios.length === 0 ? (
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: theme.colors.textSecondary, padding: '24px' }}>Sin oficios</td></tr>
+              ) : (
+                oficios.map((o, i) => (
+                    <tr
+                      key={o.id}
+                      onClick={() => openDetalle(o)}
+                      style={{ borderBottom: `1px solid ${theme.colors.border}`, backgroundColor: i % 2 === 0 ? '#fff' : '#F9FAFB', cursor: 'pointer' }}
+                      title="Ver detalle de la solicitud"
+                    >
+                      <td style={{ padding: '10px 14px' }}><strong style={{ color: theme.colors.primary }}>{o.folio}</strong></td>
+                      <td style={{ padding: '10px 14px', color: theme.colors.textSecondary }}>{o.remitente}</td>
+                      <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', textTransform: 'uppercase' }}>{o.dependencia_origen}</td>
+                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
+                      <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
+                      <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
+                    </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 

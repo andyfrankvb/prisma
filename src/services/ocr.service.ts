@@ -26,6 +26,13 @@ export async function processOcr(oficio_id: number, filePath: string): Promise<v
 
     if (!fs.existsSync(absolute)) {
       logger.warn({ oficio_id, filePath }, 'OCR: file not found on disk');
+      // Marcar como procesado (con error) para NO dejar la leyenda "extrayendo"
+      // congelada para siempre cuando el archivo no está disponible en disco.
+      await db('oficios').where({ id: oficio_id }).update({
+        ocr_procesado: true,
+        ocr_fecha:     new Date(),
+        ocr_metodo:    'error: archivo no encontrado',
+      }).catch(() => {});
       return;
     }
 

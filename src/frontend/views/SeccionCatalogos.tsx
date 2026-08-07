@@ -37,9 +37,10 @@ const Columna: React.FC<ColumnaProps> = ({
   titulo, subtitulo, items, selectedId, onSelect, crear, editar, eliminar, reload, onError,
   placeholder, emptyMsg, promptMsg, activo,
 }) => {
-  const [nuevo,   setNuevo]   = useState('');
-  const [editId,  setEditId]  = useState<number | null>(null);
-  const [editVal, setEditVal] = useState('');
+  const [nuevo,    setNuevo]    = useState('');
+  const [editId,   setEditId]   = useState<number | null>(null);
+  const [editVal,  setEditVal]  = useState('');
+  const [busqueda, setBusqueda] = useState('');
 
   const agregar = async () => {
     const nombre = nuevo.trim().toUpperCase();
@@ -56,6 +57,11 @@ const Columna: React.FC<ColumnaProps> = ({
     try { await editar(it.id, nombre); setEditId(null); reload(); } catch (e: any) { onError(e.message); }
   };
 
+  // Filtro local del buscador: mayúsculas + sin acentos (coincidencia por substring).
+  const norm = (s: string) => s.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const q = norm(busqueda.trim());
+  const itemsFiltrados = q ? items.filter((it) => norm(it.nombre).includes(q)) : items;
+
   return (
     <div style={panel}>
       <h3 style={panelTitle}>{titulo}</h3>
@@ -70,9 +76,23 @@ const Columna: React.FC<ColumnaProps> = ({
               style={{ ...input, textTransform: 'uppercase' }} onKeyDown={(e) => { if (e.key === 'Enter') agregar(); }} />
             <button onClick={agregar} style={btnAdd}>Agregar</button>
           </div>
-          {items.length === 0 ? <p style={muted}>{emptyMsg}</p> : (
+          {/* Buscador (aparece cuando hay elementos) */}
+          {items.length > 0 && (
+            <input
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="🔍 Buscar…"
+              style={{ ...input, marginBottom: '10px' }}
+            />
+          )}
+
+          {items.length === 0 ? (
+            <p style={muted}>{emptyMsg}</p>
+          ) : itemsFiltrados.length === 0 ? (
+            <p style={muted}>Sin resultados para «{busqueda.trim()}».</p>
+          ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {items.map((it) => {
+              {itemsFiltrados.map((it) => {
                 const sel = selectedId === it.id;
                 return (
                   <div key={it.id} style={{ ...row, backgroundColor: sel ? '#EEF2FF' : '#fff', borderColor: sel ? theme.colors.primary : theme.colors.border }}>

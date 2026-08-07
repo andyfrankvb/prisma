@@ -6,14 +6,16 @@ import { theme } from './theme';
 import type React from 'react';
 
 export const thStyle: React.CSSProperties = {
-  padding:       '12px 16px',
+  padding:       '13px 16px',
   textAlign:     'left',
   fontWeight:    700,
   fontSize:      '0.72rem',
   whiteSpace:    'nowrap',
-  letterSpacing: '0.06em',
+  letterSpacing: '0.04em',
   textTransform: 'uppercase' as const,
   fontFamily:    theme.font.family,
+  color:         theme.colors.textSecondary,
+  borderBottom:  `2px solid ${theme.colors.border}`,
 };
 
 export const tdStyle: React.CSSProperties = {
@@ -132,8 +134,7 @@ export const sectionTitleStyle: React.CSSProperties = {
 };
 
 export const tableHeaderStyle: React.CSSProperties = {
-  background: `linear-gradient(90deg, ${theme.colors.primaryDark} 0%, ${theme.colors.primary} 100%)`,
-  color:      theme.colors.white,
+  backgroundColor: theme.colors.surface,
 };
 
 export const detailPanelHeaderStyle: React.CSSProperties = {

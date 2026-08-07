@@ -36,9 +36,20 @@ async function apiFetch<T>(path: string): Promise<T> {
 
 // ── Types ─────────────────────────────────────────────────────
 
+interface DelegacionAvance {
+  delegacion:  string;
+  tipo:        string;
+  total:       number;
+  finalizados: number;
+  pendientes:  number;
+  pct:         number;
+}
+
 interface Metricas {
   total_general:              number;
   por_estatus:                Record<string, number>;
+  por_delegacion:             DelegacionAvance[];
+  antiguedad_critica:         { folio: string; delegacion: string | null; dias: number } | null;
   vencidos:                   number;
   urgentes_24h:               number;
   finalizados_mes:            number;
@@ -189,26 +200,7 @@ export const Dashboard_Director: React.FC = () => {
             Vista general del sistema
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 auto', justifyContent: 'flex-end' }}>
-          <div style={{ position: 'relative', flex: '0 1 360px' }}>
-            <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: theme.colors.textSecondary, fontSize: '0.9rem' }}>🔍</span>
-            <input
-              type="search"
-              placeholder="Buscar en oficios…"
-              style={{
-                width: '100%', padding: '9px 12px 9px 36px',
-                border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px',
-                fontSize: '0.875rem', fontFamily: theme.font.family, boxSizing: 'border-box' as const,
-                backgroundColor: theme.colors.white,
-              }}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val.length === 0 || val.length >= 3) {
-                  window.open(`/dashboard/gestion?search=${encodeURIComponent(val)}`, '_self');
-                }
-              }}
-            />
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-end' }}>
           <button
             onClick={fetchAll}
             style={{ background: theme.colors.primary, border: 'none', color: '#fff', padding: '9px 16px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0 }}
@@ -236,6 +228,126 @@ export const Dashboard_Director: React.FC = () => {
 
 // ── MetricasContent ───────────────────────────────────────────
 
+// ── Resumen ejecutivo — inspirado en el reporte gráfico a Dirección General ──
+const ResumenEjecutivo: React.FC<{ metricas: Metricas; isMobile: boolean }> = ({ metricas, isMobile }) => {
+  const total       = metricas.total_general;
+  const finalizados = metricas.por_estatus['FINALIZADO'] ?? 0;
+  const avance      = total > 0 ? Math.round((finalizados / total) * 100) : 0;
+  const pendientes  = total - finalizados;
+  const recibidos   = metricas.por_estatus['RECIBIDO'] ?? 0;
+  const pctGestion  = total > 0 ? Math.round(((total - recibidos) / total) * 100) : 0;
+
+  const dels = [...(metricas.por_delegacion ?? [])].sort((a, b) => b.pct - a.pct);
+  const peor = dels.length ? dels[dels.length - 1] : null;
+  const ant  = metricas.antiguedad_critica;
+
+  // Paleta de la lámina: guinda, dorado, gris, magenta (por delegación); tonos de apoyo para el resto.
+  const APOYO = ['#2B0A14', '#5A5A5A', '#8C6D1F', '#B0143C'];
+  const colorArea = (nombre: string, i: number) => {
+    const n = (nombre ?? '').toUpperCase();
+    if (n.includes('BENITO'))                        return '#6E1030';
+    if (n.includes('PLAYA'))                         return '#9A8A2E';
+    if (n.includes('COZUMEL'))                       return '#7C7C7C';
+    if (n.includes('OTHON') || n.includes('BLANCO')) return '#D6197D';
+    return APOYO[i % APOYO.length];
+  };
+
+  const card: React.CSSProperties = {
+    backgroundColor: theme.colors.surface, border: `1px solid ${theme.colors.border}`,
+    borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '18px 20px',
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '230px 1fr 240px', gap: '16px', alignItems: 'stretch' }}>
+
+      {/* Columna 1: donut de avance + tarjeta "% en gestión" (separadas) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ ...card, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: theme.colors.primaryDark, textAlign: 'center' }}>Avance global de oficios</div>
+          <div style={{ width: 150, height: 150, borderRadius: '50%', background: `conic-gradient(${theme.colors.primary} ${avance * 3.6}deg, #E5E7EB 0)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 112, height: 112, borderRadius: '50%', backgroundColor: theme.colors.surface, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ fontSize: '2.1rem', fontWeight: 900, color: theme.colors.primary, lineHeight: 1 }}>{avance}%</div>
+              <div style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', color: theme.colors.textSecondary }}>FINALIZADOS</div>
+            </div>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>{finalizados} de {total} finalizados</div>
+        </div>
+        <div style={{ ...card, padding: '14px 16px', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.9rem', fontWeight: 900, color: theme.colors.gold, lineHeight: 1 }}>{pctGestion}%</div>
+          <div style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, marginTop: '3px' }}>en gestión (fuera de «Recibido»)</div>
+        </div>
+      </div>
+
+      {/* Columna 2: barras por delegación + leyenda de colores */}
+      <div style={card}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: theme.colors.primaryDark, marginBottom: '2px' }}>Avance por delegación / área</div>
+        <div style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, marginBottom: '12px' }}>% de oficios finalizados sobre el total dirigido a cada área</div>
+        {dels.length === 0 ? (
+          <p style={{ fontSize: '0.8rem', color: theme.colors.textSecondary, margin: 0 }}>Sin datos.</p>
+        ) : dels.map((d, i) => {
+          const c = colorArea(d.delegacion, i);
+          return (
+          <div key={d.delegacion} style={{ marginBottom: '9px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '3px' }}>
+              <span style={{ fontSize: '0.8rem', color: theme.colors.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.delegacion}</span>
+              <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
+                {d.finalizados}/{d.total} · <strong style={{ color: c, fontSize: '0.82rem' }}>{d.pct}%</strong>
+              </span>
+            </div>
+            <div style={{ height: '10px', borderRadius: '6px', backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
+              <div style={{ width: `${d.pct}%`, height: '100%', backgroundColor: c, borderRadius: '6px' }} />
+            </div>
+          </div>
+          );
+        })}
+        {dels.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px', marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${theme.colors.border}` }}>
+            {dels.map((d, i) => (
+              <span key={d.delegacion} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
+                <span style={{ width: 11, height: 11, borderRadius: 3, backgroundColor: colorArea(d.delegacion, i), flexShrink: 0 }} />
+                {d.delegacion}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Columna 3: focos críticos + antigüedad + acción sugerida */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ ...card, padding: '14px 16px' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: theme.colors.primaryDark, marginBottom: '10px' }}>Focos críticos</div>
+          {[
+            { lbl: 'Pendientes', val: pendientes, col: theme.colors.charcoal },
+            { lbl: 'Vencidos', val: metricas.vencidos, col: theme.colors.alert.red },
+            { lbl: 'Urgentes (24h)', val: metricas.urgentes_24h, col: theme.colors.gold },
+          ].map((f) => (
+            <div key={f.lbl} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: `1px solid ${theme.colors.border}` }}>
+              <span style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>{f.lbl}</span>
+              <strong style={{ fontSize: '1.05rem', color: f.col }}>{f.val}</strong>
+            </div>
+          ))}
+        </div>
+        {ant && (
+          <div style={{ ...card, padding: '14px 16px' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: theme.colors.primaryDark, marginBottom: '4px' }}>Antigüedad crítica</div>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary, lineHeight: 1.4 }}>
+              El pendiente más antiguo lleva <strong style={{ color: theme.colors.alert.red }}>{ant.dias} día{ant.dias === 1 ? '' : 's'}</strong>: <strong>{ant.folio}</strong>{ant.delegacion ? ` · ${ant.delegacion}` : ''}.
+            </p>
+          </div>
+        )}
+        {peor && (
+          <div style={{ ...card, padding: '14px 16px', backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>Acción sugerida</div>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: '#78350F', lineHeight: 1.4 }}>
+              <strong>{peor.delegacion}</strong> tiene el menor avance ({peor.pct}%). Priorizar su seguimiento.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 interface MetricasContentProps {
   metricas:         Metricas;
   carga:            CargaAbogado[];
@@ -253,6 +365,9 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
 
   return (
     <div style={{ padding: isMobile ? '16px 12px 32px' : '24px 32px 40px', maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* ── Resumen ejecutivo (avance global + por delegación) ─ */}
+      <ResumenEjecutivo metricas={metricas} isMobile={isMobile} />
 
       {/* ── KPI Cards (siempre visibles) ─────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>

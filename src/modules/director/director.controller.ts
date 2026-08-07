@@ -89,10 +89,54 @@ export async function getMetricas(
       estatusMap[r.estatus] = Number(r.total);
     }
 
+    // Avance por delegación/área (según el área del destinatario = "delegacion_nombre"):
+    // total y finalizados por unidad, con % de avance (finalizados / total).
+    const delegRows = await db('oficios as o')
+      .leftJoin('usuarios as dir', 'dir.id', 'o.dirigido_a_id')
+      .leftJoin('catalogo_unidades as du', 'du.id', 'dir.unidad_id')
+      .whereNotNull('du.nombre')
+      .groupBy('du.nombre', 'du.tipo')
+      .select('du.nombre as delegacion', 'du.tipo as tipo')
+      .count('o.id as total')
+      .select(db.raw(`count(o.id) FILTER (WHERE o.estatus = 'FINALIZADO') as finalizados`));
+
+    const por_delegacion = delegRows
+      .map((r: any) => {
+        const total       = Number(r.total);
+        const finalizados = Number(r.finalizados);
+        return {
+          delegacion:  r.delegacion as string,
+          tipo:        r.tipo as string,
+          total,
+          finalizados,
+          pendientes:  total - finalizados,
+          pct:         total > 0 ? Math.round((finalizados / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.pct - a.pct);
+
+    // Antigüedad crítica: el oficio NO finalizado más antiguo (por fecha de registro).
+    const antRow = await db('oficios as o')
+      .leftJoin('usuarios as dir', 'dir.id', 'o.dirigido_a_id')
+      .leftJoin('catalogo_unidades as du', 'du.id', 'dir.unidad_id')
+      .whereNotIn('o.estatus', ['FINALIZADO'])
+      .orderBy('o.fecha_registro', 'asc')
+      .select('o.folio', 'o.fecha_registro', 'du.nombre as delegacion')
+      .first();
+    const antiguedad_critica = antRow
+      ? {
+          folio:      antRow.folio as string,
+          delegacion: (antRow.delegacion as string | null) ?? null,
+          dias:       Math.floor((Date.now() - new Date(antRow.fecha_registro).getTime()) / 86400000),
+        }
+      : null;
+
     res.json({
       data: {
         total_general:    totalGeneral,
         por_estatus:      estatusMap,
+        por_delegacion,
+        antiguedad_critica,
         vencidos:         Number(vencidos),
         urgentes_24h:     Number(urgentes),
         finalizados_mes:  Number(finalizados_mes),

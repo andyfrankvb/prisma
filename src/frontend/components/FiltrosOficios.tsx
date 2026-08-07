@@ -7,6 +7,9 @@
 import React, { useEffect, useState } from 'react';
 import { theme } from '../theme';
 import { inputStyle, selectStyle, btnSecondary } from '../styles';
+import { ESTATUS_META } from './oficiosEstatus';
+import { getUsuarios } from '../api';
+import type { Abogado } from '../types';
 
 export interface OficiosFiltros {
   search:            string;
@@ -16,17 +19,8 @@ export interface OficiosFiltros {
   hasta:             string;
   siqroo_pendiente:  boolean;
   pendiente_firma:   boolean;
+  area:              string;   // id del jefe de área (dirigido a)
 }
-
-const ESTATUS_OPTIONS = [
-  { value: '',                   label: 'Todos los estatus'   },
-  { value: 'RECIBIDO',           label: 'Recibido'            },
-  { value: 'ASIGNADO',           label: 'Asignado'            },
-  { value: 'EN_REVISION',        label: 'En Revisión'         },
-  { value: 'EN_RECONSIDERACION', label: 'En Reconsideración'  },
-  { value: 'VOBO_APROBADO',      label: 'VoBo Aprobado'       },
-  { value: 'FINALIZADO',         label: 'Finalizado'          },
-];
 
 export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }> = ({ onChange }) => {
   const [search,     setSearch]     = useState('');
@@ -37,6 +31,16 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
   const [hasta,      setHasta]      = useState('');
   const [siqrooPend, setSiqrooPend] = useState(false);
   const [firmaPend,  setFirmaPend]  = useState(false);
+  const [area,       setArea]       = useState('');
+  const [areas,      setAreas]      = useState<Abogado[]>([]);
+
+  // Jefes de área a los que se puede dirigir un oficio: directores y delegados.
+  useEffect(() => {
+    Promise.all([getUsuarios({ rol: 'DIRECTOR' }), getUsuarios({ rol: 'ENCARGADO' })])
+      .then(([dirs, encs]) => setAreas([...dirs, ...encs].sort((a, b) =>
+        (a.oficina_nombre ?? a.nombre).localeCompare(b.oficina_nombre ?? b.nombre))))
+      .catch(() => {});
+  }, []);
 
   // Debounce del buscador
   useEffect(() => {
@@ -46,27 +50,41 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
 
   // Avisar al padre cuando cambia cualquier filtro
   useEffect(() => {
-    onChange({ search: searchDeb, estatus, termino, desde, hasta, siqroo_pendiente: siqrooPend, pendiente_firma: firmaPend });
+    onChange({ search: searchDeb, estatus, termino, desde, hasta, siqroo_pendiente: siqrooPend, pendiente_firma: firmaPend, area });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDeb, estatus, termino, desde, hasta, siqrooPend, firmaPend]);
+  }, [searchDeb, estatus, termino, desde, hasta, siqrooPend, firmaPend, area]);
 
-  const hayFiltros = search || estatus || desde || hasta || siqrooPend || firmaPend || termino;
+  const hayFiltros = search || estatus || desde || hasta || siqrooPend || firmaPend || termino || area;
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', padding: '10px 0' }}>
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 Buscar en todo: folio, remitente, dependencia, documentos, término…"
-        style={{ ...inputStyle, flex: '1 1 240px', minWidth: '180px' }}
-        aria-label="Buscar"
-      />
+    <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '14px 16px', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
 
+      {/* Búsqueda */}
+      <div style={{ flex: '1 1 260px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '10px', padding: '9px 14px' }}>
+        <span style={{ color: theme.colors.textSecondary }}>🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar: folio, remitente, dependencia, documentos…"
+          style={{ border: 'none', outline: 'none', background: 'transparent', width: '100%', fontSize: '0.9rem', fontFamily: theme.font.family, color: theme.colors.textPrimary }}
+          aria-label="Buscar"
+        />
+      </div>
+
+      {/* Estatus (desplegable, para no ensanchar la vista) */}
       <select value={estatus} onChange={(e) => setEstatus(e.target.value)} style={selectStyle} aria-label="Filtrar por estatus">
-        {ESTATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        <option value="">Todos los estatus</option>
+        {ESTATUS_META.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
       </select>
 
+      {/* Área (jefe de área al que va dirigido) */}
+      <select value={area} onChange={(e) => setArea(e.target.value)} style={selectStyle} aria-label="Filtrar por área">
+        <option value="">Todas las áreas</option>
+        {areas.map((u) => <option key={u.id} value={String(u.id)}>{u.oficina_nombre ?? u.nombre}</option>)}
+      </select>
+
+      {/* Término */}
       <select value={termino} onChange={(e) => setTermino(e.target.value)} style={selectStyle} aria-label="Filtrar por término">
         <option value="">Término: todos</option>
         <option value="con_termino">Con término</option>
@@ -74,6 +92,7 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
         <option value="vencidos">Vencidos</option>
       </select>
 
+      {/* Fechas */}
       <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
         Desde
         <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} style={{ ...inputStyle, padding: '6px 8px' }} />
@@ -83,20 +102,20 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
         <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} style={{ ...inputStyle, padding: '6px 8px' }} />
       </label>
 
+      {/* SIQROO / firma */}
       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
         <input type="checkbox" checked={siqrooPend} onChange={(e) => setSiqrooPend(e.target.checked)} />
-        🚩 SIQROO pendiente
+        SIQROO pendiente
       </label>
-
       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
         <input type="checkbox" checked={firmaPend} onChange={(e) => setFirmaPend(e.target.checked)} />
-        🖊️ Pendiente de firma
+        Pendiente de firma
       </label>
 
       {hayFiltros && (
         <button
           type="button"
-          onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); }}
+          onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); setArea(''); }}
           style={{ ...btnSecondary, padding: '7px 12px', fontSize: '0.78rem' }}
         >
           Limpiar

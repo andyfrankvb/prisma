@@ -11,6 +11,13 @@ import { Request, Response, NextFunction } from 'express';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
 
+/**
+ * Normaliza un nombre de catálogo antes de guardarlo: quita espacios en los
+ * extremos, colapsa espacios internos dobles y lo pasa a MAYÚSCULAS. Así se
+ * evitan casi-duplicados por espacios ("A  B" → "A B").
+ */
+const normNombre = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+
 // ═══════════════════════════ Dependencias (nivel raíz) ═══════════════════════════
 
 // GET /catalogos/dependencias
@@ -29,13 +36,20 @@ export async function crearDependencia(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la dependencia es requerido', 422);
+    // ¿Ya existe? → devuélvela (reactivando si estaba inactiva) sin crear duplicado.
+    const existente = await db('catalogo_dependencias').where({ nombre }).first();
+    if (existente) {
+      if (existente.activo === false) await db('catalogo_dependencias').where({ id: existente.id }).update({ activo: true });
+      res.status(200).json({ data: { id: existente.id, nombre: existente.nombre }, yaExistia: true });
+      return;
+    }
     const [row] = await db('catalogo_dependencias')
       .insert({ nombre, creado_por_id: req.user!.id })
       .onConflict('nombre').merge({ activo: true })
       .returning(['id', 'nombre']);
-    res.status(201).json({ data: row });
+    res.status(201).json({ data: row, yaExistia: false });
   } catch (err) { next(err); }
 }
 
@@ -46,7 +60,7 @@ export async function editarDependencia(
   try {
     if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
     const id = parseInt(req.params.id, 10);
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la dependencia es requerido', 422);
     const dup = await db('catalogo_dependencias').where({ nombre }).whereNot({ id }).first();
     if (dup) throw new AppError('Ya existe una dependencia con ese nombre', 409);
@@ -89,15 +103,21 @@ export async function crearUnidadInterna(
 ): Promise<void> {
   try {
     const dependencia_id = parseInt(req.params.id, 10);
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la sub-unidad es requerido', 422);
     const dep = await db('catalogo_dependencias').where({ id: dependencia_id }).first();
     if (!dep) throw new AppError('Dependencia no encontrada', 404);
+    const existente = await db('catalogo_unidades_internas').where({ dependencia_id, nombre }).first();
+    if (existente) {
+      if (existente.activo === false) await db('catalogo_unidades_internas').where({ id: existente.id }).update({ activo: true });
+      res.status(200).json({ data: { id: existente.id, nombre: existente.nombre }, yaExistia: true });
+      return;
+    }
     const [row] = await db('catalogo_unidades_internas')
       .insert({ dependencia_id, nombre, creado_por_id: req.user!.id })
       .onConflict(['dependencia_id', 'nombre']).merge({ activo: true })
       .returning(['id', 'nombre']);
-    res.status(201).json({ data: row });
+    res.status(201).json({ data: row, yaExistia: false });
   } catch (err) { next(err); }
 }
 
@@ -108,7 +128,7 @@ export async function editarUnidadInterna(
   try {
     if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
     const id = parseInt(req.params.id, 10);
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la sub-unidad es requerido', 422);
     const actual = await db('catalogo_unidades_internas').where({ id }).first();
     if (!actual) throw new AppError('Sub-unidad no encontrada', 404);
@@ -151,13 +171,19 @@ export async function crearRemitente(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre del remitente es requerido', 422);
+    const existente = await db('catalogo_remitentes').where({ nombre }).first();
+    if (existente) {
+      if (existente.activo === false) await db('catalogo_remitentes').where({ id: existente.id }).update({ activo: true });
+      res.status(200).json({ data: { id: existente.id, nombre: existente.nombre }, yaExistia: true });
+      return;
+    }
     const [row] = await db('catalogo_remitentes')
       .insert({ nombre, creado_por_id: req.user!.id })
       .onConflict('nombre').merge({ activo: true })
       .returning(['id', 'nombre']);
-    res.status(201).json({ data: row });
+    res.status(201).json({ data: row, yaExistia: false });
   } catch (err) { next(err); }
 }
 
@@ -168,7 +194,7 @@ export async function editarRemitente(
   try {
     if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
     const id = parseInt(req.params.id, 10);
-    const nombre = String(req.body?.nombre ?? '').trim().toUpperCase();
+    const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre del remitente es requerido', 422);
     const dup = await db('catalogo_remitentes').where({ nombre }).whereNot({ id }).first();
     if (dup) throw new AppError('Ya existe un remitente con ese nombre', 409);

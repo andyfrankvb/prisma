@@ -17,28 +17,21 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
-import { getOficios, createOficio, getUsuarios, analizarPdf, finalizarOficio,
+import { getOficios, createOficio, getUsuarios, finalizarOficio,
          getDependencias, crearDependencia, getRemitentes, crearRemitente,
          getUnidadesInternas, crearUnidadInterna, completarSiqroo } from '../api';
 import type { CatalogoItem } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
+import { FiltrosOficios } from '../components/FiltrosOficios';
+import { OficiosResumen } from '../components/OficiosResumen';
 import {
   thStyle, tdStyle, inputStyle, selectStyle, emptyCell,
   btnPrimary, btnSecondary, alertStyle, labelStyle,
   tableHeaderStyle, detailPanelHeaderStyle, sectionTitleStyle,
 } from '../styles';
 
-const ESTATUS_OPTIONS = [
-  { value: '',              label: 'Todos los estatus' },
-  { value: 'RECIBIDO',      label: 'Recibido'          },
-  { value: 'ASIGNADO',      label: 'Asignado'          },
-  { value: 'EN_REVISION',   label: 'En Revisión'       },
-  { value: 'VOBO_APROBADO', label: 'VoBo Aprobado'     },
-  { value: 'FINALIZADO',    label: 'Finalizado'        },
-];
-
-const LIMIT = 15;
+const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
 
 /** Documentos categorizados que se pueden adjuntar al ingreso de oficio */
 const DOCUMENTOS_OFICIO = [
@@ -46,8 +39,15 @@ const DOCUMENTOS_OFICIO = [
   { key: 'anexos',         label: 'Anexos'                },
   { key: 'identificacion', label: 'Identificación oficial'},
   { key: 'recibos',        label: 'Recibos de pago'       },
-  { key: 'solicitud',      label: 'Solicitud de servicio' },
 ] as const;
+
+/**
+ * Normaliza un nombre para DETECTAR duplicados al agregar al catálogo:
+ * mayúsculas, sin acentos y espacios colapsados. Así "Poder Judicial",
+ * "PODER  JUDICIAL" y "PODER JUDICÍAL" se consideran el mismo registro.
+ */
+const normDup = (s: string) =>
+  (s ?? '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
 
 export const Dashboard_Oficial: React.FC = () => {
   const { user } = useAuth();
@@ -56,23 +56,20 @@ export const Dashboard_Oficial: React.FC = () => {
   // ── List state ────────────────────────────────────────────
   const [oficios,   setOficios]   = useState<Oficio[]>([]);
   const [total,     setTotal]     = useState(0);
+  const [conteos,   setConteos]   = useState<Record<string, number>>({});
   const [page,      setPage]      = useState(1);
   const [estatus,   setEstatus]   = useState('');
   const [loading,   setLoading]   = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
-  // ── Filtros de búsqueda ───────────────────────────────────
-  const [search,     setSearch]     = useState('');
-  const [searchDeb,  setSearchDeb]  = useState('');   // buscador con debounce
+  // ── Filtros de búsqueda (los captura el componente compartido FiltrosOficios) ──
+  const [searchDeb,  setSearchDeb]  = useState('');
   const [desde,      setDesde]      = useState('');
   const [hasta,      setHasta]      = useState('');
   const [siqrooPend, setSiqrooPend] = useState(false);
   const [firmaPend,  setFirmaPend]  = useState(false);
   const [termino,    setTermino]    = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => { setSearchDeb(search); setPage(1); }, 350);
-    return () => clearTimeout(t);
-  }, [search]);
+  const [dirigidoAId, setDirigidoAId] = useState('');
 
   // ── Detail panel ──────────────────────────────────────────
   const [selected, setSelected] = useState<Oficio | null>(null);
@@ -102,9 +99,6 @@ export const Dashboard_Oficial: React.FC = () => {
   // ── Create modal — paso 1: subir PDF, paso 2: corroborar campos ─
   const [showCreate,   setShowCreate]   = useState(false);
   const [paso,         setPaso]         = useState<1 | 2>(1);
-  const [analizando,   setAnalizando]   = useState(false);
-  const [confianza,    setConfianza]    = useState<'alta'|'media'|'baja'|null>(null);
-  const [textoOcr,     setTextoOcr]     = useState<string>('');
   const [submitting,   setSubmitting]   = useState(false);
   const [createError,  setCreateError]  = useState<string | null>(null);
   const [remitente,    setRemitente]    = useState('');
@@ -178,12 +172,33 @@ export const Dashboard_Oficial: React.FC = () => {
         siqroo_pendiente: siqrooPend || undefined,
         pendiente_firma:  firmaPend || undefined,
         termino:          termino  || undefined,
+        dirigido_a_id:    dirigidoAId ? Number(dirigidoAId) : undefined,
       });
       setOficios(res.data); setTotal(res.meta.total);
+      setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
-  }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino]);
+  }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino, dirigidoAId]);
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
+
+  // Polling: mientras el OCR del oficio seleccionado no termine
+  // (ocr_procesado === false), refresca cada 4s para que la leyenda
+  // "Procesando OCR…" se actualice y desaparezca sola al completarse.
+  useEffect(() => {
+    if (!selected || (selected as any).ocr_procesado !== false) return;
+    const t = setInterval(() => { fetchOficios(); }, 4000);
+    return () => clearInterval(t);
+  }, [selected, fetchOficios]);
+
+  // Sincroniza el oficio seleccionado con la lista ya refrescada, para reflejar
+  // el fin del OCR sin tener que reabrir el detalle.
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = oficios.find((o) => o.id === selected.id);
+    if (fresh && (fresh as any).ocr_procesado !== (selected as any).ocr_procesado) {
+      setSelected(fresh);
+    }
+  }, [oficios]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Subir el documento firmado y finalizar el oficio (VOBO_APROBADO → FINALIZADO).
   const handleUploadSigned = async (e: FormEvent) => {
@@ -202,89 +217,6 @@ export const Dashboard_Oficial: React.FC = () => {
   };
 
   // ── Analizar el "Oficio" con IA (OCR) ─────────────────────
-  // Autocompleta descripción y trata de emparejar dependencia + remitente con el
-  // catálogo. Si no encuentra coincidencia, propone el texto detectado (editable).
-  const handleAnalizarPdf = async (file: File) => {
-    setPdfFile(file);
-    setAnalizando(true);
-    setCreateError(null);
-    try {
-      const d: any = (await analizarPdf(file)).data;
-      if (d.descripcion)            setDescripcion(d.descripcion);
-      if (d.tiene_termino)          setTieneTermino(d.tiene_termino);
-      if (d.fecha_vencimiento)      setFechaVence(d.fecha_vencimiento);
-      if (d.numero_oficio_origen)   setNumOficioOrigen(String(d.numero_oficio_origen).toUpperCase());
-      if (d.fecha_oficio)           setFechaOficio(d.fecha_oficio);
-      setTextoOcr(d.texto_completo ?? '');
-      setConfianza(d.confianza);
-      await autocompletarCatalogo(d);
-      autoseleccionarDirigidoA(d.dirigido_a);
-    } catch (err: any) {
-      setConfianza('baja');
-    } finally {
-      setAnalizando(false);
-    }
-  };
-
-  // Empareja el texto del OCR con los catálogos: dependencia → sub-unidad → remitente.
-  // Si no encuentra coincidencia, propone el texto detectado para que el oficial lo
-  // agregue/corrija. Todo queda editable.
-  const autocompletarCatalogo = async (d: any) => {
-    const norm = (s: string) => (s ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const contiene = (a: string, b: string) =>
-      a === b || (a.length >= 8 && b.length >= 8 && (a.includes(b) || b.includes(a)));
-
-    // Dependencia
-    const dep = (d.dependencia_origen ?? '').trim();
-    let depId: number | '' = '';
-    if (dep) {
-      const nd = norm(dep);
-      const m = dependencias.find((x) => norm(x.nombre) === nd) ?? dependencias.find((x) => contiene(norm(x.nombre), nd));
-      if (m) { seleccionarDependencia(m.id); depId = m.id; }
-      else { setAddDepMode(true); setNuevaDepNombre(dep.toUpperCase()); }
-    }
-
-    // Sub-unidad (dentro de la dependencia encontrada)
-    const sub = (d.sub_unidad ?? '').trim();
-    if (depId && sub) {
-      try {
-        const subs = (await getUnidadesInternas(Number(depId))).data;
-        setUnidadesList(subs);
-        const ns = norm(sub);
-        const sm = subs.find((u) => norm(u.nombre) === ns) ?? subs.find((u) => contiene(norm(u.nombre), ns));
-        if (sm) { setUniSel(sm.id); setUnidadInterna(sm.nombre); }
-      } catch { /* noop */ }
-    }
-
-    // Remitente (catálogo global)
-    const rem = (d.remitente ?? '').trim();
-    if (rem) {
-      const nr = norm(rem);
-      const m = remitentesList.find((r) => norm(r.nombre) === nr) ?? remitentesList.find((r) => contiene(norm(r.nombre), nr));
-      if (m) seleccionarRemitente(m.id);
-      else { setAddRemMode(true); setNuevoRemNombre(rem.toUpperCase()); }
-    }
-  };
-
-  // "Dirigido a": empareja el nombre detectado con la lista de usuarios internos.
-  // Si coincide, lo autoselecciona; si no, lo deja para elección manual (debe ser
-  // una persona real del sistema, por eso no admite texto libre).
-  const autoseleccionarDirigidoA = (detectado?: string) => {
-    const det = (detectado ?? '').trim();
-    if (!det) return;
-    // Acento/mayúscula-insensible (igual que el emparejamiento de catálogos).
-    const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
-    const nd = norm(det);
-    // Usuarios cuyo nombre completo aparece dentro del bloque detectado (antes de "PRESENTE").
-    const candidatos = destinatarios.filter((u) => {
-      const nu = norm(u.nombre);
-      return nu.length >= 6 && (nd === nu || nd.includes(nu) || nu.includes(nd));
-    });
-    // Gana el nombre más largo (más específico).
-    const match = candidatos.sort((a, b) => b.nombre.length - a.nombre.length)[0];
-    if (match) setDirigidoA(String(match.id));
-  };
-
   // ── Catálogos: selección y alta al vuelo (cascada) ──
   const seleccionarDependencia = (id: number | '', nombre?: string) => {
     setDepSel(id);
@@ -303,40 +235,68 @@ export const Dashboard_Oficial: React.FC = () => {
   const agregarDependencia = async () => {
     const nombre = nuevaDepNombre.trim().toUpperCase();
     if (!nombre) return;
+    // Evita duplicados: si ya existe (ignorando acentos/espacios), selecciónalo y avisa.
+    const existente = dependencias.find((d) => normDup(d.nombre) === normDup(nombre));
+    if (existente) {
+      seleccionarDependencia(existente.id, existente.nombre);
+      setAddDepMode(false); setNuevaDepNombre(''); setCreateError(null);
+      window.alert(`La dependencia «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.`);
+      return;
+    }
     try {
-      const { data } = await crearDependencia(nombre);
+      const resp = await crearDependencia(nombre);
+      const data = resp.data;
       setDependencias((prev) =>
         [...prev.filter((d) => d.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarDependencia(data.id, data.nombre);
       setAddDepMode(false); setNuevaDepNombre('');
+      if ((resp as any).yaExistia) window.alert(`La dependencia «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
     } catch (err: any) { setCreateError(err.message); }
   };
   const agregarUnidad = async () => {
     const nombre = nuevaUniNombre.trim();
     if (!nombre || !depSel) return;
+    const existente = unidadesList.find((u) => normDup(u.nombre) === normDup(nombre));
+    if (existente) {
+      seleccionarUnidad(existente.id, existente.nombre);
+      setAddUniMode(false); setNuevaUniNombre(''); setCreateError(null);
+      window.alert(`La sub-unidad «${existente.nombre}» ya existe en esta dependencia. Se seleccionó el registro existente.`);
+      return;
+    }
     try {
-      const { data } = await crearUnidadInterna(Number(depSel), nombre);
+      const resp = await crearUnidadInterna(Number(depSel), nombre);
+      const data = resp.data;
       setUnidadesList((prev) =>
         [...prev.filter((u) => u.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarUnidad(data.id, data.nombre);
       setAddUniMode(false); setNuevaUniNombre('');
+      if ((resp as any).yaExistia) window.alert(`La sub-unidad «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
     } catch (err: any) { setCreateError(err.message); }
   };
   const agregarRemitente = async () => {
     const nombre = nuevoRemNombre.trim();
     if (!nombre) return;
+    const existente = remitentesList.find((r) => normDup(r.nombre) === normDup(nombre));
+    if (existente) {
+      seleccionarRemitente(existente.id, existente.nombre);
+      setAddRemMode(false); setNuevoRemNombre(''); setCreateError(null);
+      window.alert(`El remitente «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.`);
+      return;
+    }
     try {
-      const { data } = await crearRemitente(nombre);
+      const resp = await crearRemitente(nombre);
+      const data = resp.data;
       setRemitentesList((prev) =>
         [...prev.filter((r) => r.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarRemitente(data.id, data.nombre);
       setAddRemMode(false); setNuevoRemNombre('');
+      if ((resp as any).yaExistia) window.alert(`El remitente «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
     } catch (err: any) { setCreateError(err.message); }
   };
 
   // ── Guardar oficio ────────────────────────────────────────
   const resetForm = () => {
-    setPaso(1); setConfianza(null); setTextoOcr('');
+    setPaso(1);
     setRemitente(''); setDependencia(''); setUnidadInterna(''); setDirigidoA('');
     setDescripcion(''); setTieneTermino(false); setFechaVence('');
     setPdfFile(null); setDocFiles({}); setCreateError(null);
@@ -348,8 +308,12 @@ export const Dashboard_Oficial: React.FC = () => {
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
-    // Durante las pruebas ningún campo es obligatorio. Única validación de
-    // consistencia: si marcó "tiene término", pedimos la fecha.
+    // Campos obligatorios para ingresar un oficio (documento Oficio + los marcados con *).
+    const faltanObligatorios =
+      !docFiles['oficio'] || !dependencia.trim() || !unidadInterna.trim() || !remitente.trim() ||
+      !numOficioOrigen.trim() || !fechaOficio || !dirigidoA || !descripcion.trim();
+    if (faltanObligatorios) { setCreateError('Completa los campos obligatorios (marcados con *).'); return; }
+    // Si marcó "tiene término", pedimos la fecha de vencimiento.
     if (tieneTermino && !fechaVence) { setCreateError('Ingresa la fecha de vencimiento'); return; }
     setSubmitting(true); setCreateError(null);
     try {
@@ -384,10 +348,8 @@ export const Dashboard_Oficial: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  const totalPages = Math.ceil(total / LIMIT);
-
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 56px)', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
 
       {/* ── Master panel ──────────────────────────────────── */}
       <div style={{ flex: selected ? '0 0 55%' : '1', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'flex 0.2s' }}>
@@ -426,85 +388,44 @@ export const Dashboard_Oficial: React.FC = () => {
             </div>
           )}
 
-          {/* Filtros */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', paddingBottom: '14px' }}>
-            {/* Buscador de texto */}
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="🔍 Buscar folio, remitente, dependencia…"
-              style={{ ...inputStyle, flex: '1 1 240px', minWidth: '180px' }}
-              aria-label="Buscar"
-            />
-
-            {/* Estatus */}
-            <select value={estatus} onChange={(e) => { setEstatus(e.target.value); setPage(1); }} style={selectStyle} aria-label="Filtrar por estatus">
-              {ESTATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-
-            {/* Término / vencimiento */}
-            <select value={termino} onChange={(e) => { setTermino(e.target.value); setPage(1); }} style={selectStyle} aria-label="Filtrar por término">
-              <option value="">Término: todos</option>
-              <option value="con_termino">Con término</option>
-              <option value="por_vencer">Por vencer (3 días)</option>
-              <option value="vencidos">Vencidos</option>
-            </select>
-
-            {/* Rango de fechas */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-              Desde
-              <input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} style={{ ...inputStyle, padding: '6px 8px' }} />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-              Hasta
-              <input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} style={{ ...inputStyle, padding: '6px 8px' }} />
-            </label>
-
-            {/* SIQROO pendiente */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
-              <input type="checkbox" checked={siqrooPend} onChange={(e) => { setSiqrooPend(e.target.checked); setPage(1); }} />
-              🚩 SIQROO pendiente
-            </label>
-
-            {/* Pendiente de firma (aprobados sin firmado subido) */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
-              <input type="checkbox" checked={firmaPend} onChange={(e) => { setFirmaPend(e.target.checked); setPage(1); }} />
-              🖊️ Pendiente de firma
-            </label>
-
-            {/* Limpiar */}
-            {(search || estatus || desde || hasta || siqrooPend || firmaPend || termino) && (
-              <button
-                type="button"
-                onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); setPage(1); }}
-                style={{ ...btnSecondary, padding: '7px 12px', fontSize: '0.78rem' }}
-              >
-                Limpiar
-              </button>
-            )}
+          {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
+            <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
+              <OficiosResumen conteos={conteos} estatus={estatus} />
+            </div>
+            <div style={{ flex: '3 1 420px', display: 'flex' }}>
+              <FiltrosOficios onChange={(f) => {
+                setSearchDeb(f.search);
+                setEstatus(f.estatus);
+                setTermino(f.termino);
+                setDesde(f.desde);
+                setHasta(f.hasta);
+                setSiqrooPend(f.siqroo_pendiente);
+                setFirmaPend(f.pendiente_firma);
+                setDirigidoAId(f.area);
+                setPage(1);
+              }} />
+            </div>
           </div>
         </div>
 
         {listError && <div role="alert" style={{ ...alertStyle, margin: '12px 24px' }}>{listError}</div>}
 
         {/* Table */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '4px 24px 24px', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={tableHeaderStyle}>
-                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de', 'Acciones'].map((h) => (
+                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'En bandeja de', 'SIQROO'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={emptyCell}>Cargando…</td></tr>
+                <tr><td colSpan={8} style={emptyCell}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={9} style={emptyCell}>Sin registros</td></tr>
+                <tr><td colSpan={8} style={emptyCell}>Sin registros</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -531,30 +452,16 @@ export const Dashboard_Oficial: React.FC = () => {
                       <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} />
                     </td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
-                    <td style={tdStyle}>
-                      {!o.siqroo_aplica ? (
-                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
-                      ) : siqrooPendiente(o) ? (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>🚩 Pendiente</span>
-                      ) : (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>✓ Completo</span>
-                      )}
-                    </td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
                       {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
                     </td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                      {o.puede_finalizar && o.estatus === 'VOBO_APROBADO' ? (
-                        <button
-                          style={{ padding: '6px 12px', fontSize: '0.78rem', fontWeight: 700, color: '#fff', backgroundColor: theme.colors.primary, border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          onClick={() => { setFirmarOficio(o); setSignedFile(null); setUploadError(null); }}
-                        >
-                          ✍️ Subir Firmado
-                        </button>
-                      ) : o.estatus === 'FINALIZADO' ? (
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#065F46' }}>✓ Firmado</span>
-                      ) : (
+                    <td style={{ ...tdStyle, width: '1%', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                      {!o.siqroo_aplica ? (
                         <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
+                      ) : siqrooPendiente(o) ? (
+                        <span style={{ fontSize: '0.66rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 7px', borderRadius: '10px', whiteSpace: 'nowrap' }}>Pendiente</span>
+                      ) : (
+                        <span style={{ fontSize: '0.66rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 7px', borderRadius: '10px', whiteSpace: 'nowrap' }}>Completo</span>
                       )}
                     </td>
                   </tr>
@@ -564,18 +471,10 @@ export const Dashboard_Oficial: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '12px', borderTop: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface }}>
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={btnSecondary}>
-              ← Anterior
-            </button>
-            <span style={{ fontSize: '0.8rem', color: theme.colors.textSecondary }}>
-              Pág. {page} / {totalPages}
-            </span>
-            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={btnSecondary}>
-              Siguiente →
-            </button>
+        {/* La lista se recorre con scroll. Aviso si hay más de los cargados. */}
+        {total > oficios.length && (
+          <div style={{ padding: '8px', textAlign: 'center', fontSize: '0.74rem', color: theme.colors.textSecondary, borderTop: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface }}>
+            Mostrando {oficios.length} de {total} · acota con los filtros para ver el resto
           </div>
         )}
       </div>
@@ -616,6 +515,20 @@ export const Dashboard_Oficial: React.FC = () => {
               oficio={selected}
               acciones={
                 <>
+                  {/* Subir documento firmado (para quien también finaliza) */}
+                  {selected.puede_finalizar && selected.estatus === 'VOBO_APROBADO' && (
+                    <button
+                      type="button"
+                      onClick={() => { setFirmarOficio(selected); setSignedFile(null); setUploadError(null); }}
+                      style={{ ...btnPrimary, width: '100%', marginBottom: '14px' }}
+                    >
+                      Subir documento firmado
+                    </button>
+                  )}
+                  {selected.estatus === 'FINALIZADO' && (
+                    <div style={{ marginBottom: '14px', fontSize: '0.8rem', fontWeight: 700, color: '#065F46' }}>✓ Documento firmado</div>
+                  )}
+
                   {/* SIQROO — estado y completar datos pendientes */}
                   {selected.siqroo_aplica && (
                     <div style={{
@@ -672,22 +585,22 @@ export const Dashboard_Oficial: React.FC = () => {
         title="Registrar Oficio"
         onClose={() => { setShowCreate(false); resetForm(); }}
         width={680}
+        closeOnBackdrop={false}
+        confirmClose
       >
           <form onSubmit={handleCreate} noValidate>
             {/* Instrucción */}
-            <div style={{ padding: '12px 14px', backgroundColor: '#FDE8EF', borderLeft: `3px solid ${theme.colors.primary}`, borderRadius: '8px', marginBottom: '16px' }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem', color: theme.colors.primaryDark }}>
-                🤖 Ingreso de oficio
-              </p>
-              <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
-                Adjunta los documentos requisito. Al subir el <strong>Oficio</strong>, la IA extrae la descripción y sugiere la dependencia y el remitente del catálogo.
+            <div style={{ padding: '10px 12px', backgroundColor: '#FDE8EF', borderLeft: `3px solid ${theme.colors.primary}`, borderRadius: '8px', marginBottom: '16px' }}>
+              <p style={{ margin: 0, fontSize: '0.76rem', color: theme.colors.textSecondary, lineHeight: 1.4 }}>
+                Adjunta los documentos requisito. Al cargar el <strong>Oficio</strong>, el OCR realizará la extracción del texto contenido en el documento, a efecto de facilitar la identificación y captura de la información necesaria para su procesamiento.
               </p>
             </div>
 
             {/* Documentos requisito — arriba, como casillas con palomita de agregado */}
             <div style={{ marginBottom: '18px' }}>
               <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                Documentos requisito <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: theme.colors.textSecondary }}>(opcionales)</span>
+                Documentos requisito:
+                <span style={{ display: 'block', marginTop: '3px', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: theme.colors.textSecondary }}>El Oficio es de carácter obligatorio; los demás documentos podrán incorporarse de manera opcional como soporte documental.</span>
               </label>
               <div style={{ display: 'grid', gap: '8px' }}>
                 {DOCUMENTOS_OFICIO.map(({ key, label }) => {
@@ -715,8 +628,7 @@ export const Dashboard_Oficial: React.FC = () => {
                       }}>{added ? '✓' : ''}</span>
 
                       <span style={{ fontWeight: 600, fontSize: '0.82rem', color: theme.colors.textPrimary, flexShrink: 0 }}>
-                        {label}
-                        {key === 'oficio' && <span style={{ color: theme.colors.primary, fontSize: '0.66rem', fontWeight: 700 }}> · IA 🤖</span>}
+                        {label}{key === 'oficio' && <span style={{ color: theme.colors.alert.red }}> *</span>}
                       </span>
 
                       <span style={{ flex: 1, minWidth: 0, fontSize: '0.72rem', textAlign: 'right', color: added ? '#065F46' : theme.colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -742,12 +654,14 @@ export const Dashboard_Oficial: React.FC = () => {
                       <input
                         id={`doc-${key}`}
                         type="file"
-                        accept={key === 'oficio' ? '.pdf' : '.pdf,.doc,.docx,.jpg,.jpeg,.png'}
+                        accept=".pdf"
                         style={{ display: 'none' }}
                         onChange={(e) => {
                           const f = e.target.files?.[0] ?? null;
                           setDocFiles((prev) => ({ ...prev, [key]: f }));
-                          if (key === 'oficio' && f) handleAnalizarPdf(f);   // dispara OCR
+                          // El "Oficio" solo se adjunta; la IA NO prellena los campos.
+                          // El texto se extrae en segundo plano al guardar (para búsquedas).
+                          if (key === 'oficio') setPdfFile(f);
                         }}
                       />
                     </label>
@@ -755,115 +669,19 @@ export const Dashboard_Oficial: React.FC = () => {
                 })}
               </div>
               <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
-                El <strong>Oficio</strong> se analiza con IA (solo PDF). Identificación y recibos también aceptan imágenes.
+                Los documentos que integren el expediente electrónico deberán adjuntarse en formato <strong>PDF</strong>.
               </p>
             </div>
-
-            {/* El documento "Oficio" (uno de los 5) es el que dispara el OCR — ver más abajo */}
-            {analizando && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: '8px', marginBottom: '16px', fontSize: '0.8rem', color: '#0369A1' }}>
-                <span>🤖</span> Analizando el documento con IA…
-              </div>
-            )}
-
-            {/* Aviso de extracción (solo tras analizar el PDF) */}
-            {confianza && (
-              <div style={{
-                display: 'flex', alignItems: 'flex-start', gap: '10px',
-                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px',
-                backgroundColor: confianza === 'alta' ? '#D1FAE5' : confianza === 'media' ? '#FEF3C7' : '#FFF7ED',
-                borderLeft: `3px solid ${confianza === 'alta' ? theme.colors.alert.green : confianza === 'media' ? theme.colors.alert.yellow : theme.colors.gold}`,
-              }}>
-                <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
-                  {confianza === 'alta' ? '✅' : confianza === 'media' ? '⚠️' : '📋'}
-                </span>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-                  {confianza === 'baja'
-                    ? 'El PDF parece escaneado. Revisa/completa la descripción manualmente.'
-                    : 'La IA extrajo la descripción (marcada con ✨) — verifícala.'}
-                </p>
-              </div>
-            )}
-
-            {/* ── Texto completo extraído por IA (solo si hay texto) ─── */}
-            {textoOcr && (
-            <div style={{
-              marginBottom:    '20px',
-              border:          `1.5px solid ${theme.colors.border}`,
-              borderRadius:    '10px',
-              overflow:        'hidden',
-            }}>
-              {/* Header del panel */}
-              <div style={{
-                display:         'flex',
-                alignItems:      'center',
-                justifyContent:  'space-between',
-                padding:         '10px 14px',
-                backgroundColor: theme.colors.charcoal,
-                color:           '#fff',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '1rem' }}>📄</span>
-                  <span style={{ fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>
-                    Texto extraído del documento
-                  </span>
-                </div>
-                <span style={{
-                  fontSize:        '0.65rem',
-                  backgroundColor: 'rgba(255,255,255,0.15)',
-                  padding:         '2px 8px',
-                  borderRadius:    '10px',
-                  fontWeight:      700,
-                }}>
-                  {textoOcr ? `${textoOcr.length} caracteres` : 'Sin texto'}
-                </span>
-              </div>
-
-              {/* Cuerpo del texto */}
-              {textoOcr ? (
-                <div style={{
-                  padding:         '14px',
-                  backgroundColor: '#FAFAF8',
-                  maxHeight:       '220px',
-                  overflowY:       'auto',
-                  fontSize:        '0.82rem',
-                  lineHeight:      1.7,
-                  color:           theme.colors.textPrimary,
-                  whiteSpace:      'pre-wrap',
-                  fontFamily:      'monospace',
-                  userSelect:      'text',
-                }}>
-                  {textoOcr}
-                </div>
-              ) : (
-                <div style={{ padding: '20px', textAlign: 'center', color: theme.colors.textSecondary, fontSize: '0.82rem', backgroundColor: '#FAFAF8' }}>
-                  No se pudo extraer texto del documento. Llena los campos manualmente.
-                </div>
-              )}
-
-              {/* Instrucción */}
-              <div style={{
-                padding:         '8px 14px',
-                backgroundColor: '#F0F0EC',
-                borderTop:       `1px solid ${theme.colors.border}`,
-                fontSize:        '0.72rem',
-                color:           theme.colors.textSecondary,
-              }}>
-                💡 Selecciona y copia el texto que necesites para llenar los campos de abajo
-              </div>
-            </div>
-            )}
 
             {/* Folio automático */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', backgroundColor: '#EFF6FF', border: `1px solid #BFDBFE`, borderRadius: '8px', marginBottom: '16px' }}>
-              <span>🔢</span>
+            <div style={{ padding: '8px 12px', backgroundColor: '#EFF6FF', border: `1px solid #BFDBFE`, borderRadius: '8px', marginBottom: '16px' }}>
               <p style={{ margin: 0, fontSize: '0.78rem', color: '#1D4ED8' }}>
-                <strong>Folio automático</strong> — se asignará al guardar: <strong>OF-{'{oficina}'}-{new Date().getFullYear()}-{'{seq}'}</strong>
+                <strong>Folio de seguimiento:</strong> Será generado automáticamente por el sistema al momento de guardar el registro, conforme a la siguiente estructura: <strong>OF-(FECHA)-(ÁREA)-(CONSECUTIVO)</strong>.
               </p>
             </div>
 
-            {/* Dependencia de origen — catálogo independiente */}
-            <Field label="Dependencia de Origen" required>
+            {/* Dependencia solicitante — catálogo independiente */}
+            <Field label="Dependencia Solicitante" required>
               {addDepMode ? (
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaDepNombre} onChange={(e) => setNuevaDepNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA NUEVA DEPENDENCIA" autoFocus />
@@ -882,15 +700,15 @@ export const Dashboard_Oficial: React.FC = () => {
               )}
             </Field>
 
-            {/* Sub-unidad — cuelga de la dependencia (opcional) */}
-            <Field label="Sub-unidad (área/subdirección)">
+            {/* Unidad administrativa — cuelga de la dependencia (obligatoria) */}
+            <Field label="Unidad administrativa / Dirección / Departamento" required>
               {!depSel ? (
                 <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>
                   Selecciona primero la dependencia.
                 </p>
               ) : addUniMode ? (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA SUB-UNIDAD" autoFocus />
+                  <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA UNIDAD ADMINISTRATIVA" autoFocus />
                   <button type="button" onClick={agregarUnidad} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
                   <button type="button" onClick={() => { setAddUniMode(false); setNuevaUniNombre(''); }} style={btnSecondary}>✕</button>
                 </div>
@@ -899,8 +717,8 @@ export const Dashboard_Oficial: React.FC = () => {
                   value={uniSel === '' ? '' : String(uniSel)}
                   options={unidadesList.map((u) => ({ value: String(u.id), label: u.nombre }))}
                   onChange={(v) => seleccionarUnidad(v ? Number(v) : '')}
-                  placeholder="— Selecciona la sub-unidad —"
-                  addLabel="➕ Agregar nueva sub-unidad…"
+                  placeholder="— Selecciona la unidad administrativa —"
+                  addLabel="➕ Agregar nueva unidad administrativa…"
                   onAdd={() => setAddUniMode(true)}
                 />
               )}
@@ -925,22 +743,28 @@ export const Dashboard_Oficial: React.FC = () => {
                 />
               )}
             </Field>
-            <Field label="Número de oficio de la dependencia">
-              <input
-                style={{ ...inputStyle, textTransform: 'uppercase' }}
-                value={numOficioOrigen}
-                onChange={(e) => setNumOficioOrigen(e.target.value.toUpperCase())}
-                placeholder="EJ. SEGOB/DGV/123/2026 — EL NÚMERO QUE TRAE EL OFICIO DE ORIGEN"
-              />
-            </Field>
-            <Field label="Fecha del oficio">
-              <input
-                style={inputStyle}
-                type="date"
-                value={fechaOficio}
-                onChange={(e) => setFechaOficio(e.target.value)}
-              />
-            </Field>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <Field label="Número de oficio" required>
+                  <input
+                    style={{ ...inputStyle, textTransform: 'uppercase' }}
+                    value={numOficioOrigen}
+                    onChange={(e) => setNumOficioOrigen(e.target.value.toUpperCase())}
+                    placeholder=""
+                  />
+                </Field>
+              </div>
+              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <Field label="Fecha del oficio" required>
+                  <input
+                    style={inputStyle}
+                    type="date"
+                    value={fechaOficio}
+                    onChange={(e) => setFechaOficio(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
             <Field label="Dirigido a" required>
               <SearchableSelect
                 value={dirigidoA}
@@ -949,48 +773,48 @@ export const Dashboard_Oficial: React.FC = () => {
                 placeholder="— Selecciona el destinatario —"
               />
             </Field>
-            <Field label={`Asunto ${descripcion ? '✨' : ''}`} required>
+            <Field label="Asunto" required>
               <textarea style={{ ...inputStyle, height: '90px', resize: 'vertical' }} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} required />
             </Field>
 
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <input id="tiene_termino" type="checkbox" checked={tieneTermino} onChange={(e) => setTieneTermino(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-              <label htmlFor="tiene_termino" style={{ fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>
-                Tiene término / fecha límite {tieneTermino && fechaVence ? '✨' : ''}
-              </label>
-            </div>
-
-            {tieneTermino && (
-              <Field label="Fecha de Vencimiento" required>
-                <input style={inputStyle} type="date" value={fechaVence} onChange={(e) => setFechaVence(e.target.value)} required />
-              </Field>
-            )}
-
-            {/* SIQROO */}
-            <div style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
-              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>
-                ¿Solicitud ingresada a SIQROO?
-              </label>
-              <div style={{ display: 'flex', gap: '18px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
-                  <input type="radio" name="siqroo" checked={siqrooAplica} onChange={() => setSiqrooAplica(true)} /> Aplica
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {/* Término / fecha límite */}
+              <div style={{ flex: '1 1 240px', minWidth: 0, marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+                <label htmlFor="tiene_termino" style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input id="tiene_termino" type="checkbox" checked={tieneTermino} onChange={(e) => setTieneTermino(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                  <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                    Tiene término / fecha límite
+                  </span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
-                  <input type="radio" name="siqroo" checked={!siqrooAplica} onChange={() => setSiqrooAplica(false)} /> No aplica
-                </label>
-              </div>
-              {siqrooAplica && (
-                <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
-                  <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                    Si aún no tienes estos datos, registra el oficio y complétalos después desde el detalle. Quedará marcado como pendiente.
-                  </p>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>Número de control interno</label>
-                    <input style={inputStyle} value={siqrooControl} onChange={(e) => setSiqrooControl(e.target.value)} placeholder="Opcional — se puede completar después" />
+
+                {tieneTermino && (
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                      Fecha de vencimiento <span style={{ color: theme.colors.alert.red }}>*</span>
+                    </label>
+                    <input style={inputStyle} type="date" value={fechaVence} onChange={(e) => setFechaVence(e.target.value)} required />
                   </div>
+                )}
+              </div>
+
+              {/* SIQROO */}
+              <div style={{ flex: '1 1 240px', minWidth: 0, marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+                <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>
+                  ¿Solicitud ingresada a SIQROO?
+                </label>
+                <div style={{ display: 'flex', gap: '18px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                    <input type="radio" name="siqroo" checked={siqrooAplica} onChange={() => setSiqrooAplica(true)} /> Aplica
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                    <input type="radio" name="siqroo" checked={!siqrooAplica} onChange={() => setSiqrooAplica(false)} /> No aplica
+                  </label>
                 </div>
-              )}
+                {siqrooAplica && (
+                  <input style={{ ...inputStyle, fontSize: '0.82rem', marginTop: '10px' }} value={siqrooControl} onChange={(e) => setSiqrooControl(e.target.value)} placeholder="NCI SIQROO (opcional)" />
+                )}
+              </div>
             </div>
 
             {createError && <div role="alert" style={alertStyle}>{createError}</div>}

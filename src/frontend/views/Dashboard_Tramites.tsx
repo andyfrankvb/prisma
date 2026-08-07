@@ -277,8 +277,10 @@ export const Dashboard_Tramites: React.FC = () => {
   const [reenviando,          setReenviando]          = useState(false);
   const [errorCorregir,       setErrorCorregir]       = useState<string | null>(null);
 
-  // Filtros — ya no se usa filtro de estatus (layout bitácora agrupa por categoría)
+  // Filtros de la lista: búsqueda libre + pill por categoría (Ingresados/En Proceso/Cerrados).
   const [filtroEstatus] = useState('');
+  const [busqueda,  setBusqueda]  = useState('');
+  const [filtroCat, setFiltroCat] = useState<'' | Categoria>('');
 
   useEffect(() => {
     if (!user) return;
@@ -503,9 +505,18 @@ export const Dashboard_Tramites: React.FC = () => {
 
   const hoy = new Date().toISOString().slice(0, 10);
 
-  // Agrupar tickets por categoría
+  // Agrupar tickets por categoría (para los conteos de las tarjetas)
   const grupos: Record<Categoria, Tramite[]> = { ingresados: [], en_proceso: [], cerrados: [] };
   tramites.forEach(t => grupos[categorizar(t.estatus)].push(t));
+
+  // Lista filtrada para la tabla: pill de categoría + búsqueda libre (ticket, nombre, correo).
+  const q = busqueda.trim().toLowerCase();
+  const tramitesFiltrados = tramites.filter(t => {
+    if (filtroCat && categorizar(t.estatus) !== filtroCat) return false;
+    if (!q) return true;
+    return [t.numero_ticket, t.folio, t.nombre_solicitante, t.correo_solicitante, t.telefono_solicitante]
+      .some(v => (v ?? '').toLowerCase().includes(q));
+  });
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: theme.colors.background, fontFamily: theme.font.family }}>
@@ -548,36 +559,38 @@ export const Dashboard_Tramites: React.FC = () => {
         </div>
       )}
 
-      {/* Tarjetas de conteo */}
-      <div style={{ padding: `16px ${padX} 0`, display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-        {(Object.keys(grupos) as Categoria[]).map(cat => {
-          const cfg   = CATEGORIA_CFG[cat];
-          const count = grupos[cat].length;
+      {/* Tarjetas de resumen — estilo minimalista con ícono (clic para filtrar) */}
+      <div style={{ padding: `16px ${padX} 0`, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px' }}>
+        {([
+          { cat: '',           label: 'Total',      count: tramites.length,          color: 'rgb(33,37,41)',  icon: '📄' },
+          { cat: 'ingresados', label: 'Ingresados', count: grupos.ingresados.length, color: 'rgb(255,0,50)',  icon: '＋' },
+          { cat: 'en_proceso', label: 'En Proceso', count: grupos.en_proceso.length, color: 'rgb(0,122,255)', icon: '🕐' },
+          { cat: 'cerrados',   label: 'Cerrados',   count: grupos.cerrados.length,   color: 'rgb(52,199,89)', icon: '✓' },
+        ] as { cat: '' | Categoria; label: string; count: number; color: string; icon: string }[]).map(c => {
+          const activa = filtroCat === c.cat;
           return (
-            <div key={cat} style={{ flex: '1 1 160px', backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '10px', boxShadow: theme.shadow.sm, overflow: 'hidden' }}>
-              <div style={{ height: '5px', backgroundColor: cfg.header }} />
-              <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', flexShrink: 0 }}>
-                  {cfg.icon}
-                </span>
-                <div>
-                  <p style={{ margin: 0, fontSize: '2rem', fontWeight: 900, color: cfg.header, lineHeight: 1 }}>{count}</p>
-                  <p style={{ margin: '3px 0 0', fontSize: '0.78rem', fontWeight: 600, color: theme.colors.textSecondary }}>{cfg.label}</p>
-                </div>
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => setFiltroCat(c.cat)}
+              title={c.cat ? `Filtrar: ${c.label}` : 'Ver todos'}
+              style={{
+                textAlign: 'left', cursor: 'pointer', border: 'none',
+                borderRadius: '14px', padding: '18px 20px',
+                background: c.color, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                boxShadow: activa ? `0 0 0 3px #fff, 0 0 0 5px ${c.color}` : theme.shadow.sm,
+                fontFamily: theme.font.family,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: 0.92 }}>{c.label}</div>
+                <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1.15 }}>{c.count}</div>
               </div>
-            </div>
+              <span style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.35rem', flexShrink: 0 }}>{c.icon}</span>
+            </button>
           );
         })}
-        <div style={{ flex: '1 1 160px', backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '10px', boxShadow: theme.shadow.sm, overflow: 'hidden' }}>
-          <div style={{ height: '5px', backgroundColor: 'rgb(33, 37, 41)' }} />
-          <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <span style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', flexShrink: 0 }}>🎫</span>
-            <div>
-              <p style={{ margin: 0, fontSize: '2rem', fontWeight: 900, color: 'rgb(33, 37, 41)', lineHeight: 1 }}>{tramites.length}</p>
-              <p style={{ margin: '3px 0 0', fontSize: '0.78rem', fontWeight: 600, color: theme.colors.textSecondary }}>Total</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Loading / Error */}
@@ -596,49 +609,110 @@ export const Dashboard_Tramites: React.FC = () => {
         )}
       </div>
 
-      {/* Columnas bitácora */}
+      {/* Barra de búsqueda + pills de categoría */}
       {!loading && !error && (
-        <div style={{ padding: `16px ${padX} 24px`, display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {(Object.keys(grupos) as Categoria[]).map(cat => {
-            const cfg  = CATEGORIA_CFG[cat];
-            const list = grupos[cat];
-            return (
-              <div key={cat} style={{ flex: '1 1 300px', minWidth: '280px', display: 'flex', flexDirection: 'column', borderRadius: '10px', overflow: 'hidden', boxShadow: theme.shadow.sm, border: `1px solid ${theme.colors.border}` }}>
-                {/* Header columna */}
-                <div style={{ backgroundColor: cfg.header, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '1.1rem' }}>{cfg.icon}</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff' }}>{cfg.label}</span>
-                  </div>
-                  <span style={{ backgroundColor: 'rgba(255,255,255,0.25)', color: '#fff', borderRadius: '20px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 700 }}>
-                    {list.length}
-                  </span>
-                </div>
-                {/* Cuerpo columna */}
-                <div style={{ backgroundColor: cfg.bg, padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px', maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
-                  {list.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '24px 0', color: theme.colors.textSecondary, fontSize: '0.8rem' }}>Sin tickets</div>
+        <div style={{ padding: `16px ${padX} 0` }}>
+          <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '14px 16px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 320px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '10px', padding: '9px 14px' }}>
+              <span style={{ color: theme.colors.textSecondary }}>🔍</span>
+              <input
+                type="text"
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                placeholder="Buscar por ticket, nombre o correo…"
+                style={{ border: 'none', outline: 'none', background: 'transparent', width: '100%', fontSize: '0.9rem', fontFamily: theme.font.family, color: theme.colors.textPrimary }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {([
+                { cat: '',           label: 'Todos',      solid: theme.colors.primary, tint: '#F3E3E9', text: theme.colors.primary },
+                { cat: 'ingresados', label: 'Ingresados', solid: 'rgb(255,0,50)',      tint: '#FFE4EA', text: 'rgb(214,0,42)'  },
+                { cat: 'en_proceso', label: 'En Proceso', solid: 'rgb(0,122,255)',     tint: '#E1EEFF', text: 'rgb(0,98,204)'  },
+                { cat: 'cerrados',   label: 'Cerrados',   solid: 'rgb(52,199,89)',     tint: '#E3F7EA', text: 'rgb(35,150,66)' },
+              ] as { cat: '' | Categoria; label: string; solid: string; tint: string; text: string }[]).map(p => {
+                const activa = filtroCat === p.cat;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => setFiltroCat(p.cat)}
+                    style={{
+                      border: 'none', cursor: 'pointer', borderRadius: '10px',
+                      padding: '9px 16px', fontSize: '0.85rem', fontWeight: 700,
+                      fontFamily: theme.font.family,
+                      backgroundColor: activa ? p.solid : p.tint,
+                      color: activa ? '#fff' : p.text,
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabla de trámites */}
+      {!loading && !error && (
+        <div style={{ padding: `16px ${padX} 28px` }}>
+          <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, overflow: 'hidden' }}>
+            <div className="scroll-x" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: '860px', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${theme.colors.border}` }}>
+                    {['Ticket', 'Solicitante', 'Contacto', 'Área', 'Estatus', 'Fecha', 'Acciones'].map(h => (
+                      <th key={h} style={{ padding: '14px 18px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: theme.colors.textSecondary, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tramitesFiltrados.length === 0 ? (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Sin trámites</td></tr>
                   ) : (
-                    list.map(t => (
-                      <TramiteCard
-                        key={t.id}
-                        tramite={t}
-                        rol={rol}
-                        onVerDetalle={() => abrirDetalle(t)}
-                        onTurnar={() => { setTramiteTurnar(t); setTurnarComent(''); setFechaComp(''); setErrorTurnar(null); setShowTurnar(true); }}
-                        onDevolverDelegado={() => { setTramiteDevolverDelegado(t); setComentDevolverDelegado(''); setErrorDevolverDelegado(null); setShowDevolverDelegado(true); }}
-                        onRechazar={() => { setTramiteRechazar(t); setMotivoRechazo(''); setErrorRechazar(null); setShowRechazar(true); }}
-                        onReenviarJuridico={() => { setTramiteReenviarJuridico(t); setComentReenviarJuridico(''); setErrorReenviarJuridico(null); setShowReenviarJuridico(true); }}
-                        onCerrar={() => { setTramiteCerrar(t); setComentCierre(''); setErrorCerrar(null); setShowCerrar(true); }}
-                        onDevolverJuridico={() => { setTramiteDevolverJuridico(t); setComentDevolverJuridico(''); setErrorDevolverJuridico(null); setShowDevolverJuridico(true); }}
-                        onCorregir={() => abrirCorregir(t)}
-                      />
-                    ))
+                    tramitesFiltrados.map(t => {
+                      const cfg      = ESTATUS_CFG[t.estatus] ?? ESTATUS_CFG.NUEVO;
+                      const dot      = CATEGORIA_CFG[categorizar(t.estatus)].header;
+                      const corregir = rol === 'creador' && t.estatus === 'DEVUELTO_DELEGADO';
+                      return (
+                        <tr
+                          key={t.id}
+                          onClick={() => abrirDetalle(t)}
+                          style={{ borderBottom: `1px solid ${theme.colors.border}`, cursor: 'pointer' }}
+                          title="Ver detalle del trámite"
+                        >
+                          <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: dot, flexShrink: 0 }} />
+                              <strong style={{ color: theme.colors.primary }}>#{t.numero_ticket || t.folio}</strong>
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 18px' }}>{t.nombre_solicitante}</td>
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ color: theme.colors.textPrimary }}>{t.correo_solicitante}</div>
+                            <div style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>{t.telefono_solicitante}</div>
+                          </td>
+                          <td style={{ padding: '14px 18px', color: theme.colors.textSecondary }}>{t.unidad_nombre}</td>
+                          <td style={{ padding: '14px 18px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 12px', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, whiteSpace: 'nowrap' }}>{cfg.label}</span>
+                          </td>
+                          <td style={{ padding: '14px 18px', whiteSpace: 'nowrap', color: theme.colors.textSecondary }}>{new Date(t.fecha_creacion).toLocaleDateString('es-MX')}</td>
+                          <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              <button onClick={() => abrirDetalle(t)} style={{ ...btnSecondary, padding: '5px 12px', fontSize: '0.75rem' }}>Ver detalle</button>
+                              {corregir && (
+                                <button onClick={() => abrirCorregir(t)} style={{ ...btnPrimary, padding: '5px 12px', fontSize: '0.75rem', backgroundColor: '#D97706' }}>✏ Corregir</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
-                </div>
-              </div>
-            );
-          })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 

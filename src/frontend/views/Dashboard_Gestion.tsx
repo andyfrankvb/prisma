@@ -38,8 +38,10 @@ import type { ComentarioReconsideracion, OficioDocumento } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
+import { OficiosResumen } from '../components/OficiosResumen';
+import { ESTATUS_META } from '../components/oficiosEstatus';
 
-const LIMIT = 20;
+const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
 
 export const Dashboard_Gestion: React.FC = () => {
   const { user } = useAuth();
@@ -70,8 +72,9 @@ export const Dashboard_Gestion: React.FC = () => {
   // ── List state ────────────────────────────────────────────
   const [oficios,   setOficios]   = useState<Oficio[]>([]);
   const [total,     setTotal]     = useState(0);
+  const [conteos,   setConteos]   = useState<Record<string, number>>({});
   const [page,      setPage]      = useState(1);
-  const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false });
+  const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '' });
   const [loading,   setLoading]   = useState(false);
   const [exporting, setExporting] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -133,9 +136,11 @@ export const Dashboard_Gestion: React.FC = () => {
         hasta:            filtros.hasta || undefined,
         siqroo_pendiente: filtros.siqroo_pendiente || undefined,
         pendiente_firma:  filtros.pendiente_firma || undefined,
+        dirigido_a_id:    filtros.area ? Number(filtros.area) : undefined,
       });
       setOficios(res.data);
       setTotal(res.meta.total);
+      setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
     } catch (err: any) {
       setListError(err.message);
     } finally {
@@ -303,6 +308,7 @@ export const Dashboard_Gestion: React.FC = () => {
         hasta:            filtros.hasta || undefined,
         siqroo_pendiente: filtros.siqroo_pendiente || undefined,
         pendiente_firma:  filtros.pendiente_firma || undefined,
+        dirigido_a_id:    filtros.area ? Number(filtros.area) : undefined,
       };
       // Traer TODOS los resultados filtrados (no solo la página visible)
       const todos: Oficio[] = [];
@@ -327,17 +333,88 @@ export const Dashboard_Gestion: React.FC = () => {
         o.descripcion_solicitud ?? '',
       ]);
 
-      // Escape CSV robusto; BOM para que Excel muestre bien los acentos.
-      const esc = (c: unknown) => {
-        const s = String(c ?? '');
-        return /["\n\r,;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      // Etiquetas legibles de los filtros para el encabezado del reporte.
+      const terminoLabel: Record<string, string> = { con_termino: 'Con término', por_vencer: 'Por vencer (3 días)', vencidos: 'Vencidos' };
+      const estatusLabel = filtros.estatus ? (ESTATUS_META.find((m) => m.value === filtros.estatus)?.label ?? filtros.estatus) : 'Todos';
+      const rangoFechas  = (filtros.desde || filtros.hasta) ? `${filtros.desde || 'inicio'} a ${filtros.hasta || 'hoy'}` : 'Todas';
+      const areaNombre   = filtros.area ? (todos[0]?.delegacion_nombre ?? todos[0]?.dirigido_a_nombre ?? `ID ${filtros.area}`) : 'Todas';
+      const filtrosList: [string, string][] = [
+        ['Búsqueda', filtros.search || '—'],
+        ['Estatus', estatusLabel],
+        ['Área (dirigido a)', areaNombre],
+        ['Término', filtros.termino ? (terminoLabel[filtros.termino] ?? filtros.termino) : 'Todos'],
+        ['Rango de fechas (ingreso)', rangoFechas],
+        ['SIQROO pendiente', filtros.siqroo_pendiente ? 'Sí' : 'No'],
+        ['Pendiente de firma', filtros.pendiente_firma ? 'Sí' : 'No'],
+      ];
+
+      // Excel real (.xlsx) con estilos: filtros minimalistas arriba, tabla de resultados abajo.
+      const ExcelJS = (await import('exceljs')).default;
+      const GUINDA = 'FF7A1330';
+      const GRIS   = 'FF6B7280';
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Reporte', { views: [{ showGridLines: false }] });
+      ws.columns = [{ width: 14 }, { width: 16 }, { width: 26 }, { width: 18 }, { width: 12 }, { width: 11 }, { width: 22 }, { width: 40 }];
+
+      // Título
+      ws.mergeCells(1, 1, 1, headers.length);
+      const tCell = ws.getCell(1, 1);
+      tCell.value = 'REPORTE DE OFICIOS';
+      tCell.font = { bold: true, size: 16, color: { argb: GUINDA } };
+      const subCell = ws.getCell(2, 1);
+      subCell.value = `Generado: ${new Date().toLocaleString('es-MX')}  ·  ${todos.length} registro(s)`;
+      subCell.font = { size: 9, color: { argb: GRIS } };
+
+      // Filtros aplicados (rótulo + pares etiqueta / valor)
+      const rotCell = ws.getCell(4, 1);
+      rotCell.value = 'FILTROS APLICADOS';
+      rotCell.font = { bold: true, size: 11, color: { argb: GUINDA } };
+      filtrosList.forEach(([k, v], i) => {
+        const fila = 5 + i;
+        const ck = ws.getCell(fila, 1); ck.value = k; ck.font = { bold: true, color: { argb: GRIS } };
+        ws.mergeCells(fila, 2, fila, 4);
+        ws.getCell(fila, 2).value = v;
+      });
+
+      // Tabla de resultados (una fila en blanco de separación)
+      const filaHead = 5 + filtrosList.length + 1;
+      const hr = ws.getRow(filaHead);
+      headers.forEach((h, i) => {
+        const c = hr.getCell(i + 1);
+        c.value = h;
+        c.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GUINDA } };
+        c.alignment = { vertical: 'middle', wrapText: true };
+      });
+      rows.forEach((r, i) => {
+        const row = ws.getRow(filaHead + 1 + i);
+        r.forEach((val, ci) => {
+          const c = row.getCell(ci + 1);
+          c.value = val as any;
+          c.font = { size: 9 };
+          c.alignment = { vertical: 'top', wrapText: true };
+          c.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
+        });
+      });
+
+      // Impresión: tamaño Carta, horizontal, ajustar al ancho de una hoja, encabezado repetido.
+      ws.pageSetup = {
+        paperSize: 1,                 // 1 = Carta (Letter)
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+        margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
       };
-      const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      ws.pageSetup.printTitlesRow = `${filaHead}:${filaHead}`;
+
+      const buf  = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `oficios_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `reporte_oficios_${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
@@ -347,10 +424,8 @@ export const Dashboard_Gestion: React.FC = () => {
     }
   };
 
-  const totalPages = Math.ceil(total / LIMIT);
-
   return (
-    <div style={{ display: 'flex', height: '100vh', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
 
       {/* ── Master panel ──────────────────────────────────── */}
       <div style={{
@@ -371,8 +446,15 @@ export const Dashboard_Gestion: React.FC = () => {
             </button>
           </div>
 
-          {/* Filtros (componente compartido) */}
-          <FiltrosOficios onChange={(f) => { setFiltros(f); setPage(1); }} />
+          {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
+            <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
+              <OficiosResumen conteos={conteos} estatus={filtros.estatus} />
+            </div>
+            <div style={{ flex: '3 1 420px', display: 'flex' }}>
+              <FiltrosOficios onChange={(f) => { setFiltros(f); setPage(1); }} />
+            </div>
+          </div>
         </div>
 
         {/* Feedback banner */}
@@ -389,10 +471,10 @@ export const Dashboard_Gestion: React.FC = () => {
         {listError && <div role="alert" style={{ ...alertStyle, margin: '12px 24px' }}>{listError}</div>}
 
         {/* Table — scroll horizontal en móvil para no romper el layout */}
-        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '4px 24px 24px', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr style={{ backgroundColor: theme.colors.primary, color: '#fff' }}>
+              <tr style={{ backgroundColor: theme.colors.surface }}>
                 {['', 'Folio', 'Delegación', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de', 'Acciones'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
@@ -511,12 +593,10 @@ export const Dashboard_Gestion: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', padding: '12px', borderTop: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface }}>
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={btnSecondary}>← Anterior</button>
-            <span style={{ lineHeight: '36px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>Pág. {page} / {totalPages} · {total} registros</span>
-            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={btnSecondary}>Siguiente →</button>
+        {/* La lista se recorre con scroll. Aviso si hay más de los cargados. */}
+        {total > oficios.length && (
+          <div style={{ padding: '8px', textAlign: 'center', fontSize: '0.74rem', color: theme.colors.textSecondary, borderTop: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface }}>
+            Mostrando {oficios.length} de {total} · acota con los filtros para ver el resto
           </div>
         )}
       </div>
@@ -524,7 +604,7 @@ export const Dashboard_Gestion: React.FC = () => {
       {/* ── Detail panel ──────────────────────────────────── */}
       {selected && (
         <div style={{ flex: isMobile ? '1' : '0 0 45%', borderLeft: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.primary }}>
+          <div style={{ position: 'sticky', top: 0, zIndex: 1, padding: '16px 20px', borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.primary }}>
             <h2 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 700 }}>
               Detalle — {selected.folio}
             </h2>
@@ -802,7 +882,7 @@ const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null }> = ({
 };
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const thStyle: React.CSSProperties      = { padding: '11px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.78rem', whiteSpace: 'nowrap' };
+const thStyle: React.CSSProperties      = { padding: '13px 14px', textAlign: 'left', fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em', color: theme.colors.textSecondary, borderBottom: `2px solid ${theme.colors.border}` };
 const tdStyle: React.CSSProperties      = { padding: '11px 14px', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties   = { padding: '8px 10px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '0.875rem', boxSizing: 'border-box' as const };
 const labelStyle: React.CSSProperties   = { display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '0.875rem' };

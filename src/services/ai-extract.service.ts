@@ -241,9 +241,9 @@ Extrae estos campos del texto OCR y responde SOLO con JSON válido:
 
 // ── Función principal ─────────────────────────────────────────
 
-export async function extractFieldsFromPdf(buffer: Buffer): Promise<ExtractedFields> {
+export async function extractFieldsFromPdf(buffer: Buffer, maxPages?: number): Promise<ExtractedFields> {
   // 1. OCR — siempre Tesseract en local, Google Vision en producción
-  const ocrResult = await extractTextFromPdf(buffer);
+  const ocrResult = await extractTextFromPdf(buffer, maxPages);
 
   if (!ocrResult.text || ocrResult.text.length < 30) {
     logger.warn({ chars: ocrResult.text.length }, 'OCR returned insufficient text');

@@ -44,7 +44,7 @@ export const tesseractAdapter: OcrAdapter = {
     }
   },
 
-  async extractText(pdfBuffer: Buffer): Promise<OcrResult> {
+  async extractText(pdfBuffer: Buffer, maxPages?: number): Promise<OcrResult> {
     const startedAt = Date.now();
     const tmpDir    = os.tmpdir();
     const uid       = `ocr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -61,7 +61,7 @@ export const tesseractAdapter: OcrAdapter = {
       // 2. Convertir PDF → imágenes PNG con pdftoppm (asíncrono, no bloquea)
       await execFileAsync(
         'pdftoppm',
-        ['-r', String(DPI), '-png', '-l', String(MAX_PAGES), tmpPdf, tmpPrefix],
+        ['-r', String(DPI), '-png', '-l', String(maxPages ?? MAX_PAGES), tmpPdf, tmpPrefix],
         { timeout: PDFTOPPM_TIMEOUT_MS },
       );
 

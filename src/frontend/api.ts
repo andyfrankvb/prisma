@@ -54,6 +54,7 @@ export async function getOficios(params?: {
   siqroo_pendiente?: boolean;
   pendiente_firma?:  boolean;
   termino?: string;
+  dirigido_a_id?: number;
 }): Promise<PaginatedResponse<Oficio>> {
   const qs = new URLSearchParams();
   if (params?.page)    qs.set('page',    String(params.page));
@@ -65,6 +66,7 @@ export async function getOficios(params?: {
   if (params?.siqroo_pendiente) qs.set('siqroo_pendiente', 'true');
   if (params?.pendiente_firma)  qs.set('pendiente_firma', 'true');
   if (params?.termino) qs.set('termino', params.termino);
+  if (params?.dirigido_a_id) qs.set('dirigido_a_id', String(params.dirigido_a_id));
 
   const res = await fetch(`${BASE}/oficios?${qs}`, {
     headers: authHeaders(),

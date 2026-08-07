@@ -44,6 +44,26 @@ async function createAuditLog(
   });
 }
 
+/**
+ * Código de nomenclatura de la oficina para el folio (va después de la fecha).
+ * Se resuelve por el NOMBRE de la unidad (robusto entre entornos, donde los ids
+ * pueden diferir). Coincidencia por palabra clave, sin acentos.
+ */
+function codigoDeUnidad(nombre: string): string {
+  const n = (nombre ?? '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (n.includes('GENERAL'))                                              return 'DG';
+  if (n.includes('JURIDIC'))                                              return 'DJ';
+  if (n.includes('OTHON') || n.includes('OHTON') || n.includes('BLANCO')) return 'OPB';
+  if (n.includes('PLAYA'))                                                return 'PDC';
+  if (n.includes('COZUMEL'))                                              return 'CZ';
+  if (n.includes('BENITO'))                                               return 'BJ';
+  if (n.includes('INNOVAC') || n.includes('INFORMAT') || n.includes('ARCHIVO') || n.includes('TICS')) return 'DTICS';
+  if (n.includes('ADMINISTRAT'))                                          return 'DA';
+  // Sin coincidencia: iniciales de las primeras palabras (fallback).
+  const inic = n.replace(/[^A-Z ]/g, '').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 4);
+  return inic || 'NA';
+}
+
 /** Returns the current estatus of an oficio or throws 404 */
 async function getOficioOrFail(trx: any, id: number) {
   const oficio = await trx('oficios').where({ id }).first();
@@ -201,7 +221,9 @@ export async function analizarPdf(
 
     // El análisis nunca rechaza: ante error devuelve el fallback. Así Promise.race
     // siempre resuelve (HTTP 200) y no hay unhandled rejection tardío.
-    const analisis = extractFieldsFromPdf(req.file.buffer).catch((err) => {
+    // Al ingresar solo se procesa la 1ª página → llenado rápido del formulario.
+    // El resto del documento se extrae después en segundo plano (processOcr).
+    const analisis = extractFieldsFromPdf(req.file.buffer, 1).catch((err) => {
       logger.warn({ err }, 'Análisis de PDF falló; se devuelven campos vacíos');
       return fallback;
     });
@@ -421,9 +443,9 @@ export async function listarOficios(
     const limit  = Math.min(100, parseInt(String(req.query.limit ?? 20), 10));
     const offset = (page - 1) * limit;
 
-    if (req.query.estatus) {
-      query = query.andWhere('oficios.estatus', req.query.estatus as string);
-    }
+    // El filtro por estatus se aplica MÁS ABAJO (después de calcular los conteos
+    // por estatus), para que las tarjetas de resumen muestren el conteo de TODOS
+    // los estatus aunque haya un estatus seleccionado.
 
     // Búsqueda de texto sobre TODA la información del oficio: folio, remitente,
     // dependencia, descripción, texto OCR, número SIQROO, fecha de término, texto
@@ -491,6 +513,25 @@ export async function listarOficios(
           .andWhereNot('oficios.estatus', 'FINALIZADO')
           .andWhereRaw(`oficios.fecha_vencimiento::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'`);
       }
+    }
+
+    // Filtro por área / jefe de área: oficios dirigidos a un director o delegado.
+    if (req.query.dirigido_a_id) {
+      query = query.andWhere('oficios.dirigido_a_id', Number(req.query.dirigido_a_id));
+    }
+
+    // Conteos por estatus (SIN el filtro de estatus, con el resto de filtros y el
+    // scope del rol) — para las tarjetas de resumen de la bandeja.
+    const conteoRows = await query.clone().clearSelect()
+      .select('oficios.estatus')
+      .countDistinct('oficios.id as count')
+      .groupBy('oficios.estatus');
+    const conteos: Record<string, number> = {};
+    for (const r of conteoRows as any[]) conteos[String(r.estatus)] = Number(r.count);
+
+    // Ahora sí, aplica el filtro por estatus (para la lista y el total).
+    if (req.query.estatus) {
+      query = query.andWhere('oficios.estatus', req.query.estatus as string);
     }
 
     // Count: clonar sin el SELECT. countDistinct porque el join de documentos
@@ -576,7 +617,7 @@ export async function listarOficios(
 
     res.json({
       data:  oficios,
-      meta:  { total, page, limit },
+      meta:  { total, page, limit, conteos },
     });
   } catch (err) {
     next(err);
@@ -640,18 +681,37 @@ export async function crearOficio(
     }
 
     // ── Generar folio automático ──────────────────────────────
-    // Formato: OF-{OFICINA_ID}-{AÑO}-{SECUENCIA 4 dígitos}
-    // Ejemplo: OF-1-2026-0012
-    const anio = new Date().getFullYear();
+    // Formato: OF-{OFICINA_ID}-{AÑO}-{MMDD}-{SECUENCIA DIARIA 4 dígitos}
+    // La secuencia REINICIA en 0001 cada día; el año se incluye para que la
+    // nomenclatura cambie sola al iniciar un nuevo año (2026 → 2027).
+    // Ejemplo: OF-37-2026-0807-0001 (primer oficio de la oficina 37 el 7-ago-2026)
+    const now  = new Date();
+    const dd   = String(now.getDate()).padStart(2, '0');
+    const mm   = String(now.getMonth() + 1).padStart(2, '0');
+    const aaaa = now.getFullYear();
+    const fechaFolio = `${dd}${mm}${aaaa}`;   // DDMMAAAA (día-mes-año)
 
-    // Contar oficios del año en curso para esta oficina → secuencia
-    const [{ seq }] = await db('oficios')
-      .where('unidad_registro_id', user.oficina_id)
-      .whereRaw(`EXTRACT(YEAR FROM fecha_registro) = ?`, [anio])
-      .count('id as seq');
+    // Código de nomenclatura según el ÁREA a la que se DIRIGE/ASIGNA el oficio.
+    const areaDestino = await db('usuarios as u')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('u.id', Number(dirigido_a_id) || 0)
+      .select('cu.id as unidad_id', 'cu.nombre as unidad_nombre')
+      .first();
+    const codigo = codigoDeUnidad(areaDestino?.unidad_nombre ?? '');
+
+    // Secuencia DIARIA por ÁREA DESTINO: cuenta los oficios dirigidos HOY a esa área.
+    // El rango del día se calcula en la zona horaria de la app (no de la BD).
+    const inicioDia = new Date(aaaa, now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const finDia    = new Date(aaaa, now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const [{ seq }] = await db('oficios as o')
+      .leftJoin('usuarios as du', 'du.id', 'o.dirigido_a_id')
+      .where('du.unidad_id', areaDestino?.unidad_id ?? -1)
+      .andWhere('o.fecha_registro', '>=', inicioDia)
+      .andWhere('o.fecha_registro', '<=', finDia)
+      .count('o.id as seq');
 
     const secuencia = String(Number(seq) + 1).padStart(4, '0');
-    const folio     = `OF-${user.oficina_id}-${anio}-${secuencia}`;
+    const folio     = `OF-${fechaFolio}-${codigo}-${secuencia}`;
 
     // Garantizar unicidad en caso de concurrencia
     const existing = await db('oficios').where({ folio }).first();
