@@ -84,7 +84,10 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - storage_pdfs:/app/storage
+      # Almacén de documentos. En producción se apunta a la carpeta compartida
+      # (SMB de 10.1.100.175) definiendo STORAGE_HOST_PATH en el .env; si no se
+      # define, usa el volumen local de Docker.
+      - ${STORAGE_HOST_PATH:-storage_pdfs}:/app/storage
     ports:
       - "3000:3000"
     networks:
