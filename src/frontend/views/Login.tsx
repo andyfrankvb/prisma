@@ -3,10 +3,12 @@
  * Diseño basado en el Toolkit Oficial 2022|2027
  */
 
-import React, { useState, FormEvent } from 'react';
+import React, { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { theme } from '../theme';
+import { getRecursos, urlArchivoRecurso } from '../api';
+import type { RecursoPublico } from '../api';
 
 export const Login: React.FC = () => {
   const { login }  = useAuth();
@@ -15,6 +17,13 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState<string | null>(null);
   const [loading,  setLoading]  = useState(false);
+
+  // Recursos públicos (video y manual) — configurables desde el SUPERADMIN.
+  // Si el endpoint falla, simplemente no se muestran: no debe estorbar el login.
+  const [recursos, setRecursos] = useState<RecursoPublico[]>([]);
+  useEffect(() => {
+    getRecursos().then((r) => setRecursos(r.data)).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -206,27 +215,37 @@ export const Login: React.FC = () => {
 
             <button
               type="submit"
+              className="btn-login"
               disabled={loading}
               style={{
-                width:           '100%',
-                padding:         '14px',
-                backgroundColor: loading ? theme.colors.primaryLight : theme.colors.primary,
-                color:           theme.colors.white,
-                border:          'none',
-                borderRadius:    theme.radius.sm,
-                fontSize:        '0.9rem',
-                fontWeight:      700,
-                fontFamily:      theme.font.family,
-                letterSpacing:   '0.05em',
-                textTransform:   'uppercase',
-                cursor:          loading ? 'not-allowed' : 'pointer',
-                transition:      'background-color 0.2s, transform 0.1s',
-                boxShadow:       theme.shadow.md,
-              }}
+                fontFamily: theme.font.family,
+                ['--btn-color' as any]:      theme.colors.primary,
+                ['--btn-color-dark' as any]: theme.colors.primaryDark,
+              } as React.CSSProperties}
             >
+              {loading && <span className="spinner" aria-hidden />}
               {loading ? 'Verificando…' : 'Ingresar'}
             </button>
           </form>
+
+          {/* ── Recursos públicos (configurables por el SUPERADMIN) ── */}
+          {recursos.length > 0 && (
+            <div style={{ marginTop: '28px', paddingTop: '20px', borderTop: `1px solid ${theme.colors.border}`, display: 'grid', gap: '10px' }}>
+              {recursos.map((r) => (
+                <a
+                  key={r.slot}
+                  className="recurso-card"
+                  href={r.tipo === 'enlace' ? r.url : urlArchivoRecurso(r.slot)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={recursoVars}
+                >
+                  <span style={recursoTitulo}>{r.titulo}</span>
+                  <span className="recurso-flecha" aria-hidden>→</span>
+                </a>
+              ))}
+            </div>
+          )}
 
           <p style={{
             marginTop:  '32px',
@@ -240,6 +259,19 @@ export const Login: React.FC = () => {
       </div>
     </div>
   );
+};
+
+// ── Estilos de los apartados de recursos ──
+// El diseño (animación, hover) vive en global.css bajo .recurso-card; aquí solo
+// se pasan los colores del tema como variables CSS.
+const recursoVars = {
+  ['--recurso-acento' as any]: theme.colors.primary,
+  ['--recurso-borde'  as any]: theme.colors.border,
+} as React.CSSProperties;
+
+const recursoTitulo: React.CSSProperties = {
+  fontSize: '0.85rem', fontWeight: 700, color: theme.colors.charcoal,
+  fontFamily: theme.font.family, minWidth: 0, lineHeight: 1.35,
 };
 
 const labelStyle: React.CSSProperties = {

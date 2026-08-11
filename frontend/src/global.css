@@ -38,3 +38,89 @@ img { max-width: 100%; }
 @media (max-width: 480px) {
   table { font-size: 0.74rem; }
 }
+
+/* ── Recursos de la pantalla de login (video y manual) ─────────
+   Toda la tarjeta es el enlace: sin botón, con animación al pasar el cursor. */
+.recurso-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--recurso-borde, #E5E7EB);
+  border-radius: 10px;
+  background-color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.recurso-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--recurso-acento, #9F2241);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+}
+.recurso-card .recurso-flecha {
+  flex-shrink: 0;
+  color: var(--recurso-acento, #9F2241);
+  font-size: 1.1rem;
+  transition: transform .18s ease;
+}
+.recurso-card:hover .recurso-flecha { transform: translateX(4px); }
+
+/* Aparición suave al cargar */
+.recurso-card { animation: recursoEntra .35s ease both; }
+.recurso-card:nth-child(2) { animation-delay: .06s; }
+@keyframes recursoEntra {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recurso-card, .recurso-card .recurso-flecha { animation: none; transition: none; }
+  .recurso-card:hover { transform: none; }
+}
+
+/* ── Botón de acceso del login ─────────────────────────────────
+   Minimalista: sin sombra pesada, con realce sutil al pasar el cursor,
+   hundido al presionar y spinner propio mientras verifica. */
+.btn-login {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  background-color: var(--btn-color, #9F2241);
+  color: #fff;
+  font-size: .88rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: background-color .18s ease, transform .12s ease, box-shadow .18s ease, opacity .18s ease;
+}
+.btn-login:hover:not(:disabled) {
+  background-color: var(--btn-color-dark, #6E1030);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .14);
+}
+.btn-login:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+.btn-login:focus-visible { outline: 2px solid var(--btn-color, #9F2241); outline-offset: 3px; }
+.btn-login:disabled { opacity: .75; cursor: not-allowed; }
+
+/* Spinner del estado "verificando" */
+.btn-login .spinner {
+  width: 15px; height: 15px; flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btnGira .7s linear infinite;
+}
+@keyframes btnGira { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-login { transition: none; }
+  .btn-login:hover:not(:disabled) { transform: none; }
+  .btn-login .spinner { animation-duration: 2s; }
+}

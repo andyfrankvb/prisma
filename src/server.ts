@@ -22,6 +22,7 @@ import filesRouter          from './modules/files/files.routes';
 import notificacionesRouter from './modules/notificaciones/notificaciones.routes';
 import directorRouter       from './modules/director/director.routes';
 import adminRouter          from './modules/admin/admin.routes';
+import recursosRouter       from './modules/recursos/recursos.routes';
 import eventosRouter        from './modules/eventos/eventos.routes';
 import tramitesRouter       from './modules/tramites/tramites.routes';
 import { startNotificationService } from './notifications';
@@ -151,6 +152,10 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response, next: NextFun
 });
 
 // ── API routes ────────────────────────────────────────────────
+// OJO: recursos va PRIMERO porque tiene rutas públicas (las consume el login sin
+// token) y `oficiosRouter` está montado en /api/v1 con authenticate, por lo que
+// interceptaría cualquier ruta declarada después.
+app.use('/api/v1/recursos',       recursosRouter);
 app.use('/api/v1',                oficiosRouter);
 app.use('/api/v1/usuarios',       usuariosRouter);
 app.use('/api/v1/files',          filesRouter);

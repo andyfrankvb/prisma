@@ -500,3 +500,72 @@ export async function adminListarOficinas() {
   const res = await fetch(`${BASE}/admin/oficinas`, { headers: authHeaders() });
   return handleResponse<{ data: OficinaAdmin[] }>(res);
 }
+
+// ── Recursos públicos (los dos apartados de la pantalla de login) ────────────
+
+export type TipoRecurso = 'enlace' | 'archivo';
+
+/** Lo que ve el login: solo los recursos habilitados y con contenido. */
+export interface RecursoPublico {
+  slot:   1 | 2;
+  titulo: string;
+  tipo:   TipoRecurso;
+  url:    string;
+}
+
+/** Configuración completa de un apartado (vista del SUPERADMIN). */
+export interface RecursoConfig {
+  titulo:       string;
+  tipo:         TipoRecurso;
+  habilitado:   boolean;
+  url:          string;
+  tieneArchivo: boolean;
+  visible:      boolean;
+}
+
+/** Lectura pública: la usa la pantalla de login (sin sesión). */
+export async function getRecursos() {
+  const res = await fetch(`${BASE}/recursos`);
+  return handleResponse<{ data: RecursoPublico[] }>(res);
+}
+
+/** URL directa del PDF de un apartado (para abrirlo en otra pestaña). */
+export function urlArchivoRecurso(slot: number): string {
+  return `${BASE}/recursos/${slot}/archivo`;
+}
+
+/** SUPERADMIN: configuración completa de ambos apartados. */
+export async function getRecursosConfig() {
+  const res = await fetch(`${BASE}/recursos/admin`, { headers: authHeaders() });
+  return handleResponse<{ data: { recurso1: RecursoConfig; recurso2: RecursoConfig } }>(res);
+}
+
+/** SUPERADMIN: guarda habilitado, título, tipo y enlace de un apartado. */
+export async function guardarRecurso(slot: number, p: {
+  titulo: string; tipo: TipoRecurso; url: string; habilitado: boolean;
+}) {
+  const res = await fetch(`${BASE}/recursos/${slot}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(p),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** SUPERADMIN: sube o reemplaza el PDF de un apartado. */
+export async function subirArchivoRecurso(slot: number, file: File) {
+  const fd = new FormData();
+  fd.append('archivo', file);
+  const res = await fetch(`${BASE}/recursos/${slot}/archivo`, {
+    method: 'POST', headers: authHeaders(), body: fd,
+  });
+  return handleResponse<{ message: string; data: { archivo: string } }>(res);
+}
+
+/** SUPERADMIN: retira el PDF de un apartado. */
+export async function quitarArchivoRecurso(slot: number) {
+  const res = await fetch(`${BASE}/recursos/${slot}/archivo`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}

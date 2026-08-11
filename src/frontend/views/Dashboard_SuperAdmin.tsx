@@ -13,6 +13,7 @@ import { AdminUsuarios } from './AdminUsuarios';
 import { SeccionModulos } from './SeccionModulos';
 import { ConfiguracionFlujos } from './ConfiguracionFlujos';
 import { SeccionCatalogos } from './SeccionCatalogos';
+import { SeccionRecursos } from './SeccionRecursos';
 
 type ModuloKey = 'usuarios' | 'modulos' | 'flujos' | 'catalogos';
 
@@ -29,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'modulos',  icon: '🧩',  label: 'Módulos',        sublabel: 'Gestión de acceso',    color: '#4C1D95' },
   { key: 'flujos',   icon: '⚙️',  label: 'Flujos',         sublabel: 'Configuración de actores', color: '#4C1D95' },
   { key: 'catalogos', icon: '📇', label: 'Catálogos',      sublabel: 'Dependencias y remitentes', color: '#4C1D95' },
+  { key: 'recursos',  icon: '🔗', label: 'Recursos',       sublabel: 'Video y manual del login', color: '#4C1D95' },
 ];
 
 export const Dashboard_SuperAdmin: React.FC = () => {
@@ -165,6 +167,7 @@ export const Dashboard_SuperAdmin: React.FC = () => {
           {modulo === 'modulos'   && <SeccionModulos />}
           {modulo === 'flujos'    && <ConfiguracionFlujos />}
           {modulo === 'catalogos' && <SeccionCatalogos />}
+          {modulo === 'recursos'  && <SeccionRecursos />}
         </div>
       </div>
     </div>
