@@ -270,8 +270,10 @@ export const ConfiguracionFlujos: React.FC = () => {
           {/* Roles */}
           {modulo.roles.map((rol, rIdx) => {
             const isLast = rIdx === modulo.roles.length - 1;
-            const esMultiple = modulo.modulo_clave === 'oficialia_partes'
-              && (rol.rol_flujo === 'OFICIAL' || rol.rol_flujo === 'JURIDICO');
+            // Todo rol que se configura POR UNIDAD necesita poder agregar unidades
+            // nuevas (antes solo OFICIAL y JURIDICO tenían el botón, así que no había
+            // forma de dar de alta al ENCARGADO de un área sin configurar).
+            const esMultiple = rol.por_unidad;
 
             return (
               <div key={rol.rol_flujo} style={{ borderBottom: isLast ? 'none' : `1px solid ${theme.colors.border}` }}>

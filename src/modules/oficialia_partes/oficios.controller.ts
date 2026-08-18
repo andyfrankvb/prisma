@@ -389,17 +389,14 @@ export async function listarOficios(
         if ((user as any).unidad_tipo === 'DIRECCION_GENERAL') {
           break;
         }
-        // Jefe de delegación (DIRECTOR de una DELEGACION, aunque no sea el encargado):
-        // ve los oficios dirigidos a él, para estar al tanto de lo que le llega.
-        if ((user as any).unidad_tipo === 'DELEGACION') {
-          query = query.where('oficios.dirigido_a_id', user.id);
-          break;
-        }
-        // Director de área — solo oficios ya aprobados/finalizados
-        query = query.whereIn('oficios.estatus', [
-          'VOBO_APROBADO',
-          'FINALIZADO',
-        ] as EstatusOficio[]);
+        // Titular de un área (delegación o dirección) que no es su encargado: ve los
+        // oficios dirigidos a él, para estar al tanto de lo que le llega.
+        //
+        // Antes, un director de área sin encargado configurado caía en una regla
+        // heredada que le mostraba TODOS los oficios aprobados y finalizados del
+        // sistema, incluidos los de otras áreas. Se acota a lo suyo: si falta
+        // configuración, el peor caso es ver de menos, nunca de más.
+        query = query.where('oficios.dirigido_a_id', user.id);
         break;
 
       case 'JURIDICO':
