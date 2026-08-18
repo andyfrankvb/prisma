@@ -142,9 +142,22 @@ async function resolverEncargadoDeOficio(dirigidoAId: number | null): Promise<nu
 }
 
 /**
+ * ¿La unidad del destinatario resuelve su propio VoBo y su propia firma?
+ *
+ * Aplica a las DELEGACIONES y a las DIRECCIONES de área: en ambas, el titular o el
+ * encargado del área aprueban y suben el firmado, sin pasar por la secretaría.
+ * La DIRECCION_GENERAL queda fuera a propósito: ahí aprueba el encargado y el
+ * firmado lo sube la secretaría de la Dirección General.
+ */
+const TIPOS_CON_FLUJO_PROPIO = ['DELEGACION', 'DIRECCION'];
+function tieneFlujoPropio(rol?: string | null, tipo?: string | null): boolean {
+  return rol === 'DIRECTOR' && TIPOS_CON_FLUJO_PROPIO.includes(tipo ?? '');
+}
+
+/**
  * ¿Puede este usuario aprobar (VoBo) / reconsiderar este oficio?
- * En las DELEGACIONES lo hace el DELEGADO (el "dirigido a", que es DIRECTOR de la
- * delegación), NO el encargado. En el resto (Dirección General) lo hace el encargado.
+ * En delegaciones y direcciones de área lo define `catalogo_unidades.vobo_por`:
+ * el titular (delegado/director) o el encargado. En la Dirección General, el encargado.
  */
 async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promise<boolean> {
   if (dirigidoAId) {
@@ -153,13 +166,14 @@ async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promis
       .where('u.id', dirigidoAId)
       .select('u.rol', 'cu.tipo', 'cu.vobo_por')
       .first();
-    if (dirigido?.rol === 'DIRECTOR' && dirigido.tipo === 'DELEGACION') {
-      // Configurable por delegación: el VoBo lo da el ENCARGADO o el DELEGADO.
+    if (tieneFlujoPropio(dirigido?.rol, dirigido?.tipo)) {
+      // Configurable por unidad: el VoBo lo da el ENCARGADO o el titular
+      // (delegado en una delegación, director en una dirección de área).
       if (dirigido.vobo_por === 'ENCARGADO') {
         const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
         return encargadoId === user.id;
       }
-      return user.id === dirigidoAId;   // por defecto, el delegado
+      return user.id === dirigidoAId;
     }
   }
   return canActAsEncargado(user);   // DG u otro: el encargado
@@ -167,9 +181,10 @@ async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promis
 
 /**
  * ¿Puede este usuario subir el documento firmado y finalizar el oficio?
- * En las DELEGACIONES lo puede hacer TANTO el DELEGADO como el ENCARGADO de esa
- * delegación (el primero que lo suba finaliza; el otro ya no puede porque el oficio
- * deja de estar en VOBO_APROBADO). En la Dirección General lo hace la SECRETARIA.
+ * En delegaciones y direcciones de área lo puede hacer TANTO el titular como el
+ * ENCARGADO de esa unidad (el primero que lo suba finaliza; el otro ya no puede
+ * porque el oficio deja de estar en VOBO_APROBADO). En la Dirección General lo
+ * hace la SECRETARIA.
  */
 async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise<boolean> {
   if (dirigidoAId) {
@@ -178,10 +193,10 @@ async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise
       .where('u.id', dirigidoAId)
       .select('u.rol', 'cu.tipo')
       .first();
-    if (dirigido?.rol === 'DIRECTOR' && dirigido.tipo === 'DELEGACION') {
-      if (user.id === dirigidoAId) return true;                 // el delegado
+    if (tieneFlujoPropio(dirigido?.rol, dirigido?.tipo)) {
+      if (user.id === dirigidoAId) return true;                 // el titular del área
       const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
-      return encargadoId === user.id;                           // el encargado de la delegación
+      return encargadoId === user.id;                           // el encargado de esa unidad
     }
   }
   return canActAsSecretaria(user);   // DG: la secretaría (rol nativo o configurada en flujos)
@@ -564,10 +579,11 @@ export async function listarOficios(
       }
 
       // ¿Quién tiene el oficio en su bandeja ahora? (según el estatus del flujo)
-      const esOficioDelegacion = o.dirigido_a_rol === 'DIRECTOR' && o.dirigido_a_unidad_tipo === 'DELEGACION';
-      // En delegaciones el VoBo lo da el DELEGADO por defecto, o el ENCARGADO si así
-      // se configuró esa delegación (catalogo_unidades.vobo_por). En la DG, el encargado.
-      const voboLoDaElEncargado = esOficioDelegacion
+      // Delegaciones y direcciones de área resuelven su propio VoBo y su propia firma.
+      const esFlujoPropio = tieneFlujoPropio(o.dirigido_a_rol, o.dirigido_a_unidad_tipo);
+      // En esas unidades el VoBo lo da quien se haya configurado (catalogo_unidades.vobo_por):
+      // el titular (delegado/director) o el encargado. En la Dirección General, el encargado.
+      const voboLoDaElEncargado = esFlujoPropio
         ? o.vobo_por_unidad === 'ENCARGADO'
         : true;
       // Nombre de quien aprueba (para bandeja EN_REVISION y "vobo_por_nombre").
@@ -584,8 +600,9 @@ export async function listarOficios(
           en_bandeja_de = aprobadorNombre; break;
         case 'VOBO_APROBADO':                         // listo para firma
         case 'FINALIZADO':                            // firmado/cerrado
-          // Delegación: el encargado sube el firmado (o el delegado). DG: la secretaría.
-          en_bandeja_de = esOficioDelegacion ? o.encargado_nombre : secretariaNombre; break;
+          // Delegación o dirección de área: su encargado sube el firmado (o el titular).
+          // Dirección General: la secretaría.
+          en_bandeja_de = esFlujoPropio ? o.encargado_nombre : secretariaNombre; break;
         default:
           en_bandeja_de = o.encargado_nombre;
       }
@@ -599,8 +616,9 @@ export async function listarOficios(
       const vobo_por_nombre = aprobadorNombre;
 
       // ¿Puede el usuario actual subir el firmado / finalizar este oficio?
-      // Delegación: el delegado (dirigido a) o el encargado de esa unidad. DG: la secretaría.
-      const puede_finalizar = esOficioDelegacion
+      // Delegación o dirección de área: el titular (dirigido a) o el encargado de esa
+      // unidad. Dirección General: la secretaría.
+      const puede_finalizar = esFlujoPropio
         ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
         : esSecretaria;
 

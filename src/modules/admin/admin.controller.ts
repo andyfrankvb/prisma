@@ -424,6 +424,7 @@ import {
   invalidateActorFlujoCache,
   esRolPorUnidad,
   esRolGlobal,
+  admiteVariosPorUnidad,
 } from '../../services/flujo-config.service';
 
 // ── GET /admin/flujos ─────────────────────────────────────────
@@ -576,23 +577,49 @@ export async function actualizarFlujo(
       throw new AppError(`El rol '${rolFlujo}' requiere seleccionar una delegación`, 422);
     }
 
-    await db.transaction(async (trx) => {
-      const anterior = await trx('configuracion_flujos')
-        .where({ modulo_clave: moduloClave, rol_flujo: rolFlujo, unidad_id: unidadIdVal })
-        .select('usuario_id')
-        .first();
+    // Roles que admiten varios actores por unidad (hoy: OFICIAL) se AGREGAN;
+    // el resto se REEMPLAZA, porque debe haber uno solo por unidad.
+    const varios = admiteVariosPorUnidad(moduloClave, rolFlujo);
 
-      await trx('configuracion_flujos')
-        .insert({
-          modulo_clave:       moduloClave,
-          rol_flujo:          rolFlujo,
-          usuario_id:         Number(usuario_id),
-          unidad_id:          unidadIdVal,
-          actualizado_por_id: requester.id,
-          actualizado_en:     new Date(),
-        })
-        .onConflict(['modulo_clave', 'rol_flujo', 'unidad_id'])
-        .merge({ usuario_id: Number(usuario_id), actualizado_por_id: requester.id, actualizado_en: new Date() });
+    await db.transaction(async (trx) => {
+      const anterior = varios
+        ? null
+        : await trx('configuracion_flujos')
+            .where({ modulo_clave: moduloClave, rol_flujo: rolFlujo, unidad_id: unidadIdVal })
+            .select('usuario_id')
+            .first();
+
+      const fila = {
+        modulo_clave:       moduloClave,
+        rol_flujo:          rolFlujo,
+        usuario_id:         Number(usuario_id),
+        unidad_id:          unidadIdVal,
+        actualizado_por_id: requester.id,
+        actualizado_en:     new Date(),
+      };
+
+      // Nota: los índices únicos son PARCIALES (uno para OFICIAL y otro para el
+      // resto), y Postgres no acepta ON CONFLICT contra un índice parcial sin
+      // repetir su predicado. Por eso se consulta antes de insertar.
+      if (varios) {
+        // Se suma a los que ya existan; si esa persona ya estaba, solo se refresca.
+        const yaEsta = await trx('configuracion_flujos')
+          .where({ modulo_clave: moduloClave, rol_flujo: rolFlujo, unidad_id: unidadIdVal, usuario_id: Number(usuario_id) })
+          .first();
+        if (yaEsta) {
+          await trx('configuracion_flujos').where({ id: yaEsta.id })
+            .update({ actualizado_por_id: requester.id, actualizado_en: new Date() });
+        } else {
+          await trx('configuracion_flujos').insert(fila);
+        }
+      } else if (anterior) {
+        // Rol único por unidad: se reemplaza al actor anterior.
+        await trx('configuracion_flujos')
+          .where({ modulo_clave: moduloClave, rol_flujo: rolFlujo, unidad_id: unidadIdVal })
+          .update({ usuario_id: Number(usuario_id), actualizado_por_id: requester.id, actualizado_en: new Date() });
+      } else {
+        await trx('configuracion_flujos').insert(fila);
+      }
 
       await trx('auditoria_configuracion_flujos').insert({
         modulo_clave:        moduloClave,
@@ -618,9 +645,15 @@ export async function eliminarFlujoUnidad(
 ): Promise<void> {
   try {
     const { modulo, rol, unidadId } = req.params;
-    const deleted = await db('configuracion_flujos')
-      .where({ modulo_clave: modulo, rol_flujo: rol, unidad_id: Number(unidadId) })
-      .delete();
+    // En los roles que admiten varios por unidad (OFICIAL) hay que borrar SOLO a la
+    // persona indicada; sin `usuario_id` se llevaría a todos los de esa delegación.
+    const usuarioId = req.query.usuario_id ? Number(req.query.usuario_id) : null;
+
+    let q = db('configuracion_flujos')
+      .where({ modulo_clave: modulo, rol_flujo: rol, unidad_id: Number(unidadId) });
+    if (usuarioId) q = q.andWhere({ usuario_id: usuarioId });
+
+    const deleted = await q.delete();
     if (!deleted) throw new AppError('Configuración no encontrada', 404);
     invalidateActorFlujoCache(modulo, rol);
     res.json({ message: 'Configuración eliminada' });
@@ -692,8 +725,11 @@ export async function listarDelegacionesVobo(
   next: NextFunction,
 ): Promise<void> {
   try {
+    // Delegaciones y direcciones de área: ambas resuelven su propio VoBo, así que
+    // ambas necesitan el selector. La Dirección General queda fuera: ahí aprueba
+    // siempre el encargado y el firmado lo sube la secretaría.
     const delegaciones = await db('catalogo_unidades as cu')
-      .where('cu.tipo', 'DELEGACION')
+      .whereIn('cu.tipo', ['DELEGACION', 'DIRECCION'])
       .leftJoin('usuarios as d', function () {
         this.on('d.unidad_id', '=', 'cu.id').andOnVal('d.rol', '=', 'DIRECTOR');
       })
@@ -706,10 +742,12 @@ export async function listarDelegacionesVobo(
       .select(
         'cu.id',
         'cu.nombre',
+        'cu.tipo',            // define la etiqueta del titular: Delegado o Director
         'cu.vobo_por',
         'd.nombre as delegado_nombre',
         'e.nombre as encargado_nombre',
       )
+      .orderBy('cu.tipo', 'asc')
       .orderBy('cu.nombre', 'asc');
     res.json({ data: delegaciones });
   } catch (err) {
@@ -729,8 +767,13 @@ export async function actualizarDelegacionVobo(
     if (!['DELEGADO', 'ENCARGADO'].includes(vobo_por)) {
       throw new AppError('vobo_por debe ser DELEGADO o ENCARGADO', 422);
     }
-    const unidad = await db('catalogo_unidades').where({ id: unidadId, tipo: 'DELEGACION' }).first();
-    if (!unidad) throw new AppError('Delegación no encontrada', 404);
+    // Solo las unidades con flujo propio (delegaciones y direcciones de área) tienen
+    // VoBo configurable; la Dirección General queda fuera a propósito.
+    const unidad = await db('catalogo_unidades')
+      .where({ id: unidadId })
+      .whereIn('tipo', ['DELEGACION', 'DIRECCION'])
+      .first();
+    if (!unidad) throw new AppError('Unidad no encontrada o sin VoBo configurable', 404);
     await db('catalogo_unidades').where({ id: unidadId }).update({ vobo_por });
     res.json({ message: 'Configuración de VoBo actualizada', data: { id: unidadId, vobo_por } });
   } catch (err) {

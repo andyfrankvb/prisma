@@ -70,6 +70,7 @@ interface ModuloFlujo {
 interface DelegacionVobo {
   id:               number;
   nombre:           string;
+  tipo:             string;          // DELEGACION | DIRECCION — define la etiqueta del titular
   vobo_por:         'DELEGADO' | 'ENCARGADO';
   delegado_nombre:  string | null;
   encargado_nombre: string | null;
@@ -87,6 +88,22 @@ interface AddState {
 }
 
 // ── Componente principal ──────────────────────────────────────
+
+/**
+ * Agrupa las configuraciones por unidad, conservando el orden de llegada.
+ * Los roles globales (sin unidad) caen en un grupo propio.
+ */
+function agruparPorUnidad(cfgs: ConfigEntry[]) {
+  const mapa = new Map<string, { clave: string; nombre: string; items: ConfigEntry[] }>();
+  for (const c of cfgs) {
+    const clave = String(c.unidad_id ?? 'global');
+    if (!mapa.has(clave)) {
+      mapa.set(clave, { clave, nombre: c.unidad_nombre ?? 'Sin unidad', items: [] });
+    }
+    mapa.get(clave)!.items.push(c);
+  }
+  return Array.from(mapa.values());
+}
 
 export const ConfiguracionFlujos: React.FC = () => {
   const isMobile = useIsMobile();
@@ -204,10 +221,13 @@ export const ConfiguracionFlujos: React.FC = () => {
   }, [editEntry, cargarFlujos]);
 
   // Eliminar entrada por unidad
-  const eliminarEntrada = useCallback(async (moduloClave: string, rolFlujo: string, unidadId: number) => {
+  const eliminarEntrada = useCallback(async (moduloClave: string, rolFlujo: string, unidadId: number, usuarioId?: number) => {
     if (!confirm('¿Eliminar esta configuración?')) return;
     try {
-      await apiFetch(`${BASE}/admin/flujos/${moduloClave}/${rolFlujo}/${unidadId}`, { method: 'DELETE' });
+      // usuario_id es necesario en los roles con varios actores por unidad (OFICIAL),
+      // si no se borrarían todos los de esa delegación.
+      const qs = usuarioId ? `?usuario_id=${usuarioId}` : '';
+      await apiFetch(`${BASE}/admin/flujos/${moduloClave}/${rolFlujo}/${unidadId}${qs}`, { method: 'DELETE' });
       cargarFlujos();
     } catch (err: any) {
       alert(err.message);
@@ -341,14 +361,24 @@ export const ConfiguracionFlujos: React.FC = () => {
                     <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: '20px', background: '#FEF3C7', color: '#92400E', fontSize: '0.75rem', fontWeight: 600 }}>Sin configurar</span>
                   </div>
                 ) : (
-                  rol.configuraciones.map((cfg) => {
+                  // Se agrupan por unidad: una delegación con varios actores (p. ej. dos
+                  // oficiales de partes) aparece una sola vez con su gente debajo.
+                  agruparPorUnidad(rol.configuraciones).map((grupo) => (
+                    <div key={grupo.clave} style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+                      <div style={{ padding: '8px 20px 2px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.colors.primary }}>
+                          🏛 {grupo.nombre}
+                          {grupo.items.length > 1 && (
+                            <span style={{ marginLeft: '8px', fontSize: '0.68rem', fontWeight: 600, color: theme.colors.textSecondary }}>
+                              {grupo.items.length} personas
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      {grupo.items.map((cfg) => {
                     const isEditingThis = editEntry?.moduloClave === modulo.modulo_clave && editEntry?.rolFlujo === rol.rol_flujo && editEntry?.unidadId === cfg.unidad_id;
                     return (
-                      <div key={cfg.id} style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', borderTop: `1px solid ${theme.colors.border}` }}>
-                        {/* Unidad */}
-                        {cfg.unidad_nombre && (
-                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.colors.primary, minWidth: '160px' }}>🏛 {cfg.unidad_nombre}</span>
-                        )}
+                      <div key={cfg.id} style={{ padding: '6px 20px 10px 40px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                         {/* Usuario */}
                         <div style={{ flex: 1 }}>
                           {isEditingThis ? (
@@ -394,7 +424,7 @@ export const ConfiguracionFlujos: React.FC = () => {
                             </button>
                             {cfg.unidad_id !== null && (
                               <button
-                                onClick={() => eliminarEntrada(modulo.modulo_clave, rol.rol_flujo, cfg.unidad_id!)}
+                                onClick={() => eliminarEntrada(modulo.modulo_clave, rol.rol_flujo, cfg.unidad_id!, cfg.usuario_id)}
                                 style={{ padding: '5px 10px', background: theme.colors.alert.red, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
                               >
                                 🗑
@@ -404,7 +434,9 @@ export const ConfiguracionFlujos: React.FC = () => {
                         )}
                       </div>
                     );
-                  })
+                      })}
+                    </div>
+                  ))
                 )}
               </div>
             );
@@ -416,9 +448,9 @@ export const ConfiguracionFlujos: React.FC = () => {
       {delegaciones.length > 0 && (
         <div style={{ background: theme.colors.surface, border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, marginBottom: '20px', overflow: 'hidden', boxShadow: theme.shadow.sm }}>
           <div style={{ padding: '14px 20px', borderBottom: `1px solid ${theme.colors.border}`, backgroundColor: '#F9F7F5' }}>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.primaryDark }}>Visto bueno en delegaciones</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.primaryDark }}>Visto bueno por área</h3>
             <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
-              Elige quién aprueba (VoBo) los oficios en cada delegación: el delegado o el encargado.
+              Elige quién aprueba (VoBo) los oficios en cada área: su titular o el encargado.
             </p>
           </div>
 
@@ -427,7 +459,7 @@ export const ConfiguracionFlujos: React.FC = () => {
               <div style={{ flex: 1, minWidth: '200px' }}>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primary }}>🏛 {d.nombre}</p>
                 <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                  Delegado: {d.delegado_nombre ?? '—'} · Encargado: {d.encargado_nombre ?? '—'}
+                  {d.tipo === 'DIRECCION' ? 'Director' : 'Delegado'}: {d.delegado_nombre ?? '—'} · Encargado: {d.encargado_nombre ?? '—'}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
@@ -446,7 +478,7 @@ export const ConfiguracionFlujos: React.FC = () => {
                         opacity: voboSaving === d.id ? 0.6 : 1,
                       }}
                     >
-                      {opt === 'DELEGADO' ? 'Delegado' : 'Encargado'}
+                      {opt === 'ENCARGADO' ? 'Encargado' : (d.tipo === 'DIRECCION' ? 'Director' : 'Delegado')}
                     </button>
                   );
                 })}

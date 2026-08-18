@@ -130,8 +130,28 @@ const ROLES_GLOBALES: Record<string, string[]> = {
   oficialia_partes: ['SECRETARIA'],
 };
 
+/**
+ * Roles que admiten VARIOS actores en la misma unidad.
+ *
+ * Solo el OFICIAL de partes: una delegación puede tener varias personas
+ * recibiendo oficios, y cada una ve únicamente los que registró (el alcance sale
+ * del rol de su cuenta, no de esta tabla).
+ *
+ * Los demás roles se quedan únicos a propósito: ENCARGADO, SECRETARIA y JURIDICO
+ * SÍ se resuelven desde aquí para decidir a quién le cae cada oficio, así que dos
+ * actores en la misma unidad volverían impredecible esa resolución.
+ */
+const ROLES_MULTIPLES: Record<string, string[]> = {
+  oficialia_partes: ['OFICIAL'],
+};
+
 export function esRolPorUnidad(moduloClave: string, rolFlujo: string): boolean {
   return ROLES_POR_UNIDAD[moduloClave]?.includes(rolFlujo) ?? false;
+}
+
+/** ¿Este rol admite varios usuarios en la misma unidad? */
+export function admiteVariosPorUnidad(moduloClave: string, rolFlujo: string): boolean {
+  return ROLES_MULTIPLES[moduloClave]?.includes(rolFlujo) ?? false;
 }
 
 export function esRolGlobal(moduloClave: string, rolFlujo: string): boolean {
