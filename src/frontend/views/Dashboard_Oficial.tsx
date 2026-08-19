@@ -14,13 +14,15 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, createOficio, getUsuarios, finalizarOficio,
          getDependencias, crearDependencia, getRemitentes, crearRemitente,
-         getUnidadesInternas, crearUnidadInterna, completarSiqroo } from '../api';
-import type { CatalogoItem } from '../api';
+         getUnidadesInternas, crearUnidadInterna,
+         getCorreos, crearCorreo } from '../api';
+import type { CatalogoItem, TipoCorreo } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
 import { FiltrosOficios } from '../components/FiltrosOficios';
@@ -74,24 +76,6 @@ export const Dashboard_Oficial: React.FC = () => {
   // ── Detail panel ──────────────────────────────────────────
   const [selected, setSelected] = useState<Oficio | null>(null);
 
-  // SIQROO: completar el NCI pendiente desde el detalle
-  const [siqControl, setSiqControl] = useState('');
-  const [siqSaving,  setSiqSaving]  = useState(false);
-  useEffect(() => { setSiqControl(''); }, [selected?.id]);
-
-  const siqrooPendiente = (o: Oficio) =>
-    !!o.siqroo_aplica && !o.siqroo_control_interno;
-
-  const handleCompletarSiqroo = async () => {
-    if (!selected || !siqControl.trim()) return;
-    setSiqSaving(true);
-    try {
-      const { data } = await completarSiqroo(selected.id, siqControl);
-      setSelected(data);
-      fetchOficios();
-    } catch { /* noop */ }
-    finally { setSiqSaving(false); }
-  };
 
   // Aviso sutil de optimización del PDF tras registrar
   const [avisoCompresion, setAvisoCompresion] = useState<string | null>(null);
@@ -139,6 +123,8 @@ export const Dashboard_Oficial: React.FC = () => {
     if (!showCreate) return;
     getDependencias().then((r) => setDependencias(r.data)).catch(() => {});
     getRemitentes().then((r) => setRemitentesList(r.data)).catch(() => {});
+    getCorreos('origen').then((r) => setCorreosOri(r.data)).catch(() => {});
+    getCorreos('destino').then((r) => setCorreosDes(r.data)).catch(() => {});
   }, [showCreate]);
 
   // Sub-unidades al cambiar la dependencia (cascada)
@@ -147,9 +133,15 @@ export const Dashboard_Oficial: React.FC = () => {
     getUnidadesInternas(Number(depSel)).then((r) => setUnidadesList(r.data)).catch(() => setUnidadesList([]));
   }, [depSel]);
 
-  // ── SIQROO ────────────────────────────────────────────────
-  const [siqrooAplica,  setSiqrooAplica]  = useState(false);
-  const [siqrooControl, setSiqrooControl] = useState('');
+  // Por dónde entró el oficio. Por correo, se piden las dos cuentas.
+  const [viaRecepcion,  setViaRecepcion]  = useState<'VENTANILLA' | 'CORREO_ELECTRONICO'>('VENTANILLA');
+  const [correoOrigen,  setCorreoOrigen]  = useState('');
+  const [correoDestino, setCorreoDestino] = useState('');
+  // Dos catálogos independientes de correos, cada uno con su alta al vuelo.
+  const [correosOri,    setCorreosOri]    = useState<CatalogoItem[]>([]);
+  const [correosDes,    setCorreosDes]    = useState<CatalogoItem[]>([]);
+  const [addCorMode,    setAddCorMode]    = useState<TipoCorreo | null>(null);
+  const [nuevoCorreo,   setNuevoCorreo]   = useState('');
 
   // ── Destinatarios ─────────────────────────────────────────
   const [destinatarios, setDestinatarios] = useState<Abogado[]>([]);
@@ -294,6 +286,30 @@ export const Dashboard_Oficial: React.FC = () => {
     } catch (err: any) { setCreateError(err.message); }
   };
 
+  /** Da de alta un correo en su catálogo y lo deja seleccionado. */
+  const agregarCorreo = async (tipo: TipoCorreo) => {
+    const correo = nuevoCorreo.trim().toLowerCase();
+    if (!correo) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+      setCreateError('El correo no tiene un formato válido'); return;
+    }
+    const lista    = tipo === 'origen' ? correosOri : correosDes;
+    const setLista = tipo === 'origen' ? setCorreosOri : setCorreosDes;
+    const usar     = tipo === 'origen' ? setCorreoOrigen : setCorreoDestino;
+
+    const existente = lista.find((c) => c.nombre === correo);
+    if (existente) {
+      usar(existente.nombre); setAddCorMode(null); setNuevoCorreo(''); setCreateError(null);
+      window.alert(`El correo «${existente.nombre}» ya está en el catálogo. Se seleccionó el registro existente.`);
+      return;
+    }
+    try {
+      const { data } = await crearCorreo(tipo, correo);
+      setLista((prev) => [...prev.filter((c) => c.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+      usar(data.nombre); setAddCorMode(null); setNuevoCorreo(''); setCreateError(null);
+    } catch (err: any) { setCreateError(err.message); }
+  };
+
   // ── Guardar oficio ────────────────────────────────────────
   const resetForm = () => {
     setPaso(1);
@@ -303,7 +319,8 @@ export const Dashboard_Oficial: React.FC = () => {
     setDepSel(''); setUniSel(''); setRemSel('');
     setAddDepMode(false); setAddUniMode(false); setAddRemMode(false);
     setNuevaDepNombre(''); setNuevaUniNombre(''); setNuevoRemNombre(''); setNumOficioOrigen(''); setFechaOficio('');
-    setSiqrooAplica(false); setSiqrooControl('');
+    setViaRecepcion('VENTANILLA'); setCorreoOrigen(''); setCorreoDestino('');
+    setAddCorMode(null); setNuevoCorreo('');
   };
 
   const handleCreate = async (e: FormEvent) => {
@@ -315,6 +332,16 @@ export const Dashboard_Oficial: React.FC = () => {
     if (faltanObligatorios) { setCreateError('Completa los campos obligatorios (marcados con *).'); return; }
     // Si marcó "tiene término", pedimos la fecha de vencimiento.
     if (tieneTermino && !fechaVence) { setCreateError('Ingresa la fecha de vencimiento'); return; }
+    // Si llegó por correo, los dos correos son la constancia de cómo entró.
+    if (viaRecepcion === 'CORREO_ELECTRONICO') {
+      const formato = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!correoOrigen.trim() || !correoDestino.trim()) {
+        setCreateError('Captura el correo de quien envía y el correo que lo recibió'); return;
+      }
+      if (!formato.test(correoOrigen.trim()) || !formato.test(correoDestino.trim())) {
+        setCreateError('Alguno de los correos no tiene un formato válido'); return;
+      }
+    }
     setSubmitting(true); setCreateError(null);
     try {
       const fd = new FormData();
@@ -332,10 +359,11 @@ export const Dashboard_Oficial: React.FC = () => {
         const f = docFiles[key];
         if (f) fd.append(key, f);
       });
-      // SIQROO
-      fd.append('siqroo_aplica', String(siqrooAplica));
-      if (siqrooAplica && siqrooControl.trim()) {
-        fd.append('siqroo_control_interno', siqrooControl.trim());
+      // Vía de recepción
+      fd.append('via_recepcion', viaRecepcion);
+      if (viaRecepcion === 'CORREO_ELECTRONICO') {
+        fd.append('correo_origen',  correoOrigen.trim().toLowerCase());
+        fd.append('correo_destino', correoDestino.trim().toLowerCase());
       }
       const resp = await createOficio(fd);
       const aviso = textoCompresion(resp.compresion);
@@ -416,7 +444,7 @@ export const Dashboard_Oficial: React.FC = () => {
           <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={tableHeaderStyle}>
-                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'En bandeja de', 'SIQROO'].map((h) => (
+                {['Folio', 'Remitente', 'Dependencia', 'Fecha Ingreso', 'Término', 'Estatus', 'En bandeja de', 'Sistemas'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -456,13 +484,7 @@ export const Dashboard_Oficial: React.FC = () => {
                       {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
                     </td>
                     <td style={{ ...tdStyle, width: '1%', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                      {!o.siqroo_aplica ? (
-                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
-                      ) : siqrooPendiente(o) ? (
-                        <span style={{ fontSize: '0.66rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 7px', borderRadius: '10px', whiteSpace: 'nowrap' }}>Pendiente</span>
-                      ) : (
-                        <span style={{ fontSize: '0.66rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 7px', borderRadius: '10px', whiteSpace: 'nowrap' }}>Completo</span>
-                      )}
+                      <SistemasChips oficio={o} />
                     </td>
                   </tr>
                 ))
@@ -529,40 +551,11 @@ export const Dashboard_Oficial: React.FC = () => {
                     <div style={{ marginBottom: '14px', fontSize: '0.8rem', fontWeight: 700, color: '#065F46' }}>✓ Documento firmado</div>
                   )}
 
-                  {/* SIQROO — estado y completar datos pendientes */}
-                  {selected.siqroo_aplica && (
-                    <div style={{
-                      border: `1px solid ${siqrooPendiente(selected) ? '#F59E0B' : theme.colors.border}`,
-                      backgroundColor: siqrooPendiente(selected) ? '#FFFBEB' : theme.colors.background,
-                      borderRadius: '8px', padding: '14px', marginBottom: '14px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>SIQROO</span>
-                        {siqrooPendiente(selected)
-                          ? <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px' }}>🚩 Pendiente por completar</span>
-                          : <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px' }}>✓ Completo</span>}
-                      </div>
-
-                      <div style={{ fontSize: '0.8rem', color: theme.colors.textPrimary, marginBottom: siqrooPendiente(selected) ? '12px' : 0 }}>
-                        <div>Nº de control interno: <strong>{selected.siqroo_control_interno || '—'}</strong></div>
-                      </div>
-
-                      {siqrooPendiente(selected) && (
-                        <div style={{ display: 'grid', gap: '8px', borderTop: `1px dashed ${theme.colors.border}`, paddingTop: '10px' }}>
-                          <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.textSecondary }}>Completa el número de control interno:</p>
-                          <input style={{ ...inputStyle, fontSize: '0.82rem' }} value={siqControl} onChange={(e) => setSiqControl(e.target.value)} placeholder="Número de control interno" />
-                          <button
-                            type="button"
-                            onClick={handleCompletarSiqroo}
-                            disabled={siqSaving || !siqControl.trim()}
-                            style={{ ...btnPrimary, alignSelf: 'flex-start', opacity: (siqSaving || !siqControl.trim()) ? 0.6 : 1 }}
-                          >
-                            {siqSaving ? 'Guardando…' : 'Guardar NCI'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Registro en SIQROO / SIGER: se marca aquí, no al ingresar */}
+                  <SistemasPanel
+                    oficio={selected}
+                    onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                  />
 
                   {/* El texto extraído por OCR se muestra al abrir el documento "Oficio"
                       desde la tabla de documentos requisitos (visor). */}
@@ -765,6 +758,74 @@ export const Dashboard_Oficial: React.FC = () => {
                 </Field>
               </div>
             </div>
+            {/* Vía de recepción: por ventanilla o por correo electrónico */}
+            <div style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
+              <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>
+                ¿Cómo se recibió el oficio? <span style={{ color: theme.colors.alert.red }}>*</span>
+              </label>
+              <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="radio" name="via_recepcion" checked={viaRecepcion === 'VENTANILLA'}
+                    onChange={() => setViaRecepcion('VENTANILLA')} /> Ventanilla
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="radio" name="via_recepcion" checked={viaRecepcion === 'CORREO_ELECTRONICO'}
+                    onChange={() => setViaRecepcion('CORREO_ELECTRONICO')} /> Correo electrónico
+                </label>
+              </div>
+
+              {viaRecepcion === 'CORREO_ELECTRONICO' && (
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '12px' }}>
+                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                      Correo de quien envía <span style={{ color: theme.colors.alert.red }}>*</span>
+                    </label>
+                    {addCorMode === 'origen' ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="email" value={nuevoCorreo} autoFocus
+                          onChange={(e) => setNuevoCorreo(e.target.value.toLowerCase())}
+                          placeholder="correo@dependencia.gob.mx" />
+                        <button type="button" onClick={() => agregarCorreo('origen')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                        <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>✕</button>
+                      </div>
+                    ) : (
+                      <SearchableSelect
+                        value={correoOrigen}
+                        options={correosOri.map((c) => ({ value: c.nombre, label: c.nombre }))}
+                        onChange={(v) => setCorreoOrigen(v)}
+                        placeholder="— Selecciona el correo —"
+                        addLabel="➕ Agregar nuevo correo…"
+                        onAdd={() => { setNuevoCorreo(''); setAddCorMode('origen'); }}
+                      />
+                    )}
+                  </div>
+                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                      Correo que lo recibió <span style={{ color: theme.colors.alert.red }}>*</span>
+                    </label>
+                    {addCorMode === 'destino' ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="email" value={nuevoCorreo} autoFocus
+                          onChange={(e) => setNuevoCorreo(e.target.value.toLowerCase())}
+                          placeholder="cuenta@rppc.qroo.gob.mx" />
+                        <button type="button" onClick={() => agregarCorreo('destino')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                        <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>✕</button>
+                      </div>
+                    ) : (
+                      <SearchableSelect
+                        value={correoDestino}
+                        options={correosDes.map((c) => ({ value: c.nombre, label: c.nombre }))}
+                        onChange={(v) => setCorreoDestino(v)}
+                        placeholder="— Selecciona el correo —"
+                        addLabel="➕ Agregar nuevo correo…"
+                        onAdd={() => { setNuevoCorreo(''); setAddCorMode('destino'); }}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <Field label="Dirigido a" required>
               <SearchableSelect
                 value={dirigidoA}
@@ -798,23 +859,6 @@ export const Dashboard_Oficial: React.FC = () => {
                 )}
               </div>
 
-              {/* SIQROO */}
-              <div style={{ flex: '1 1 240px', minWidth: 0, marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
-                <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>
-                  ¿Solicitud ingresada a SIQROO?
-                </label>
-                <div style={{ display: 'flex', gap: '18px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
-                    <input type="radio" name="siqroo" checked={siqrooAplica} onChange={() => setSiqrooAplica(true)} /> Aplica
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
-                    <input type="radio" name="siqroo" checked={!siqrooAplica} onChange={() => setSiqrooAplica(false)} /> No aplica
-                  </label>
-                </div>
-                {siqrooAplica && (
-                  <input style={{ ...inputStyle, fontSize: '0.82rem', marginTop: '10px' }} value={siqrooControl} onChange={(e) => setSiqrooControl(e.target.value)} placeholder="NCI SIQROO (opcional)" />
-                )}
-              </div>
             </div>
 
             {createError && <div role="alert" style={alertStyle}>{createError}</div>}

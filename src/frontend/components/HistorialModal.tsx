@@ -20,6 +20,7 @@ const ESTATUS_LABEL: Record<string, string> = {
   EN_RECONSIDERACION: 'En reconsideración',
   VOBO_APROBADO:      'Solicitud con visto bueno',
   FINALIZADO:         'Solicitud finalizada',
+  DELEGATORIO:        'Delegatorio',
 };
 
 const ETAPA: Record<string, string> = {
@@ -29,6 +30,7 @@ const ETAPA: Record<string, string> = {
   EN_RECONSIDERACION: 'Reconsideración',
   VOBO_APROBADO:      'Visto bueno',
   FINALIZADO:         'Entrega',
+  DELEGATORIO:        'Delegatorio',
 };
 
 const EVENTOS: Record<string, string> = {
@@ -41,6 +43,8 @@ const EVENTOS: Record<string, string> = {
 };
 
 function eventoDe(m: RegistroMovimiento): string {
+  // Los movimientos de delegatorio traen su texto ya armado desde el servidor.
+  if (m.detalle) return m.detalle;
   if (!m.estado_anterior) return 'Solicitud registrada en el sistema';
   return EVENTOS[`${m.estado_anterior}→${m.estado_nuevo}`] ?? '—';
 }

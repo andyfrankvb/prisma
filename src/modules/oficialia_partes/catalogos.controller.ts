@@ -327,3 +327,101 @@ export async function eliminarRemitente(
     res.json({ message: 'Remitente eliminado' });
   } catch (err) { next(err); }
 }
+
+// ═══════════════════════════ Correos (dos listas independientes) ═══════════════════════════
+//
+// ORIGEN  = cuentas desde las que las autoridades envían el oficio.
+// DESTINO = cuentas institucionales que lo reciben.
+// No dependen una de la otra: cada una se captura y se busca por separado.
+// Se exponen con la llave `nombre` para reutilizar los componentes de catálogo.
+
+const TIPOS_CORREO = ['ORIGEN', 'DESTINO'] as const;
+const FORMATO_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Normaliza un correo: sin espacios y en minúsculas. */
+const normCorreo = (s: unknown) => String(s ?? '').trim().toLowerCase();
+
+/** Lee y valida el tipo de la ruta (`origen` | `destino`). */
+function tipoDeRuta(req: Request): 'ORIGEN' | 'DESTINO' {
+  const tipo = String(req.params.tipo ?? '').toUpperCase();
+  if (!TIPOS_CORREO.includes(tipo as any)) {
+    throw new AppError('Tipo de catálogo de correos no válido', 400);
+  }
+  return tipo as 'ORIGEN' | 'DESTINO';
+}
+
+// GET /catalogos/correos/:tipo
+export async function listarCorreos(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const data = await db('catalogo_correos')
+      .where({ tipo: tipoDeRuta(req), activo: true })
+      .select('id', 'correo as nombre')
+      .orderBy('correo', 'asc');
+    res.json({ data });
+  } catch (err) { next(err); }
+}
+
+// POST /catalogos/correos/:tipo
+export async function crearCorreo(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const tipo   = tipoDeRuta(req);
+    const correo = normCorreo(req.body?.nombre ?? req.body?.correo);
+    if (!correo) throw new AppError('El correo es requerido', 422);
+    if (!FORMATO_CORREO.test(correo)) throw new AppError('El correo no tiene un formato válido', 422);
+
+    // Si ya estaba (aunque dado de baja), se reactiva en lugar de duplicarlo.
+    const existente = await db('catalogo_correos').where({ tipo, correo }).first();
+    if (existente) {
+      if (existente.activo === false) {
+        await db('catalogo_correos').where({ id: existente.id }).update({ activo: true });
+      }
+      res.status(200).json({ data: { id: existente.id, nombre: existente.correo }, yaExistia: true });
+      return;
+    }
+
+    const [row] = await db('catalogo_correos')
+      .insert({ tipo, correo, creado_por_id: req.user!.id })
+      .returning(['id', 'correo as nombre']);
+    res.status(201).json({ data: row, yaExistia: false });
+  } catch (err) { next(err); }
+}
+
+// PATCH /catalogos/correos/:tipo/:id
+export async function editarCorreo(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    const tipo   = tipoDeRuta(req);
+    const id     = parseInt(req.params.id, 10);
+    const correo = normCorreo(req.body?.nombre ?? req.body?.correo);
+    if (!correo) throw new AppError('El correo es requerido', 422);
+    if (!FORMATO_CORREO.test(correo)) throw new AppError('El correo no tiene un formato válido', 422);
+
+    const dup = await db('catalogo_correos').where({ tipo, correo }).whereNot({ id }).first();
+    if (dup) throw new AppError('Ese correo ya está en esta lista', 409);
+
+    const [row] = await db('catalogo_correos')
+      .where({ id, tipo }).update({ correo }).returning(['id', 'correo as nombre']);
+    if (!row) throw new AppError('Correo no encontrado', 404);
+    res.json({ data: row });
+  } catch (err) { next(err); }
+}
+
+// DELETE /catalogos/correos/:tipo/:id
+export async function eliminarCorreo(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    const tipo = tipoDeRuta(req);
+    const id   = parseInt(req.params.id, 10);
+    const deleted = await db('catalogo_correos').where({ id, tipo }).delete();
+    if (!deleted) throw new AppError('Correo no encontrado', 404);
+    res.json({ message: 'Correo eliminado' });
+  } catch (err) { next(err); }
+}

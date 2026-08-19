@@ -9,13 +9,15 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
-import { SiqrooPanel }   from '../components/SiqrooPanel';
+import { SistemasPanel } from '../components/SistemasPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
 import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { OficiosResumen } from '../components/OficiosResumen';
+import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
+import { DelegatoriosPanel } from '../components/DelegatoriosPanel';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion } from '../api';
@@ -163,6 +165,8 @@ export const Dashboard_Juridico: React.FC = () => {
         </div>
       </div>
 
+      <BandejaDelegatorios onCambio={fetchOficios} />
+
       {/* Lista — único scroll vertical de la vista */}
       {loading ? (
         <p style={{ color: theme.colors.textSecondary }}>Cargando…</p>
@@ -213,9 +217,18 @@ export const Dashboard_Juridico: React.FC = () => {
             {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
             <OficioDetalle oficio={detalleOficio} />
 
+            <DelegatoriosPanel
+              oficioId={detalleOficio.id}
+              puedeDelegar={(detalleOficio as any).dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
+              onCambio={() => fetchOficios()}
+            />
+
             {/* SIQROO — el abogado asignado también puede capturar el NCI pendiente */}
             <div style={{ marginTop: '18px' }}>
-              <SiqrooPanel oficio={detalleOficio} onDone={() => fetchOficios()} />
+              <SistemasPanel
+                oficio={detalleOficio}
+                onDone={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+              />
             </div>
 
             {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}

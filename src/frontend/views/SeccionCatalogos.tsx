@@ -12,6 +12,7 @@ import {
   getDependencias, crearDependencia, editarDependencia, eliminarDependencia,
   getUnidadesInternas, crearUnidadInterna, editarUnidadInterna, eliminarUnidadInterna,
   getRemitentes, crearRemitente, editarRemitente, eliminarRemitente,
+  getCorreos, crearCorreo, editarCorreo, eliminarCorreo,
   dependenciaASubunidad, subunidadADependencia, moverSubunidad,
 } from '../api';
 import { Modal } from '../components/Modal';
@@ -34,19 +35,23 @@ interface ColumnaProps {
   emptyMsg:     string;
   promptMsg?:   string;
   activo:       boolean;
+  /** Los nombres van en MAYÚSCULAS; los correos no. */
+  mayusculas?:  boolean;
 }
 
 const Columna: React.FC<ColumnaProps> = ({
   titulo, subtitulo, items, selectedId, onSelect, onMover, crear, editar, eliminar, reload, onError,
-  placeholder, emptyMsg, promptMsg, activo,
+  placeholder, emptyMsg, promptMsg, activo, mayusculas = true,
 }) => {
+  const normEntrada = (v: string) => (mayusculas ? v.toUpperCase() : v.trim().toLowerCase());
+  const estiloCaja  = mayusculas ? { textTransform: 'uppercase' as const } : {};
   const [nuevo,    setNuevo]    = useState('');
   const [editId,   setEditId]   = useState<number | null>(null);
   const [editVal,  setEditVal]  = useState('');
   const [busqueda, setBusqueda] = useState('');
 
   const agregar = async () => {
-    const nombre = nuevo.trim().toUpperCase();
+    const nombre = normEntrada(nuevo.trim());
     if (!nombre) return;
     try { await crear(nombre); setNuevo(''); reload(); } catch (e: any) { onError(e.message); }
   };
@@ -55,13 +60,13 @@ const Columna: React.FC<ColumnaProps> = ({
     try { await eliminar(it.id); reload(); } catch (e: any) { onError(e.message); }
   };
   const guardar = async (it: CatalogoItem) => {
-    const nombre = editVal.trim().toUpperCase();
+    const nombre = normEntrada(editVal.trim());
     if (!nombre || nombre === it.nombre) { setEditId(null); return; }
     try { await editar(it.id, nombre); setEditId(null); reload(); } catch (e: any) { onError(e.message); }
   };
 
   // Filtro local del buscador: mayúsculas + sin acentos (coincidencia por substring).
-  const norm = (s: string) => s.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const norm = (s: string) => s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const q = norm(busqueda.trim());
   const itemsFiltrados = q ? items.filter((it) => norm(it.nombre).includes(q)) : items;
 
@@ -75,8 +80,8 @@ const Columna: React.FC<ColumnaProps> = ({
       ) : (
         <>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-            <input value={nuevo} onChange={(e) => setNuevo(e.target.value.toUpperCase())} placeholder={placeholder}
-              style={{ ...input, textTransform: 'uppercase' }} onKeyDown={(e) => { if (e.key === 'Enter') agregar(); }} />
+            <input value={nuevo} onChange={(e) => setNuevo(normEntrada(e.target.value))} placeholder={placeholder}
+              style={{ ...input, ...estiloCaja }} onKeyDown={(e) => { if (e.key === 'Enter') agregar(); }} />
             <button onClick={agregar} style={btnAdd}>Agregar</button>
           </div>
           {/* Buscador (aparece cuando hay elementos) */}
@@ -101,7 +106,7 @@ const Columna: React.FC<ColumnaProps> = ({
                   <div key={it.id} style={{ ...row, backgroundColor: sel ? '#EEF2FF' : '#fff', borderColor: sel ? theme.colors.primary : theme.colors.border }}>
                     {editId === it.id ? (
                       <>
-                        <input autoFocus value={editVal} onChange={(e) => setEditVal(e.target.value.toUpperCase())} style={{ ...input, padding: '4px 6px', textTransform: 'uppercase' }}
+                        <input autoFocus value={editVal} onChange={(e) => setEditVal(normEntrada(e.target.value))} style={{ ...input, padding: '4px 6px', ...estiloCaja }}
                           onKeyDown={(e) => { if (e.key === 'Enter') guardar(it); if (e.key === 'Escape') setEditId(null); }} />
                         <button onClick={() => guardar(it)} title="Guardar" style={btnSave}>✓</button>
                         <button onClick={() => setEditId(null)} title="Cancelar" style={btnDel}>✕</button>
@@ -136,6 +141,8 @@ export const SeccionCatalogos: React.FC = () => {
   const [deps,   setDeps]   = useState<CatalogoItem[]>([]);
   const [unis,   setUnis]   = useState<CatalogoItem[]>([]);
   const [rems,   setRems]   = useState<CatalogoItem[]>([]);
+  const [corOri, setCorOri] = useState<CatalogoItem[]>([]);
+  const [corDes, setCorDes] = useState<CatalogoItem[]>([]);
   const [selDep, setSelDep] = useState<CatalogoItem | null>(null);
 
   // ── Reorganizar jerarquía ──
@@ -191,8 +198,15 @@ export const SeccionCatalogos: React.FC = () => {
   const cargarRems = useCallback(() => {
     getRemitentes().then((r) => setRems(r.data)).catch((e) => setError(e.message));
   }, []);
+  const cargarCorOri = useCallback(() => {
+    getCorreos('origen').then((r) => setCorOri(r.data)).catch((e) => setError(e.message));
+  }, []);
+  const cargarCorDes = useCallback(() => {
+    getCorreos('destino').then((r) => setCorDes(r.data)).catch((e) => setError(e.message));
+  }, []);
 
-  useEffect(() => { cargarDeps(); cargarRems(); }, [cargarDeps, cargarRems]);
+  useEffect(() => { cargarDeps(); cargarRems(); cargarCorOri(); cargarCorDes(); },
+    [cargarDeps, cargarRems, cargarCorOri, cargarCorDes]);
   useEffect(() => { if (selDep) cargarUnis(selDep.id); else setUnis([]); }, [selDep, cargarUnis]);
 
   return (
@@ -202,7 +216,8 @@ export const SeccionCatalogos: React.FC = () => {
       </h2>
       <p style={{ margin: '0 0 16px', fontSize: '0.82rem', color: theme.colors.textSecondary }}>
         Las <strong>sub-unidades</strong> cuelgan de su <strong>dependencia</strong> (elige una para verlas).
-        Los <strong>remitentes</strong> son una lista independiente. Todo se guarda en MAYÚSCULAS.
+        Los <strong>remitentes</strong> y los <strong>correos</strong> son listas independientes.
+        Los nombres se guardan en MAYÚSCULAS; los correos, en minúsculas.
       </p>
 
       {error && (
@@ -238,6 +253,40 @@ export const SeccionCatalogos: React.FC = () => {
           crear={crearRemitente} editar={editarRemitente} eliminar={eliminarRemitente}
           reload={cargarRems} onError={setError}
           placeholder="NUEVO REMITENTE…" emptyMsg="Sin remitentes." activo
+        />
+      </div>
+
+      {/* Correos: otro tema y otra pareja de listas, en su propia fila para que
+          las columnas de arriba no se aprieten. */}
+      <h3 style={{ margin: '22px 0 4px', fontSize: '0.95rem', fontWeight: 800, color: theme.colors.primaryDark }}>
+        Correos para recepción por correo electrónico
+      </h3>
+      <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: theme.colors.textSecondary }}>
+        Dos listas independientes: una no depende de la otra. Se usan al registrar un oficio que llegó por correo.
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'start' }}>
+        <Columna
+          titulo="Correos de quien envía"
+          subtitulo="Cuentas desde las que las autoridades mandan el oficio"
+          items={corOri}
+          crear={(n) => crearCorreo('origen', n)}
+          editar={(id, n) => editarCorreo('origen', id, n)}
+          eliminar={(id) => eliminarCorreo('origen', id)}
+          reload={cargarCorOri} onError={setError}
+          placeholder="correo@dependencia.gob.mx" emptyMsg="Sin correos registrados."
+          activo mayusculas={false}
+        />
+        <Columna
+          titulo="Correos que reciben"
+          subtitulo="Cuentas institucionales donde se recibe el oficio"
+          items={corDes}
+          crear={(n) => crearCorreo('destino', n)}
+          editar={(id, n) => editarCorreo('destino', id, n)}
+          eliminar={(id) => eliminarCorreo('destino', id)}
+          reload={cargarCorDes} onError={setError}
+          placeholder="cuenta@rppc.qroo.gob.mx" emptyMsg="Sin correos registrados."
+          activo mayusculas={false}
         />
       </div>
 

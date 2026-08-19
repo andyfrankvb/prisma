@@ -105,7 +105,7 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
       {/* SIQROO / firma */}
       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
         <input type="checkbox" checked={siqrooPend} onChange={(e) => setSiqrooPend(e.target.checked)} />
-        SIQROO pendiente
+        NCI pendiente
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
         <input type="checkbox" checked={firmaPend} onChange={(e) => setFirmaPend(e.target.checked)} />

@@ -100,6 +100,13 @@ export async function dispatch(payload: NotificationPayload): Promise<void> {
         dependencia_origen:  payload.dependencia_origen,
         fecha_vencimiento:   payload.fecha_vencimiento,
         nombre_destinatario: recipient.nombre,
+        // Se pasan también los campos de tareas y delegatorios: sin ellos las
+        // plantillas que los usan salían con textos genéricos.
+        tarea_titulo:        payload.tarea_titulo,
+        evento_titulo:       payload.evento_titulo,
+        autor_nombre:        payload.autor_nombre,
+        delegatorio_area:    payload.delegatorio_area,
+        delegatorio_nota:    payload.delegatorio_nota,
       });
 
       // ── Email ──────────────────────────────────────────────
@@ -264,4 +271,40 @@ export async function notifyTramite(payload: {
   }).catch((err) =>
     logger.error({ err, ...payload }, 'notifyTramite failed'),
   );
+}
+
+/**
+ * Notificación de un delegatorio. A diferencia de las de oficios, aquí los
+ * destinatarios siempre se indican explícitamente: el delegatorio va dirigido a
+ * una persona concreta (el encargado del área, quien lo trabaja o quien lo detonó),
+ * no a todos los actores de un rol.
+ */
+export async function notifyDelegatorio(payload: {
+  event: 'DELEGATORIO_NUEVO' | 'DELEGATORIO_ASIGNADO' | 'DELEGATORIO_EN_REVISION'
+       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO';
+  usuarioIds: number[];
+  oficio_id:  number;
+  folio:      string;
+  dependencia_origen?: string;
+  area?: string;
+  nota?: string;
+}): Promise<void> {
+  const ids = [...new Set(payload.usuarioIds.filter(Boolean))];
+  if (!ids.length) return;
+
+  const recipients = await db('usuarios')
+    .whereIn('id', ids)
+    .andWhere('activo', true)
+    .select('id as user_id', 'nombre', 'email', 'unidad_id as oficina_id');
+  if (!recipients.length) return;
+
+  await dispatch({
+    event:              payload.event,
+    oficio_id:          payload.oficio_id,
+    folio:              payload.folio,
+    dependencia_origen: payload.dependencia_origen,
+    delegatorio_area:   payload.area,
+    delegatorio_nota:   payload.nota,
+    recipients:         recipients as any,
+  });
 }

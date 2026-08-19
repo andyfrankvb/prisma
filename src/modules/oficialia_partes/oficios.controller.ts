@@ -21,6 +21,7 @@ import { notifyVoboAprobado } from '../../notifications/notification.dispatcher'
 import { AppError }     from '../../utils/AppError';
 import { logger }       from '../../utils/logger';
 import { RolUsuario, EstatusOficio } from './oficios.types';
+import { tieneDelegatoriosPendientes } from './delegatorios.controller';
 
 /** Documentos categorizados que acompañan al ingreso de oficio (uno por tipo) */
 export const OFICIO_DOC_FIELDS = ['anexos', 'identificacion', 'oficio', 'recibos', 'solicitud'] as const;
@@ -310,6 +311,11 @@ export async function listarOficios(
         'dir_cu.tipo as dirigido_a_unidad_tipo',
         'dir_cu.nombre as delegacion_nombre',
         'dir_cu.vobo_por as vobo_por_unidad',
+        // Delegatorios sin contestar de este oficio: bloquean VoBo y firma.
+        db.raw(`(SELECT count(*) FROM oficio_delegatorios d
+                  WHERE d.oficio_id = oficios.id
+                    AND d.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION'))::int
+                AS delegatorios_pendientes`),
         'enc_u.nombre as encargado_nombre',
         'fin_aud.fecha_cambio as fecha_firmado',
         'oficial_u.nombre as ingresado_por_nombre',
@@ -476,9 +482,11 @@ export async function listarOficios(
            .orWhereILike('oficios.dependencia_origen', term)
            .orWhereILike('oficios.unidad_interna', term)
            .orWhereILike('oficios.numero_oficio_origen', term)
+           .orWhereILike('oficios.correo_origen', term)
            .orWhereILike('oficios.descripcion_solicitud', term)
            .orWhereILike('oficios.texto_ocr', term)
            .orWhereILike('oficios.siqroo_control_interno', term)
+           .orWhereILike('oficios.siger_control_interno', term)
            .orWhereILike('gc.texto_proyecto', term)
            .orWhereILike('od.nombre_original', term)
            .orWhereRaw('oficios.fecha_vencimiento::text ILIKE ?', [term]),
@@ -496,12 +504,18 @@ export async function listarOficios(
       query = query.andWhere('oficios.fecha_registro', '<=', hasta);
     }
 
-    // Filtro SIQROO pendiente: aplica a SIQROO pero sin control ni boleta
+    // Filtro «NCI pendiente»: marcado en un sistema pero sin su número de control.
+    // Cubre SIQROO y SIGER — basta que falte en cualquiera de los dos.
     if (req.query.siqroo_pendiente === 'true') {
-      query = query
-        .andWhere('oficios.siqroo_aplica', true)
-        .whereNull('oficios.siqroo_control_interno')
-        .whereNull('oficios.siqroo_boleta_url');
+      query = query.andWhere((q) => {
+        q.where((s) => s
+          .where('oficios.siqroo_aplica', true)
+          .whereNull('oficios.siqroo_control_interno')
+          .whereNull('oficios.siqroo_boleta_url'));
+        q.orWhere((s) => s
+          .where('oficios.siger_aplica', true)
+          .whereNull('oficios.siger_control_interno'));
+      });
     }
 
     // Aprobados sin documento de firma subido: tienen VoBo pero aún no se finalizan.
@@ -604,10 +618,13 @@ export async function listarOficios(
           en_bandeja_de = o.encargado_nombre;
       }
 
+      // Delegatorios sin contestar: bloquean VoBo y firma, y la interfaz lo explica.
+      const delegatorios_pendientes = Number((o as any).delegatorios_pendientes ?? 0);
+
       // ¿Puede el usuario actual dar el VoBo?
-      const puede_vobo = voboLoDaElEncargado
+      const puede_vobo = delegatorios_pendientes === 0 && (voboLoDaElEncargado
         ? unidadesEncargado.includes(o.dirigido_a_unidad_id)   // el encargado de esa unidad
-        : o.dirigido_a_id === user.id;                          // el delegado (dirigido a)
+        : o.dirigido_a_id === user.id);                         // el titular (dirigido a)
 
       // Responsable del visto bueno (nombre).
       const vobo_por_nombre = aprobadorNombre;
@@ -615,13 +632,14 @@ export async function listarOficios(
       // ¿Puede el usuario actual subir el firmado / finalizar este oficio?
       // Delegación o dirección de área: el titular (dirigido a) o el encargado de esa
       // unidad. Dirección General: la secretaría.
-      const puede_finalizar = esFlujoPropio
+      const puede_finalizar = delegatorios_pendientes === 0 && (esFlujoPropio
         ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
-        : esSecretaria;
+        : esSecretaria);
 
       return {
         ...o,
         dias_restantes,
+        delegatorios_pendientes,
         puede_vobo,
         puede_finalizar,
         en_bandeja_de,
@@ -671,6 +689,9 @@ export async function crearOficio(
       descripcion_solicitud,
       tiene_termino,
       fecha_vencimiento,
+      via_recepcion,
+      correo_origen,
+      correo_destino,
     } = req.body;
 
     // ── Archivos: 5 documentos (opcionales) + boleta SIQROO (opcional) ──
@@ -679,11 +700,25 @@ export async function crearOficio(
     const oficioFile = files['oficio']?.[0];
     const boletaFile = files['boleta']?.[0];
 
-    // ── SIQROO ────────────────────────────────────────────────
-    const siqroo_aplica = req.body.siqroo_aplica === true || req.body.siqroo_aplica === 'true';
-    const siqroo_control_interno = siqroo_aplica
-      ? (String(req.body.siqroo_control_interno ?? '').trim() || null)
-      : null;
+    // ── Vía de recepción ──────────────────────────────────────
+    // Por ventanilla no hay correos que guardar; por correo electrónico ambos
+    // son obligatorios, porque son la constancia de por dónde entró el oficio.
+    const via = String(via_recepcion ?? 'VENTANILLA').trim().toUpperCase();
+    if (!['VENTANILLA', 'CORREO_ELECTRONICO'].includes(via)) {
+      throw new AppError('Indica si el oficio se recibió por ventanilla o por correo electrónico', 400);
+    }
+    const esCorreo   = via === 'CORREO_ELECTRONICO';
+    const cOrigen    = esCorreo ? String(correo_origen  ?? '').trim().toLowerCase() : null;
+    const cDestino   = esCorreo ? String(correo_destino ?? '').trim().toLowerCase() : null;
+    if (esCorreo) {
+      if (!cOrigen || !cDestino) {
+        throw new AppError('Cuando la recepción es por correo electrónico, captura el correo de quien envía y el que lo recibió', 400);
+      }
+      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!formatoCorreo.test(cOrigen) || !formatoCorreo.test(cDestino)) {
+        throw new AppError('Alguno de los correos no tiene un formato válido', 400);
+      }
+    }
 
     // ── Validaciones ──────────────────────────────────────────
     if (tiene_termino === true || tiene_termino === 'true') {
@@ -765,8 +800,12 @@ export async function crearOficio(
           tiene_termino:        Boolean(tiene_termino),
           fecha_vencimiento:    fecha_vencimiento ?? null,
           pdf_original_path,
-          siqroo_aplica,
-          siqroo_control_interno,
+          // SIQROO y SIGER se marcan después, desde el detalle del oficio.
+          siqroo_aplica:        false,
+          siger_aplica:         false,
+          via_recepcion:        via,
+          correo_origen:        cOrigen,
+          correo_destino:       cDestino,
           estatus:              'RECIBIDO' as EstatusOficio,
         })
         .returning('*');
@@ -801,8 +840,10 @@ export async function crearOficio(
         });
       }
 
-      // ── Boleta SIQROO (si aplica y viene) ────────────────────
-      if (siqroo_aplica && boletaFile) {
+      // ── Boleta SIQROO ────────────────────────────────────────
+      // El alta ya no marca SIQROO, pero si alguien adjunta la boleta se guarda:
+      // el registro en los sistemas se completa después desde el detalle.
+      if (boletaFile) {
         const res = await storage.saveWithInfo(boletaFile, 'oficios/siqroo', {
           filename: `${newOficio.id}_boleta_${Date.now()}`,
         });
@@ -826,13 +867,17 @@ export async function crearOficio(
   }
 }
 
-// ─── PATCH /oficios/:id/siqroo ───────────────────────────────────────────────
+// ─── PATCH /oficios/:id/sistemas ─────────────────────────────────────────────
 
 /**
- * Completa los datos SIQROO pendientes (número de control interno y/o boleta),
- * que no se tienen al momento del ingreso. Se llama desde el detalle del oficio.
+ * Marca en qué sistemas se capturó la solicitud (SIQROO, SIGER, ambos o
+ * ninguno) y guarda el NCI de cada uno. Al ingresar el oficio no se sabe
+ * todavía, así que esto se hace después, desde el detalle.
+ *
+ * Cada sistema es independiente: se puede marcar uno sin el otro, y desmarcar
+ * uno limpia solo su propio NCI.
  */
-export async function completarSiqroo(
+export async function actualizarSistemas(
   req: Request,
   res: Response,
   next: NextFunction,
@@ -842,19 +887,24 @@ export async function completarSiqroo(
 
     const oficio = await db('oficios').where({ id: oficio_id }).first();
     if (!oficio) throw new AppError('Oficio no encontrado', 404);
-    if (!oficio.siqroo_aplica) {
-      throw new AppError('Este oficio no está marcado como ingresado a SIQROO', 422);
-    }
 
-    const control = String(req.body?.control_interno ?? '').trim();
-    const boleta  = (req as any).file as Express.Multer.File | undefined;
+    const esBool = (v: unknown) => v === true || v === 'true';
+    const siqroo = esBool(req.body?.siqroo_aplica);
+    const siger  = esBool(req.body?.siger_aplica);
 
-    if (!control && !boleta) {
-      throw new AppError('Indica el número de control interno o adjunta la boleta', 422);
-    }
+    const nciSiqroo = String(req.body?.siqroo_control_interno ?? '').trim();
+    const nciSiger  = String(req.body?.siger_control_interno  ?? '').trim();
 
-    const update: Record<string, unknown> = {};
-    if (control) update.siqroo_control_interno = control;
+    // Desmarcar un sistema borra su NCI: dejarlo colgando confundiría después.
+    const update: Record<string, unknown> = {
+      siqroo_aplica:         siqroo,
+      siger_aplica:          siger,
+      siqroo_control_interno: siqroo ? (nciSiqroo || null) : null,
+      siger_control_interno:  siger  ? (nciSiger  || null) : null,
+    };
+
+    // La boleta de SIQROO se conserva como estaba; solo se reemplaza si viene una nueva.
+    const boleta = (req as any).file as Express.Multer.File | undefined;
     if (boleta) {
       const r = await storage.saveWithInfo(boleta, 'oficios/siqroo', {
         filename: `${oficio_id}_boleta_${Date.now()}`,
@@ -865,7 +915,7 @@ export async function completarSiqroo(
     await db('oficios').where({ id: oficio_id }).update(update);
     const actualizado = await db('oficios').where({ id: oficio_id }).first();
 
-    res.json({ data: actualizado, message: 'Datos SIQROO actualizados' });
+    res.json({ data: actualizado, message: 'Registro en sistemas actualizado' });
   } catch (err) {
     next(err);
   }
@@ -1235,7 +1285,7 @@ export async function getHistorial(
   try {
     const oficio_id = parseInt(req.params.id, 10);
 
-    const historial = await db('auditoria_estados as a')
+    const estados = await db('auditoria_estados as a')
       .join('usuarios as u', 'u.id', 'a.usuario_id')
       .where('a.oficio_id', oficio_id)
       .select(
@@ -1243,6 +1293,35 @@ export async function getHistorial(
         'u.nombre as usuario_nombre',
       )
       .orderBy('a.fecha_cambio', 'asc');
+
+    // Los movimientos de delegatorio también son parte de la vida del oficio:
+    // se intercalan en la misma línea temporal, con su texto ya armado.
+    const delegatorios = await db('delegatorio_comentarios as c')
+      .join('oficio_delegatorios as d', 'd.id', 'c.delegatorio_id')
+      .join('usuarios as u', 'u.id', 'c.usuario_id')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'd.unidad_destino_id')
+      .where('d.oficio_id', oficio_id)
+      .select(
+        'c.id', 'c.comentario', 'c.estado_previo', 'c.creado_en',
+        'u.nombre as usuario_nombre', 'cu.nombre as area',
+      )
+      // Por id: si dos movimientos caen en el mismo segundo, el orden se respeta.
+      .orderBy('c.id', 'asc');
+
+    const historial = [
+      ...estados,
+      ...delegatorios.map((c: any) => ({
+        // Id negativo para no chocar con los de auditoría al usarlo como llave.
+        id:              -c.id,
+        estado_anterior: c.estado_previo,
+        estado_nuevo:    'DELEGATORIO',
+        fecha_cambio:    c.creado_en,
+        usuario_nombre:  c.usuario_nombre,
+        detalle:         c.area ? `${c.area}: ${c.comentario}` : c.comentario,
+      })),
+    ].sort((a: any, b: any) =>
+      new Date(a.fecha_cambio).getTime() - new Date(b.fecha_cambio).getTime(),
+    );
 
     res.json({ data: historial });
   } catch (err) {
@@ -1334,6 +1413,11 @@ export async function aprobarVobo(
     if (!(await puedeAprobarOficio(user, oficioAuth.dirigido_a_id))) {
       throw new AppError('No estás autorizado para otorgar el VoBo de este oficio', 403);
     }
+    // El oficio no avanza mientras alguna área no haya contestado su delegatorio:
+    // la contestación oficial debe integrar lo que aportaron todas.
+    if (await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede dar el VoBo hasta que todas las áreas respondan.', 409);
+    }
 
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
@@ -1412,6 +1496,12 @@ export async function finalizarOficio(
     if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
     if (!(await puedeSubirFirmado(user, oficioAuth.dirigido_a_id))) {
       throw new AppError('No autorizado para subir el documento firmado', 403);
+    }
+
+    // Igual que en el VoBo: no se firma con delegatorios sin contestar. Se valida
+    // antes de tocar el archivo para no guardar nada que luego se rechace.
+    if (await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede finalizar hasta que todas las áreas respondan.', 409);
     }
 
     if (!req.file) {

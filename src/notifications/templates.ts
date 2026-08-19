@@ -16,6 +16,9 @@ interface TemplateVars {
   tarea_titulo?:  string;
   evento_titulo?: string;
   autor_nombre?:  string;
+  // Campos para notificaciones de delegatorios
+  delegatorio_area?: string;
+  delegatorio_nota?: string;
 }
 
 interface RenderedTemplate {
@@ -318,7 +321,72 @@ export function renderTemplate(
     case 'TAREA_EN_REVISION': return templateTareaEnRevision(vars);
     case 'TAREA_DEVUELTA':    return templateTareaDevuelta(vars);
     case 'TAREA_COMPLETADA':  return templateTareaCompletada(vars);
+    case 'DELEGATORIO_NUEVO':
+    case 'DELEGATORIO_ASIGNADO':
+    case 'DELEGATORIO_EN_REVISION':
+    case 'DELEGATORIO_CONTESTADO':
+    case 'DELEGATORIO_DEVUELTO':
+      return templateDelegatorio(event, vars);
     default:
       throw new Error(`No template defined for event: ${event}`);
   }
+}
+
+
+// ── Delegatorios ──────────────────────────────────────────────
+// Las cinco variantes comparten estructura: cambia el encabezado, el color y la
+// instrucción. Se resuelven con una sola función para no repetir el mismo HTML.
+
+const DELEGATORIO_TEXTOS: Record<string, {
+  emoji: string; titulo: string; color: string; fondo: string; instruccion: string;
+}> = {
+  DELEGATORIO_NUEVO: {
+    emoji: '📨', titulo: 'Nuevo delegatorio', color: '#9F2241', fondo: '#FDE8EF',
+    instruccion: 'Asigna a alguien de tu área para que lo atienda.',
+  },
+  DELEGATORIO_ASIGNADO: {
+    emoji: '📋', titulo: 'Delegatorio asignado', color: '#1E40AF', fondo: '#DBEAFE',
+    instruccion: 'Adjunta el documento y la justificación de tu respuesta.',
+  },
+  DELEGATORIO_EN_REVISION: {
+    emoji: '👀', titulo: 'Respuesta lista para revisar', color: '#1E40AF', fondo: '#DBEAFE',
+    instruccion: 'Revisa la respuesta y envíala, o devuélvela a corregir.',
+  },
+  DELEGATORIO_CONTESTADO: {
+    emoji: '✅', titulo: 'Delegatorio contestado', color: '#065F46', fondo: '#D1FAE5',
+    instruccion: 'Ya puedes integrar esta información a la contestación oficial.',
+  },
+  DELEGATORIO_DEVUELTO: {
+    emoji: '↩️', titulo: 'Delegatorio devuelto', color: '#92400E', fondo: '#FEF3C7',
+    instruccion: 'Revisa los comentarios y corrige la respuesta.',
+  },
+};
+
+function templateDelegatorio(event: string, vars: TemplateVars): RenderedTemplate {
+  const t     = DELEGATORIO_TEXTOS[event] ?? DELEGATORIO_TEXTOS.DELEGATORIO_NUEVO;
+  const area  = vars.delegatorio_area ?? 'un área';
+  const folio = vars.folio ?? 'sin folio';
+
+  const subject    = `${t.emoji} ${t.titulo} · ${folio}`;
+  const inAppTitle = t.titulo;
+  const inAppBody  = `${folio} · ${area}`;
+
+  const bodyHtml = `
+    <h2 style="margin:0 0 16px;color:${t.color};font-size:1.1rem;">${t.titulo}</h2>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:${t.fondo};border-radius:8px;padding:16px;margin:16px 0;">
+      <tr><td style="padding:6px 0;"><strong>Oficio:</strong></td><td>${folio}</td></tr>
+      <tr><td style="padding:6px 0;"><strong>Área:</strong></td><td>${area}</td></tr>
+      ${vars.dependencia_origen ? `<tr><td style="padding:6px 0;"><strong>Remite:</strong></td><td>${vars.dependencia_origen}</td></tr>` : ''}
+      ${vars.delegatorio_nota ? `<tr><td style="padding:6px 0;"><strong>Nota:</strong></td><td>${vars.delegatorio_nota}</td></tr>` : ''}
+    </table>
+    <p style="color:#374151;line-height:1.6;">${t.instruccion}</p>
+  `;
+
+  return {
+    subject,
+    inAppTitle,
+    inAppBody,
+    html: htmlWrap(t.color, t.emoji, subject, bodyHtml),
+    text: `${t.titulo} — Oficio ${folio}, área ${area}. ${t.instruccion}`,
+  };
 }

@@ -21,6 +21,8 @@ interface Movimiento {
   estado_nuevo:    string;
   fecha_cambio:    string;
   usuario_nombre:  string;
+  /** Texto ya armado. Lo traen los movimientos de delegatorio. */
+  detalle?:        string;
 }
 
 interface ComentarioReconsideracion {
@@ -58,6 +60,7 @@ function formatFecha(iso: string): string {
 const ESTADO_LABEL: Record<string, string> = {
   RECIBIDO: 'Recibido', ASIGNADO: 'Asignado', EN_REVISION: 'Proyecto en revisión',
   EN_RECONSIDERACION: 'En reconsideración', VOBO_APROBADO: 'VoBo aprobado', FINALIZADO: 'Finalizado',
+  DELEGATORIO: 'Delegatorio',
 };
 const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = {
   RECIBIDO:           { dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
@@ -66,6 +69,7 @@ const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = 
   EN_RECONSIDERACION: { dot: '#DC2626', bg: '#FEE2E2', text: '#991B1B' },
   VOBO_APROBADO:      { dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
   FINALIZADO:         { dot: '#374151', bg: '#F3F4F6', text: '#374151' },
+  DELEGATORIO:        { dot: '#0EA5E9', bg: '#E0F2FE', text: '#075985' },
 };
 const ESTADO_FALLBACK  = { dot: '#6B7280', bg: '#F3F4F6', text: '#374151' };
 const COMENTARIO_STYLE = { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' };
@@ -113,7 +117,7 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
   const items: TimelineItem[] = [
     ...movimientos.map((m) => ({
       key: `m${m.id}`, tipo: 'MOVIMIENTO' as const, autor_nombre: m.usuario_nombre,
-      fecha: m.fecha_cambio, contenido: null,
+      fecha: m.fecha_cambio, contenido: m.detalle ?? null,
       estado_nuevo: m.estado_nuevo, estado_anterior: m.estado_anterior,
     })),
     ...comentarios.map((c) => ({
@@ -137,7 +141,10 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
       {!loading && !error && items.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {items.map((it, idx) => {
-            const esComentario = it.tipo === 'COMENTARIO';
+            const esComentario   = it.tipo === 'COMENTARIO';
+            // Un delegatorio no es un cambio de estatus del oficio: no lleva la
+            // línea «de → a», solo su texto.
+            const esDelegatorio  = it.estado_nuevo === 'DELEGATORIO';
             const st           = esComentario ? COMENTARIO_STYLE : (ESTADO_STYLE[it.estado_nuevo ?? ''] ?? ESTADO_FALLBACK);
             const isLast       = idx === items.length - 1;
             const estadoLbl    = ESTADO_LABEL[it.estado_nuevo ?? ''] ?? it.estado_nuevo;
@@ -161,13 +168,13 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: st.bg, color: st.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                        {esComentario ? '💬 Comentario' : `🔄 ${estadoLbl}`}
+                        {esComentario ? '💬 Comentario' : `${esDelegatorio ? '📨' : '🔄'} ${estadoLbl}`}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.fecha)}</span>
                     </div>
 
-                    {!esComentario && antLbl && (
+                    {!esComentario && !esDelegatorio && antLbl && (
                       <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
                         {antLbl} → <strong style={{ color: theme.colors.textPrimary }}>{estadoLbl}</strong>
                       </p>

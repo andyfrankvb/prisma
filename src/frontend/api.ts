@@ -263,6 +263,41 @@ export async function crearRemitente(nombre: string) {
   return handleResponse<{ data: CatalogoItem }>(res);
 }
 
+// ── Correos de recepción — dos listas independientes ──
+/** 'origen' = de quién llega el oficio; 'destino' = cuenta institucional que lo recibe. */
+export type TipoCorreo = 'origen' | 'destino';
+
+export async function getCorreos(tipo: TipoCorreo) {
+  const res = await fetch(`${BASE}/catalogos/correos/${tipo}`, { headers: authHeaders() });
+  return handleResponse<{ data: CatalogoItem[] }>(res);
+}
+
+export async function crearCorreo(tipo: TipoCorreo, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/correos/${tipo}`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function editarCorreo(tipo: TipoCorreo, id: number, nombre: string) {
+  const res = await fetch(`${BASE}/catalogos/correos/${tipo}/${id}`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+export async function eliminarCorreo(tipo: TipoCorreo, id: number) {
+  const res = await fetch(`${BASE}/catalogos/correos/${tipo}/${id}`, {
+    method:  'DELETE',
+    headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 export async function editarDependencia(id: number, nombre: string) {
   const res = await fetch(`${BASE}/catalogos/dependencias/${id}`, {
     method:  'PATCH',
@@ -317,6 +352,8 @@ export interface RegistroMovimiento {
   estado_nuevo:    string;
   fecha_cambio:    string;
   usuario_nombre:  string;
+  /** Texto ya armado. Lo traen los movimientos de delegatorio. */
+  detalle?:        string;
 }
 
 /** Historial de movimientos (auditoría de estados) de un oficio. */
@@ -326,13 +363,14 @@ export async function getHistorial(id: number) {
 }
 
 /** Completa el número de control interno (NCI) pendiente de SIQROO. */
-export async function completarSiqroo(id: number, control?: string) {
-  const fd = new FormData();
-  if (control && control.trim()) fd.append('control_interno', control.trim());
-  const res = await fetch(`${BASE}/oficios/${id}/siqroo`, {
+export async function actualizarSistemas(id: number, datos: {
+  siqroo_aplica: boolean;  siqroo_control_interno?: string;
+  siger_aplica:  boolean;  siger_control_interno?:  string;
+}) {
+  const res = await fetch(`${BASE}/oficios/${id}/sistemas`, {
     method:  'PATCH',
-    headers: authHeaders(),
-    body:    fd,
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(datos),
   });
   return handleResponse<{ data: Oficio; message: string }>(res);
 }
@@ -568,4 +606,99 @@ export async function quitarArchivoRecurso(slot: number) {
     method: 'DELETE', headers: authHeaders(),
   });
   return handleResponse<{ message: string }>(res);
+}
+
+// ── Delegatorios: la DG turna parte de un oficio a otra área ─────────────────
+
+export type EstadoDelegatorio = 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO';
+
+export interface Delegatorio {
+  id:              number;
+  estado:          EstadoDelegatorio;
+  descripcion:     string;
+  documento_url:   string | null;
+  observacion:     string | null;
+  creado_en:       string;
+  respondido_en:   string | null;
+  unidad_destino_id: number;
+  area:            string;
+  solicitado_por:  string | null;
+  asignado_a:      string | null;
+  respondido_por:  string | null;
+}
+
+/** Delegatorios de un oficio — alimenta la sección «Documentos del flujo». */
+export async function getDelegatorios(oficioId: number) {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/delegatorios`, { headers: authHeaders() });
+  return handleResponse<{ data: Delegatorio[]; meta: { pendientes: number } }>(res);
+}
+
+/** Áreas a las que se puede delegar (delegaciones y direcciones; la DG no). */
+export async function getAreasDestino() {
+  const res = await fetch(`${BASE}/delegatorios/areas-destino`, { headers: authHeaders() });
+  return handleResponse<{ data: { id: number; nombre: string; tipo: string }[] }>(res);
+}
+
+/** Detona el delegatorio hacia una o varias áreas. */
+export async function crearDelegatorios(oficioId: number, descripcion: string, unidades: number[]) {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/delegatorios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ descripcion, unidades }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Lo que le toca al usuario: como encargado del área destino o como asignado. */
+export async function getBandejaDelegatorios() {
+  const res = await fetch(`${BASE}/delegatorios/bandeja`, { headers: authHeaders() });
+  return handleResponse<{ data: (Delegatorio & {
+    oficio_id: number; folio: string; remitente: string;
+    dependencia_origen: string; descripcion_solicitud: string;
+  })[] }>(res);
+}
+
+/** El encargado del área destino lo turna a alguien de su propia área. */
+export async function asignarDelegatorio(id: number, usuario_id: number) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/asignar`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ usuario_id }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Sube el documento y la justificación, y lo manda al encargado del área. */
+export async function responderDelegatorio(id: number, observacion: string, file: File | null) {
+  const fd = new FormData();
+  fd.append('observacion', observacion);
+  if (file) fd.append('documento', file);
+  const res = await fetch(`${BASE}/delegatorios/${id}/responder`, {
+    method: 'POST', headers: authHeaders(), body: fd,
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Reconsideración: devuelve el delegatorio para que se corrija. */
+export async function devolverDelegatorio(id: number, comentario: string) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/devolver`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ comentario }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** El encargado del área destino envía la respuesta a quien lo detonó. */
+export async function aprobarDelegatorio(id: number) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/aprobar`, {
+    method: 'PATCH', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Historial de idas y vueltas del delegatorio. */
+export async function getHistorialDelegatorio(id: number) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/historial`, { headers: authHeaders() });
+  return handleResponse<{ data: { id: number; comentario: string; estado_previo: string; creado_en: string; usuario: string }[] }>(res);
 }

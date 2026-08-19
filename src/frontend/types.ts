@@ -32,6 +32,10 @@ export interface Oficio {
   dependencia_origen:    string;
   unidad_interna?:       string | null;
   numero_oficio_origen?: string | null;
+  /** Por dónde entró el oficio: VENTANILLA o CORREO_ELECTRONICO. */
+  via_recepcion?:        string | null;
+  correo_origen?:        string | null;
+  correo_destino?:       string | null;
   fecha_oficio?:         string | null;
   dirigido_a_id:         number;
   oficial_registro_id:   number;
@@ -46,6 +50,8 @@ export interface Oficio {
   siqroo_aplica?:          boolean;
   siqroo_control_interno?: string | null;
   siqroo_boleta_url?:      string | null;
+  siger_aplica?:           boolean;
+  siger_control_interno?:  string | null;
   // computed by API
   dias_restantes?:       number | null;
   /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */

@@ -145,11 +145,9 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
     return d && m && y ? `${d}/${m}/${y}` : s;
   };
 
-  const siqrooTexto =
-    oficio.siqroo_aplica === false ? 'No aplica'
-      : oficio.siqroo_control_interno ? `✓ Completo`
-      : oficio.siqroo_aplica ? '🚩 Pendiente por completar'
-      : '—';
+  // Resumen de los dos sistemas para el bloque de datos generales.
+  const sistemaTexto = (aplica?: boolean, nci?: string | null) =>
+    !aplica ? 'No aplica' : nci ? `✓ ${nci}` : '🚩 Pendiente por completar';
 
   // Filas extra (proyecto / firmado) que no viven en oficio_documentos.
   const filasExtra: { entregado: boolean; nombre: string; archivo: string | null; onVer?: () => void }[] = [];
@@ -197,6 +195,13 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
           <Campo label="Dependencia"  value={oficio.dependencia_origen?.toUpperCase()} />
           <Campo label="Unidad interna" value={oficio.unidad_interna || '—'} />
           <Campo label="Dirigido a"   value={oficio.dirigido_a_nombre?.toUpperCase()} />
+          <Campo label="Recepción"    value={oficio.via_recepcion === 'CORREO_ELECTRONICO' ? 'Correo electrónico' : 'Ventanilla'} />
+          {oficio.via_recepcion === 'CORREO_ELECTRONICO' && (
+            <>
+              <Campo label="Correo de quien envía" value={oficio.correo_origen  || '—'} />
+              <Campo label="Correo que recibió"    value={oficio.correo_destino || '—'} />
+            </>
+          )}
           <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} />} />
           <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} />} />
         </div>
@@ -357,7 +362,8 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
           <Campo label="Fecha y hora de ingreso"   value={fmtFecha(oficio.fecha_registro)} />
           <Campo label="Estatus de la solicitud"   value={<StatusBadge estatus={oficio.estatus as EstatusOficio} />} />
           <Campo label="Delegación de gestión"     value={oficio.delegacion_nombre} />
-          <Campo label="SIQROO"                     value={siqrooTexto} />
+          <Campo label="SIQROO" value={sistemaTexto(oficio.siqroo_aplica, oficio.siqroo_control_interno)} />
+          <Campo label="SIGER"  value={sistemaTexto(oficio.siger_aplica,  oficio.siger_control_interno)} />
         </div>
       </Seccion>
 

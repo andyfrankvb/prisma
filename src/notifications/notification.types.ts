@@ -26,7 +26,13 @@ export type NotificationEventType =
   | 'TAREA_EN_REVISION_DG'
   | 'TAREA_APROBADA_N1'
   | 'TAREA_COMPLETADA_DG'
-  | 'TAREA_DEVUELTA_DG';
+  | 'TAREA_DEVUELTA_DG'
+  // Delegatorios: la DG turna parte de un oficio a otra área
+  | 'DELEGATORIO_NUEVO'
+  | 'DELEGATORIO_ASIGNADO'
+  | 'DELEGATORIO_EN_REVISION'
+  | 'DELEGATORIO_CONTESTADO'
+  | 'DELEGATORIO_DEVUELTO';
 
 export interface NotificationPayload {
   event:       NotificationEventType;
@@ -39,6 +45,9 @@ export interface NotificationPayload {
   evento_titulo?: string;
   tarea_titulo?:  string;
   autor_nombre?:  string;
+  // Campos para notificaciones de delegatorios
+  delegatorio_area?: string;
+  delegatorio_nota?: string;
   /** Resolved recipient user IDs — populated by the dispatcher */
   recipients?: RecipientInfo[];
 }

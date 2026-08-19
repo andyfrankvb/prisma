@@ -17,7 +17,7 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
-import { SiqrooPanel }   from '../components/SiqrooPanel';
+import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import {
@@ -39,6 +39,8 @@ import { textoCompresion } from '../utils/compresion';
 import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { OficiosResumen } from '../components/OficiosResumen';
+import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
+import { DelegatoriosPanel } from '../components/DelegatoriosPanel';
 import { ESTATUS_META } from '../components/oficiosEstatus';
 
 const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
@@ -120,8 +122,6 @@ export const Dashboard_Gestion: React.FC = () => {
   // ── Action feedback ───────────────────────────────────────
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  // ¿El oficio tiene información SIQROO pendiente por completar?
-  const siqrooPend = (o: Oficio) => !!o.siqroo_aplica && !o.siqroo_control_interno;
 
   const fetchOficios = useCallback(async () => {
     setLoading(true);
@@ -344,7 +344,7 @@ export const Dashboard_Gestion: React.FC = () => {
         ['Área (dirigido a)', areaNombre],
         ['Término', filtros.termino ? (terminoLabel[filtros.termino] ?? filtros.termino) : 'Todos'],
         ['Rango de fechas (ingreso)', rangoFechas],
-        ['SIQROO pendiente', filtros.siqroo_pendiente ? 'Sí' : 'No'],
+        ['NCI pendiente (SIQROO/SIGER)', filtros.siqroo_pendiente ? 'Sí' : 'No'],
         ['Pendiente de firma', filtros.pendiente_firma ? 'Sí' : 'No'],
       ];
 
@@ -470,12 +470,16 @@ export const Dashboard_Gestion: React.FC = () => {
 
         {listError && <div role="alert" style={{ ...alertStyle, margin: '12px 24px' }}>{listError}</div>}
 
+        <div style={{ padding: '0 24px' }}>
+          <BandejaDelegatorios onCambio={fetchOficios} />
+        </div>
+
         {/* Table — scroll horizontal en móvil para no romper el layout */}
         <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '4px 24px 24px', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.surface }}>
-                {['', 'Folio', 'Delegación', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'SIQROO', 'En bandeja de', 'Acciones'].map((h) => (
+                {['', 'Folio', 'Delegación', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'Sistemas', 'En bandeja de', 'Acciones'].map((h) => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -507,13 +511,7 @@ export const Dashboard_Gestion: React.FC = () => {
                     <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
                     <td style={tdStyle}>
-                      {!o.siqroo_aplica ? (
-                        <span style={{ color: theme.colors.textSecondary, fontSize: '0.75rem' }}>—</span>
-                      ) : siqrooPend(o) ? (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>🚩 Pendiente</span>
-                      ) : (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>✓ Completo</span>
-                      )}
+                      <SistemasChips oficio={o} />
                     </td>
                     <td style={tdStyle}>
                       {o.en_bandeja_de ? (
@@ -615,7 +613,15 @@ export const Dashboard_Gestion: React.FC = () => {
               oficio={selected}
               acciones={
                 <>
-                <SiqrooPanel oficio={selected} onDone={() => fetchOficios()} />
+                <DelegatoriosPanel
+                  oficioId={selected.id}
+                  puedeDelegar={selected.dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
+                  onCambio={() => fetchOficios()}
+                />
+                <SistemasPanel
+                  oficio={selected}
+                  onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                />
                 {selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
                   <div style={{
                     padding: '14px 16px',

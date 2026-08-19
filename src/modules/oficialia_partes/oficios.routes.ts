@@ -23,7 +23,7 @@ import {
   getDocumentos,
   aprobarVobo,
   finalizarOficio,
-  completarSiqroo,
+  actualizarSistemas,
   getCandidatosAsignacion,
   OFICIO_DOC_FIELDS,
 } from './oficios.controller';
@@ -38,12 +38,27 @@ import {
   eliminarUnidadInterna,
   listarRemitentes,
   crearRemitente,
+  listarCorreos,
+  crearCorreo,
+  editarCorreo,
+  eliminarCorreo,
   editarRemitente,
   eliminarRemitente,
   dependenciaASubunidad,
   subunidadADependencia,
   moverSubunidad,
 } from './catalogos.controller';
+import {
+  listarDelegatorios,
+  crearDelegatorios,
+  bandejaDelegatorios,
+  asignarDelegatorio,
+  responderDelegatorio,
+  devolverDelegatorio,
+  aprobarDelegatorio,
+  historialDelegatorio,
+  areasDestino,
+} from './delegatorios.controller';
 
 const router = Router();
 
@@ -132,8 +147,19 @@ router.patch('/oficios/:id/vobo', aprobarVobo);
 /** POST /oficios/:id/finalizar — secretaría sube documento firmado */
 router.post('/oficios/:id/finalizar', upload.single('file'), finalizarOficio);
 
-/** PATCH /oficios/:id/siqroo — completar datos SIQROO pendientes (nro. control y/o boleta) */
-router.patch('/oficios/:id/siqroo', uploadOficio.single('boleta'), completarSiqroo);
+/** PATCH /oficios/:id/sistemas — marcar SIQROO/SIGER y capturar sus NCI */
+router.patch('/oficios/:id/sistemas', uploadOficio.single('boleta'), actualizarSistemas);
+
+// ── Delegatorios: la DG turna parte de un oficio a otra área ──
+router.get  ('/delegatorios/bandeja',        bandejaDelegatorios);
+router.get  ('/delegatorios/areas-destino',  areasDestino);
+router.get  ('/delegatorios/:id/historial',  historialDelegatorio);
+router.patch('/delegatorios/:id/asignar',    asignarDelegatorio);
+router.post ('/delegatorios/:id/responder',  uploadOficio.single('documento'), responderDelegatorio);
+router.patch('/delegatorios/:id/devolver',   devolverDelegatorio);
+router.patch('/delegatorios/:id/aprobar',    aprobarDelegatorio);
+router.get  ('/oficios/:id/delegatorios',    listarDelegatorios);
+router.post ('/oficios/:id/delegatorios',    crearDelegatorios);
 
 // ── Catálogos en cascada: Dependencia → Sub-unidad → Remitente ──
 // Dependencias (raíz)
@@ -155,5 +181,10 @@ router.get ('/catalogos/remitentes',        listarRemitentes);
 router.post('/catalogos/remitentes',        crearRemitente);
 router.patch('/catalogos/remitentes/:id',   editarRemitente);
 router.delete('/catalogos/remitentes/:id',  eliminarRemitente);
+// Correos de recepción — dos listas independientes: :tipo = origen | destino
+router.get   ('/catalogos/correos/:tipo',      listarCorreos);
+router.post  ('/catalogos/correos/:tipo',      crearCorreo);
+router.patch ('/catalogos/correos/:tipo/:id',  editarCorreo);
+router.delete('/catalogos/correos/:tipo/:id',  eliminarCorreo);
 
 export default router;
