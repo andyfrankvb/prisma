@@ -60,7 +60,7 @@ function formatFecha(iso: string): string {
 const ESTADO_LABEL: Record<string, string> = {
   RECIBIDO: 'Recibido', ASIGNADO: 'Asignado', EN_REVISION: 'Proyecto en revisión',
   EN_RECONSIDERACION: 'En reconsideración', VOBO_APROBADO: 'VoBo aprobado', FINALIZADO: 'Finalizado',
-  DELEGATORIO: 'Delegatorio',
+  DELEGATORIO: 'Delegatorio', TURNADO: 'Turnado a otra área',
 };
 const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = {
   RECIBIDO:           { dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
@@ -70,6 +70,7 @@ const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = 
   VOBO_APROBADO:      { dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
   FINALIZADO:         { dot: '#374151', bg: '#F3F4F6', text: '#374151' },
   DELEGATORIO:        { dot: '#0EA5E9', bg: '#E0F2FE', text: '#075985' },
+  TURNADO:            { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' },
 };
 const ESTADO_FALLBACK  = { dot: '#6B7280', bg: '#F3F4F6', text: '#374151' };
 const COMENTARIO_STYLE = { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' };
@@ -144,7 +145,7 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
             const esComentario   = it.tipo === 'COMENTARIO';
             // Un delegatorio no es un cambio de estatus del oficio: no lleva la
             // línea «de → a», solo su texto.
-            const esDelegatorio  = it.estado_nuevo === 'DELEGATORIO';
+            const esDelegatorio  = it.estado_nuevo === 'DELEGATORIO' || it.estado_nuevo === 'TURNADO';
             const st           = esComentario ? COMENTARIO_STYLE : (ESTADO_STYLE[it.estado_nuevo ?? ''] ?? ESTADO_FALLBACK);
             const isLast       = idx === items.length - 1;
             const estadoLbl    = ESTADO_LABEL[it.estado_nuevo ?? ''] ?? it.estado_nuevo;
@@ -168,7 +169,7 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: st.bg, color: st.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                        {esComentario ? '💬 Comentario' : `${esDelegatorio ? '📨' : '🔄'} ${estadoLbl}`}
+                        {esComentario ? '💬 Comentario' : `${it.estado_nuevo === 'TURNADO' ? '🔀' : esDelegatorio ? '📨' : '🔄'} ${estadoLbl}`}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.fecha)}</span>

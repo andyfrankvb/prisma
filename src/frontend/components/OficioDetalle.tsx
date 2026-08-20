@@ -112,8 +112,11 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
 
-  const tieneProyecto = ['EN_REVISION', 'VOBO_APROBADO', 'FINALIZADO'].includes(oficio.estatus);
-  const tieneFirmado  = oficio.estatus === 'FINALIZADO';
+  // Un oficio «de conocimiento» queda FINALIZADO sin haber pasado por el flujo:
+  // no tiene proyecto ni documento firmado, así que no se listan.
+  const tieneProyecto = !oficio.de_conocimiento
+    && ['EN_REVISION', 'VOBO_APROBADO', 'FINALIZADO'].includes(oficio.estatus);
+  const tieneFirmado  = !oficio.de_conocimiento && oficio.estatus === 'FINALIZADO';
 
   useEffect(() => {
     setPreview(null);
@@ -364,6 +367,13 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
           <Campo label="Delegación de gestión"     value={oficio.delegacion_nombre} />
           <Campo label="SIQROO" value={sistemaTexto(oficio.siqroo_aplica, oficio.siqroo_control_interno)} />
           <Campo label="SIGER"  value={sistemaTexto(oficio.siger_aplica,  oficio.siger_control_interno)} />
+          {oficio.de_conocimiento && (
+            <Campo label="Cierre" value={
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, backgroundColor: '#E0F2FE', color: '#075985', padding: '2px 9px', borderRadius: '10px' }}>
+                De conocimiento
+              </span>
+            } />
+          )}
         </div>
       </Seccion>
 
@@ -377,7 +387,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
             label="Documento firmado"
             value={tieneFirmado
               ? `✓ Cargado${oficio.fecha_firmado ? ` — ${fmtFecha(oficio.fecha_firmado)}` : ''}`
-              : 'Pendiente'}
+              : oficio.de_conocimiento ? 'No aplica' : 'Pendiente'}
           />
           <Campo label="En bandeja de"  value={oficio.en_bandeja_de} />
         </div>

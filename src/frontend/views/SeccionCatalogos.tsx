@@ -13,10 +13,11 @@ import {
   getUnidadesInternas, crearUnidadInterna, editarUnidadInterna, eliminarUnidadInterna,
   getRemitentes, crearRemitente, editarRemitente, eliminarRemitente,
   getCorreos, crearCorreo, editarCorreo, eliminarCorreo,
+  buscarEnCatalogos,
   dependenciaASubunidad, subunidadADependencia, moverSubunidad,
 } from '../api';
 import { Modal } from '../components/Modal';
-import type { CatalogoItem } from '../api';
+import type { CatalogoItem, HallazgoCatalogo } from '../api';
 
 // ── Columna genérica de un nivel ─────────────────────────────
 interface ColumnaProps {
@@ -143,6 +144,12 @@ export const SeccionCatalogos: React.FC = () => {
   const [rems,   setRems]   = useState<CatalogoItem[]>([]);
   const [corOri, setCorOri] = useState<CatalogoItem[]>([]);
   const [corDes, setCorDes] = useState<CatalogoItem[]>([]);
+
+  // Buscador global: la razón de ser de esta pantalla para el oficial de partes.
+  // Antes de dar algo de alta, saber si ya existe y en qué catálogo está.
+  const [busca,     setBusca]     = useState('');
+  const [hallazgos, setHallazgos] = useState<HallazgoCatalogo[] | null>(null);
+  const [buscando,  setBuscando]  = useState(false);
   const [selDep, setSelDep] = useState<CatalogoItem | null>(null);
 
   // ── Reorganizar jerarquía ──
@@ -219,6 +226,53 @@ export const SeccionCatalogos: React.FC = () => {
         Los <strong>remitentes</strong> y los <strong>correos</strong> son listas independientes.
         Los nombres se guardan en MAYÚSCULAS; los correos, en minúsculas.
       </p>
+
+      {/* Buscador global */}
+      <div style={{ marginBottom: '18px', padding: '14px 16px', border: `1px solid ${theme.colors.border}`, borderRadius: '10px', backgroundColor: theme.colors.surface }}>
+        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primaryDark, marginBottom: '6px' }}>
+          Buscar en todos los catálogos
+        </label>
+        <p style={{ margin: '0 0 8px', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+          Antes de dar algo de alta, búscalo aquí: puede que ya exista colgado de otra dependencia o capturado como remitente.
+        </p>
+        <input
+          value={busca}
+          onChange={(e) => {
+            const v = e.target.value;
+            setBusca(v);
+            if (v.trim().length < 3) { setHallazgos(null); return; }
+            setBuscando(true);
+            buscarEnCatalogos(v.trim())
+              .then((r) => setHallazgos(r.data))
+              .catch(() => setHallazgos([]))
+              .finally(() => setBuscando(false));
+          }}
+          placeholder="🔍 Escribe al menos 3 letras…"
+          style={{ ...input, width: '100%' }}
+        />
+
+        {buscando && <p style={{ ...muted, marginTop: '8px' }}>Buscando…</p>}
+
+        {!buscando && hallazgos && hallazgos.length === 0 && (
+          <p style={{ ...muted, marginTop: '8px' }}>
+            Sin coincidencias en ningún catálogo. Se puede dar de alta con confianza.
+          </p>
+        )}
+
+        {!buscando && hallazgos && hallazgos.length > 0 && (
+          <div style={{ marginTop: '10px', display: 'grid', gap: '4px', maxHeight: '220px', overflowY: 'auto' }}>
+            {hallazgos.map((h) => (
+              <div key={`${h.tipo}-${h.id}`} style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '6px 8px', borderRadius: '6px', backgroundColor: theme.colors.background }}>
+                <span style={{ fontSize: '0.64rem', fontWeight: 700, padding: '2px 7px', borderRadius: '10px', whiteSpace: 'nowrap', ...ETIQUETA_TIPO[h.tipo] }}>
+                  {h.tipo}
+                </span>
+                <span style={{ fontSize: '0.82rem', color: theme.colors.textPrimary }}>{h.nombre}</span>
+                <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>· {h.ubicacion}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {error && (
         <div role="alert" style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setError(null)}>
@@ -379,6 +433,12 @@ export const SeccionCatalogos: React.FC = () => {
 };
 
 // ── estilos ──────────────────────────────────────────────
+const ETIQUETA_TIPO: Record<string, React.CSSProperties> = {
+  DEPENDENCIA: { backgroundColor: '#FDE8EF', color: '#9F2241' },
+  SUBUNIDAD:   { backgroundColor: '#DBEAFE', color: '#1E40AF' },
+  REMITENTE:   { backgroundColor: '#D1FAE5', color: '#065F46' },
+  CORREO:      { backgroundColor: '#E0F2FE', color: '#075985' },
+};
 const panel: React.CSSProperties = { border: `1px solid ${theme.colors.border}`, borderRadius: '10px', padding: '16px', backgroundColor: theme.colors.surface };
 const panelTitle: React.CSSProperties = { margin: '0 0 12px', fontSize: '0.95rem', fontWeight: 700, color: theme.colors.primaryDark };
 const input: React.CSSProperties = { flex: 1, padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.82rem', fontFamily: theme.font.family, minWidth: 0 };

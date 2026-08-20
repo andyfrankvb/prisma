@@ -326,6 +326,7 @@ export function renderTemplate(
     case 'DELEGATORIO_EN_REVISION':
     case 'DELEGATORIO_CONTESTADO':
     case 'DELEGATORIO_DEVUELTO':
+    case 'OFICIO_TURNADO':
       return templateDelegatorio(event, vars);
     default:
       throw new Error(`No template defined for event: ${event}`);
@@ -355,6 +356,10 @@ const DELEGATORIO_TEXTOS: Record<string, {
   DELEGATORIO_CONTESTADO: {
     emoji: '✅', titulo: 'Delegatorio contestado', color: '#065F46', fondo: '#D1FAE5',
     instruccion: 'Ya puedes integrar esta información a la contestación oficial.',
+  },
+  OFICIO_TURNADO: {
+    emoji: '🔀', titulo: 'Oficio turnado a tu área', color: '#9F2241', fondo: '#FDE8EF',
+    instruccion: 'El área anterior no tiene competencia sobre lo solicitado. Asígnalo para su atención.',
   },
   DELEGATORIO_DEVUELTO: {
     emoji: '↩️', titulo: 'Delegatorio devuelto', color: '#92400E', fondo: '#FEF3C7',

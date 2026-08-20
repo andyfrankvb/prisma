@@ -193,8 +193,10 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     logger.warn({ method: req.method, path: req.path, status }, err.message);
   }
 
-  // Never leak stack traces to the client
-  res.status(status).json({ message });
+  // Never leak stack traces to the client. `detalles` es la única carga extra
+  // que se propaga, y solo si el propio error la puso a propósito (por ejemplo,
+  // la lista de oficios parecidos al detectar un posible duplicado).
+  res.status(status).json(err.detalles ? { message, detalles: err.detalles } : { message });
 });
 
 // ── Start ─────────────────────────────────────────────────────

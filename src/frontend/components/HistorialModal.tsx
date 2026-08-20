@@ -21,6 +21,7 @@ const ESTATUS_LABEL: Record<string, string> = {
   VOBO_APROBADO:      'Solicitud con visto bueno',
   FINALIZADO:         'Solicitud finalizada',
   DELEGATORIO:        'Delegatorio',
+  TURNADO:            'Turnado a otra área',
 };
 
 const ETAPA: Record<string, string> = {
@@ -31,6 +32,7 @@ const ETAPA: Record<string, string> = {
   VOBO_APROBADO:      'Visto bueno',
   FINALIZADO:         'Entrega',
   DELEGATORIO:        'Delegatorio',
+  TURNADO:            'Cambio de área',
 };
 
 const EVENTOS: Record<string, string> = {

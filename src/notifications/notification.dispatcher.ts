@@ -274,14 +274,15 @@ export async function notifyTramite(payload: {
 }
 
 /**
- * Notificación de un delegatorio. A diferencia de las de oficios, aquí los
+ * Notificación de un delegatorio —o de un oficio turnado, que comparte la misma
+ * estructura: un aviso dirigido a personas concretas de un área. A diferencia de las de oficios, aquí los
  * destinatarios siempre se indican explícitamente: el delegatorio va dirigido a
  * una persona concreta (el encargado del área, quien lo trabaja o quien lo detonó),
  * no a todos los actores de un rol.
  */
 export async function notifyDelegatorio(payload: {
   event: 'DELEGATORIO_NUEVO' | 'DELEGATORIO_ASIGNADO' | 'DELEGATORIO_EN_REVISION'
-       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO';
+       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO' | 'OFICIO_TURNADO';
   usuarioIds: number[];
   oficio_id:  number;
   folio:      string;

@@ -52,6 +52,13 @@ export interface Oficio {
   siqroo_boleta_url?:      string | null;
   siger_aplica?:           boolean;
   siger_control_interno?:  string | null;
+  /** Oficio informativo: se cierra sin pasar por el flujo de contestación. */
+  de_conocimiento?:         boolean;
+  de_conocimiento_en?:      string | null;
+  /** Solo la Dirección Jurídica ve la casilla. Lo calcula el servidor. */
+  puede_de_conocimiento?:   boolean;
+  /** El encargado del área que lo tiene puede turnarlo a otra. Lo calcula el servidor. */
+  puede_turnar?:            boolean;
   // computed by API
   dias_restantes?:       number | null;
   /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */

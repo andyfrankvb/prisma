@@ -26,7 +26,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
-    throw new Error(body?.message ?? `HTTP ${res.status}`);
+    const err = new Error(body?.message ?? `HTTP ${res.status}`) as Error & { detalles?: any; status?: number };
+    // Algunos errores traen información para que la vista pueda actuar
+    // (por ejemplo, la lista de oficios parecidos al detectar un duplicado).
+    err.detalles = body?.detalles;
+    err.status   = res.status;
+    throw err;
   }
   return res.json() as Promise<T>;
 }
@@ -263,6 +268,27 @@ export async function crearRemitente(nombre: string) {
   return handleResponse<{ data: CatalogoItem }>(res);
 }
 
+// ── Catálogos: buscador global y permiso de depuración ──
+/** Una coincidencia del buscador, con el lugar donde está capturada. */
+export interface HallazgoCatalogo {
+  tipo:      'DEPENDENCIA' | 'SUBUNIDAD' | 'REMITENTE' | 'CORREO';
+  id:        number;
+  nombre:    string;
+  ubicacion: string;
+}
+
+/** Busca un nombre en los cuatro catálogos a la vez y dice dónde está cada uno. */
+export async function buscarEnCatalogos(q: string) {
+  const res = await fetch(`${BASE}/catalogos/buscar?q=${encodeURIComponent(q)}`, { headers: authHeaders() });
+  return handleResponse<{ data: HallazgoCatalogo[]; mensaje?: string }>(res);
+}
+
+/** ¿El usuario puede editar, eliminar y reorganizar los catálogos? */
+export async function getPermisosCatalogos() {
+  const res = await fetch(`${BASE}/catalogos/permisos`, { headers: authHeaders() });
+  return handleResponse<{ data: { puede_gestionar: boolean } }>(res);
+}
+
 // ── Correos de recepción — dos listas independientes ──
 /** 'origen' = de quién llega el oficio; 'destino' = cuenta institucional que lo recibe. */
 export type TipoCorreo = 'origen' | 'destino';
@@ -363,6 +389,65 @@ export async function getHistorial(id: number) {
 }
 
 /** Completa el número de control interno (NCI) pendiente de SIQROO. */
+/** Un oficio ya capturado que se parece al que se está registrando. */
+export interface PosibleDuplicado {
+  id:                   number;
+  folio:                string;
+  numero_oficio_origen: string | null;
+  remitente:            string | null;
+  fecha_oficio:         string | null;
+  fecha_registro:       string;
+  estatus:              string;
+  motivo:               string;
+  explicacion:          string;
+}
+
+/** Consulta durante la captura: avisa antes de que el oficial llene todo lo demás. */
+export async function verificarDuplicado(params: {
+  dependencia_origen?: string;
+  numero_oficio_origen?: string;
+  remitente?: string;
+  fecha_oficio?: string;
+}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const res = await fetch(`${BASE}/oficios/verificar-duplicado?${qs}`, { headers: authHeaders() });
+  return handleResponse<{ data: { bloqueantes: PosibleDuplicado[]; advertencias: PosibleDuplicado[] } }>(res);
+}
+
+/** Área a la que se puede turnar un oficio. */
+export interface AreaTurno {
+  id:      number;
+  nombre:  string;
+  tipo:    string;
+  titular: string;
+}
+
+export async function getAreasTurno() {
+  const res = await fetch(`${BASE}/oficios/areas-turno`, { headers: authHeaders() });
+  return handleResponse<{ data: AreaTurno[] }>(res);
+}
+
+/** Manda el oficio completo a otra área; ahí reinicia su flujo. */
+export async function turnarOficio(id: number, unidad_destino_id: number, motivo: string) {
+  const res = await fetch(`${BASE}/oficios/${id}/turnar`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ unidad_destino_id, motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Marca o desmarca un oficio como «de conocimiento» (lo cierra o lo regresa al flujo). */
+export async function marcarDeConocimiento(id: number, marcar: boolean) {
+  const res = await fetch(`${BASE}/oficios/${id}/de-conocimiento`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ de_conocimiento: marcar }),
+  });
+  return handleResponse<{ data: Oficio; message: string }>(res);
+}
+
 export async function actualizarSistemas(id: number, datos: {
   siqroo_aplica: boolean;  siqroo_control_interno?: string;
   siger_aplica:  boolean;  siger_control_interno?:  string;

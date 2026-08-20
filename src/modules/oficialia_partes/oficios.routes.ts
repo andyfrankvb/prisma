@@ -24,6 +24,10 @@ import {
   aprobarVobo,
   finalizarOficio,
   actualizarSistemas,
+  marcarDeConocimiento,
+  verificarDuplicado,
+  areasTurno,
+  turnarOficio,
   getCandidatosAsignacion,
   OFICIO_DOC_FIELDS,
 } from './oficios.controller';
@@ -39,6 +43,8 @@ import {
   listarRemitentes,
   crearRemitente,
   listarCorreos,
+  buscarEnCatalogos,
+  permisosCatalogos,
   crearCorreo,
   editarCorreo,
   eliminarCorreo,
@@ -111,6 +117,10 @@ router.use(authenticate);
 /** POST /oficios/analizar-pdf — analiza PDF con IA, devuelve campos pre-llenados */
 router.post('/oficios/analizar-pdf', upload.single('pdf'), analizarPdf);
 
+/** GET /oficios/verificar-duplicado — avisa de posibles duplicados durante la captura.
+ *  Va antes que las rutas con parámetro para que no la capture «/oficios/:id». */
+router.get('/oficios/verificar-duplicado', verificarDuplicado);
+
 /** GET /oficios — listado filtrado por rol */
 router.get('/oficios', listarOficios);
 
@@ -150,6 +160,15 @@ router.post('/oficios/:id/finalizar', upload.single('file'), finalizarOficio);
 /** PATCH /oficios/:id/sistemas — marcar SIQROO/SIGER y capturar sus NCI */
 router.patch('/oficios/:id/sistemas', uploadOficio.single('boleta'), actualizarSistemas);
 
+/** GET /oficios/areas-turno — áreas a las que se puede turnar un oficio */
+router.get('/oficios/areas-turno', areasTurno);
+
+/** PATCH /oficios/:id/turnar — el oficio cambia de área y reinicia su flujo ahí */
+router.patch('/oficios/:id/turnar', turnarOficio);
+
+/** PATCH /oficios/:id/de-conocimiento — cerrar (o reabrir) un oficio informativo */
+router.patch('/oficios/:id/de-conocimiento', marcarDeConocimiento);
+
 // ── Delegatorios: la DG turna parte de un oficio a otra área ──
 router.get  ('/delegatorios/bandeja',        bandejaDelegatorios);
 router.get  ('/delegatorios/areas-destino',  areasDestino);
@@ -181,6 +200,10 @@ router.get ('/catalogos/remitentes',        listarRemitentes);
 router.post('/catalogos/remitentes',        crearRemitente);
 router.patch('/catalogos/remitentes/:id',   editarRemitente);
 router.delete('/catalogos/remitentes/:id',  eliminarRemitente);
+// Buscador global: encuentra un nombre en cualquiera de los catálogos y dice dónde está
+router.get('/catalogos/buscar',   buscarEnCatalogos);
+router.get('/catalogos/permisos', permisosCatalogos);
+
 // Correos de recepción — dos listas independientes: :tipo = origen | destino
 router.get   ('/catalogos/correos/:tipo',      listarCorreos);
 router.post  ('/catalogos/correos/:tipo',      crearCorreo);

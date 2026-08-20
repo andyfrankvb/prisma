@@ -18,6 +18,8 @@ import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
+import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
+import { TurnarPanel } from '../components/TurnarPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import {
@@ -622,6 +624,11 @@ export const Dashboard_Gestion: React.FC = () => {
                   oficio={selected}
                   onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
                 />
+                <DeConocimientoPanel
+                  oficio={selected}
+                  onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                />
+                <TurnarPanel oficio={selected} onDone={() => { setSelected(null); fetchOficios(); }} />
                 {selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
                   <div style={{
                     padding: '14px 16px',
@@ -668,6 +675,13 @@ export const Dashboard_Gestion: React.FC = () => {
                 <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
               ))}
             </select>
+            {abogados.length === 0 && (
+              <p style={{ margin: '8px 0 0', padding: '10px 12px', borderRadius: '6px', backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '0.78rem' }}>
+                No hay analistas jurídicos en tu área. Se consideran analistas quienes tienen habilitado
+                el módulo «Recepción de Oficios» y no están designados como oficial de partes ni encargado.
+                Pídele al administrador que habilite el módulo a quien corresponda.
+              </p>
+            )}
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Observaciones</label>
@@ -824,6 +838,13 @@ export const Dashboard_Gestion: React.FC = () => {
                 <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
               ))}
             </select>
+            {abogados.length === 0 && (
+              <p style={{ margin: '8px 0 0', padding: '10px 12px', borderRadius: '6px', backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '0.78rem' }}>
+                No hay analistas jurídicos en tu área. Se consideran analistas quienes tienen habilitado
+                el módulo «Recepción de Oficios» y no están designados como oficial de partes ni encargado.
+                Pídele al administrador que habilite el módulo a quien corresponda.
+              </p>
+            )}
           </div>
 
           <div style={{ marginBottom: '16px' }}>

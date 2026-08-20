@@ -10,6 +10,8 @@ import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SistemasPanel } from '../components/SistemasPanel';
+import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
+import { TurnarPanel } from '../components/TurnarPanel';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
@@ -229,6 +231,11 @@ export const Dashboard_Juridico: React.FC = () => {
                 oficio={detalleOficio}
                 onDone={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
               />
+              <DeConocimientoPanel
+                oficio={detalleOficio}
+                onDone={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+              />
+              <TurnarPanel oficio={detalleOficio} onDone={() => { setDetalleOficio(null); fetchOficios(); }} />
             </div>
 
             {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}

@@ -18,6 +18,32 @@ import { AppError } from '../../utils/AppError';
  */
 const normNombre = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 
+/**
+ * ¿Puede este usuario depurar los catálogos (editar, eliminar, reorganizar)?
+ *
+ * Además del SUPERADMIN, cualquiera a quien se le haya dado el rol de flujo
+ * «CATALOGOS» desde Configuración de Flujos. Se pensó para el oficial de partes:
+ * es quien detecta los duplicados y los nombres mal escritos al capturar, y así
+ * los corrige sin necesidad de darle acceso al resto del panel administrativo.
+ *
+ * La unidad con la que quedó asociado el permiso no importa: el catálogo es uno
+ * solo para toda la institución.
+ */
+export async function puedeGestionarCatalogos(user: any): Promise<boolean> {
+  if (user?.rol === 'SUPERADMIN') return true;
+  const fila = await db('configuracion_flujos')
+    .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'CATALOGOS', usuario_id: user?.id ?? 0 })
+    .first();
+  return !!fila;
+}
+
+/** Corta la petición si el usuario no puede depurar catálogos. */
+async function exigirGestionCatalogos(req: Request): Promise<void> {
+  if (!(await puedeGestionarCatalogos(req.user))) {
+    throw new AppError('No tienes permiso para modificar los catálogos', 403);
+  }
+}
+
 // ═══════════════════════════ Dependencias (nivel raíz) ═══════════════════════════
 
 // GET /catalogos/dependencias
@@ -58,7 +84,7 @@ export async function editarDependencia(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la dependencia es requerido', 422);
@@ -75,7 +101,7 @@ export async function eliminarDependencia(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const deleted = await db('catalogo_dependencias').where({ id }).delete();
     if (!deleted) throw new AppError('Dependencia no encontrada', 404);
@@ -126,7 +152,7 @@ export async function editarUnidadInterna(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre de la sub-unidad es requerido', 422);
@@ -145,7 +171,7 @@ export async function eliminarUnidadInterna(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const deleted = await db('catalogo_unidades_internas').where({ id }).delete();
     if (!deleted) throw new AppError('Sub-unidad no encontrada', 404);
@@ -166,7 +192,7 @@ export async function dependenciaASubunidad(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id      = parseInt(req.params.id, 10);
     const destino = parseInt(req.body?.dependencia_destino_id, 10);
     if (!destino)      throw new AppError('Selecciona la dependencia destino', 422);
@@ -215,7 +241,7 @@ export async function subunidadADependencia(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const uni = await db('catalogo_unidades_internas').where({ id }).first();
     if (!uni) throw new AppError('Sub-unidad no encontrada', 404);
@@ -239,7 +265,7 @@ export async function moverSubunidad(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id      = parseInt(req.params.id, 10);
     const destino = parseInt(req.body?.dependencia_destino_id, 10);
     if (!destino) throw new AppError('Selecciona la dependencia destino', 422);
@@ -303,7 +329,7 @@ export async function editarRemitente(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const nombre = normNombre(req.body?.nombre);
     if (!nombre) throw new AppError('El nombre del remitente es requerido', 422);
@@ -320,7 +346,7 @@ export async function eliminarRemitente(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const id = parseInt(req.params.id, 10);
     const deleted = await db('catalogo_remitentes').where({ id }).delete();
     if (!deleted) throw new AppError('Remitente no encontrado', 404);
@@ -395,7 +421,7 @@ export async function editarCorreo(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const tipo   = tipoDeRuta(req);
     const id     = parseInt(req.params.id, 10);
     const correo = normCorreo(req.body?.nombre ?? req.body?.correo);
@@ -417,11 +443,87 @@ export async function eliminarCorreo(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    if (req.user!.rol !== 'SUPERADMIN') throw new AppError('No autorizado', 403);
+    await exigirGestionCatalogos(req);
     const tipo = tipoDeRuta(req);
     const id   = parseInt(req.params.id, 10);
     const deleted = await db('catalogo_correos').where({ id, tipo }).delete();
     if (!deleted) throw new AppError('Correo no encontrado', 404);
     res.json({ message: 'Correo eliminado' });
+  } catch (err) { next(err); }
+}
+
+// ═══════════════════════════ Buscador global ═══════════════════════════
+//
+// El problema que resuelve: alguien no encuentra «Juzgado Segundo» y lo da de
+// alta otra vez, cuando en realidad ya existía colgado de otra dependencia o
+// capturado como remitente. Este buscador recorre los cuatro catálogos a la vez
+// y dice DÓNDE está cada coincidencia.
+
+// GET /catalogos/buscar?q=
+export async function buscarEnCatalogos(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const q = String(req.query.q ?? '').trim();
+    if (q.length < 3) {
+      res.json({ data: [], mensaje: 'Escribe al menos 3 caracteres' });
+      return;
+    }
+    // Sin acentos y en mayúsculas: «JURÍDICA» debe encontrar «JURIDICA».
+    const patron = `%${q.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`;
+    const SIN_ACENTOS = (col: string) => `translate(upper(${col}), 'ÁÉÍÓÚÜÑ', 'AEIOUUN')`;
+    const LIMITE = 40;
+
+    const [dependencias, unidades, remitentes, correos] = await Promise.all([
+      db('catalogo_dependencias')
+        .where('activo', true)
+        .whereRaw(`${SIN_ACENTOS('nombre')} LIKE ?`, [patron])
+        .select('id', 'nombre').orderBy('nombre').limit(LIMITE),
+
+      db('catalogo_unidades_internas as ui')
+        .leftJoin('catalogo_dependencias as d', 'd.id', 'ui.dependencia_id')
+        .where('ui.activo', true)
+        .whereRaw(`${SIN_ACENTOS('ui.nombre')} LIKE ?`, [patron])
+        .select('ui.id', 'ui.nombre', 'd.nombre as padre')
+        .orderBy('ui.nombre').limit(LIMITE),
+
+      db('catalogo_remitentes')
+        .where('activo', true)
+        .whereRaw(`${SIN_ACENTOS('nombre')} LIKE ?`, [patron])
+        .select('id', 'nombre').orderBy('nombre').limit(LIMITE),
+
+      db('catalogo_correos')
+        .where('activo', true)
+        .whereRaw(`${SIN_ACENTOS('correo')} LIKE ?`, [patron])
+        .select('id', 'correo as nombre', 'tipo').orderBy('correo').limit(LIMITE),
+    ]);
+
+    const data = [
+      ...dependencias.map((r: any) => ({
+        tipo: 'DEPENDENCIA', id: r.id, nombre: r.nombre, ubicacion: 'Dependencia solicitante',
+      })),
+      ...unidades.map((r: any) => ({
+        tipo: 'SUBUNIDAD', id: r.id, nombre: r.nombre,
+        ubicacion: r.padre ? `Sub-unidad de ${r.padre}` : 'Sub-unidad sin dependencia',
+      })),
+      ...remitentes.map((r: any) => ({
+        tipo: 'REMITENTE', id: r.id, nombre: r.nombre, ubicacion: 'Remitente (lista global)',
+      })),
+      ...correos.map((r: any) => ({
+        tipo: 'CORREO', id: r.id, nombre: r.nombre,
+        ubicacion: r.tipo === 'ORIGEN' ? 'Correo de quien envía' : 'Correo que recibe',
+      })),
+    ];
+
+    res.json({ data });
+  } catch (err) { next(err); }
+}
+
+// GET /catalogos/permisos — ¿este usuario puede depurar los catálogos?
+export async function permisosCatalogos(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    res.json({ data: { puede_gestionar: await puedeGestionarCatalogos(req.user) } });
   } catch (err) { next(err); }
 }

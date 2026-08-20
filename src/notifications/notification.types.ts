@@ -32,7 +32,9 @@ export type NotificationEventType =
   | 'DELEGATORIO_ASIGNADO'
   | 'DELEGATORIO_EN_REVISION'
   | 'DELEGATORIO_CONTESTADO'
-  | 'DELEGATORIO_DEVUELTO';
+  | 'DELEGATORIO_DEVUELTO'
+  // El oficio completo cambia de área por no ser de la competencia de la actual
+  | 'OFICIO_TURNADO';
 
 export interface NotificationPayload {
   event:       NotificationEventType;

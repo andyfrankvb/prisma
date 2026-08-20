@@ -46,6 +46,10 @@ export const COMPATIBILITY_RULES = {
       rolSistema:  'JURIDICO' as const,
       descripcion: 'Abogado — múltiples por delegación',
     },
+    CATALOGOS: {
+      rolSistema:  'OPERATIVO' as const,
+      descripcion: 'Puede depurar los catálogos de ingreso (sin acceso al resto del SuperAdmin)',
+    },
   },
 } as const;
 
@@ -122,7 +126,10 @@ export function getRolesConfigurables(moduloClave: string): string[] {
 
 /** Roles que se configuran POR UNIDAD (un actor por delegación). Exigen unidad. */
 const ROLES_POR_UNIDAD: Record<string, string[]> = {
-  oficialia_partes: ['OFICIAL', 'ENCARGADO'],
+  // CATALOGOS se asigna por oficina solo para poder dar el permiso a varias
+  // personas desde la misma pantalla; el permiso en sí es global, no depende
+  // de la unidad a la que se le asocie.
+  oficialia_partes: ['OFICIAL', 'ENCARGADO', 'CATALOGOS'],
 };
 
 /** Roles GLOBALES (un solo actor, sin unidad). */
@@ -142,7 +149,7 @@ const ROLES_GLOBALES: Record<string, string[]> = {
  * actores en la misma unidad volverían impredecible esa resolución.
  */
 const ROLES_MULTIPLES: Record<string, string[]> = {
-  oficialia_partes: ['OFICIAL'],
+  oficialia_partes: ['OFICIAL', 'CATALOGOS'],
 };
 
 export function esRolPorUnidad(moduloClave: string, rolFlujo: string): boolean {

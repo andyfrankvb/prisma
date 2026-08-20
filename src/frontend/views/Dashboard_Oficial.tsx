@@ -15,14 +15,17 @@ import { TerminoTimer } from '../components/TerminoTimer';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
+import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
+import { TurnarPanel } from '../components/TurnarPanel';
+import { SeccionCatalogos } from './SeccionCatalogos';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, createOficio, getUsuarios, finalizarOficio,
          getDependencias, crearDependencia, getRemitentes, crearRemitente,
          getUnidadesInternas, crearUnidadInterna,
-         getCorreos, crearCorreo } from '../api';
-import type { CatalogoItem, TipoCorreo } from '../api';
+         getCorreos, crearCorreo, verificarDuplicado, getPermisosCatalogos } from '../api';
+import type { CatalogoItem, TipoCorreo, PosibleDuplicado } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
 import { FiltrosOficios } from '../components/FiltrosOficios';
@@ -142,6 +145,19 @@ export const Dashboard_Oficial: React.FC = () => {
   const [correosDes,    setCorreosDes]    = useState<CatalogoItem[]>([]);
   const [addCorMode,    setAddCorMode]    = useState<TipoCorreo | null>(null);
   const [nuevoCorreo,   setNuevoCorreo]   = useState('');
+  // Oficios ya capturados que se parecen al que se está registrando.
+  const [duplicados,   setDuplicados]   = useState<PosibleDuplicado[]>([]);
+  const [dupConfirmado, setDupConfirmado] = useState(false);
+
+  // Depuración de catálogos: solo para quien tenga el permiso, sin pasar por el
+  // panel del SuperAdmin.
+  const [puedeCatalogos, setPuedeCatalogos] = useState(false);
+  const [verCatalogos,   setVerCatalogos]   = useState(false);
+  useEffect(() => {
+    getPermisosCatalogos()
+      .then((r) => setPuedeCatalogos(r.data.puede_gestionar))
+      .catch(() => setPuedeCatalogos(false));
+  }, []);
 
   // ── Destinatarios ─────────────────────────────────────────
   const [destinatarios, setDestinatarios] = useState<Abogado[]>([]);
@@ -286,6 +302,25 @@ export const Dashboard_Oficial: React.FC = () => {
     } catch (err: any) { setCreateError(err.message); }
   };
 
+  /**
+   * Busca oficios parecidos mientras se captura, para avisar antes de que el
+   * oficial llene el resto del formulario. El alta vuelve a verificar por su
+   * cuenta: esto solo es una ayuda.
+   */
+  const revisarDuplicados = async () => {
+    if (!dependencia.trim() || !numOficioOrigen.trim()) { setDuplicados([]); return; }
+    try {
+      const { data } = await verificarDuplicado({
+        dependencia_origen:   dependencia,
+        numero_oficio_origen: numOficioOrigen,
+        remitente:            remitente,
+        fecha_oficio:         fechaOficio,
+      });
+      setDuplicados([...data.bloqueantes, ...data.advertencias]);
+      setDupConfirmado(false);
+    } catch { /* la verificación es opcional: si falla, el alta igual valida */ }
+  };
+
   /** Da de alta un correo en su catálogo y lo deja seleccionado. */
   const agregarCorreo = async (tipo: TipoCorreo) => {
     const correo = nuevoCorreo.trim().toLowerCase();
@@ -321,6 +356,7 @@ export const Dashboard_Oficial: React.FC = () => {
     setNuevaDepNombre(''); setNuevaUniNombre(''); setNuevoRemNombre(''); setNumOficioOrigen(''); setFechaOficio('');
     setViaRecepcion('VENTANILLA'); setCorreoOrigen(''); setCorreoDestino('');
     setAddCorMode(null); setNuevoCorreo('');
+    setDuplicados([]); setDupConfirmado(false);
   };
 
   const handleCreate = async (e: FormEvent) => {
@@ -359,6 +395,8 @@ export const Dashboard_Oficial: React.FC = () => {
         const f = docFiles[key];
         if (f) fd.append(key, f);
       });
+      // El oficial ya vio los oficios parecidos y decidió continuar.
+      if (dupConfirmado) fd.append('confirmar_duplicado', 'true');
       // Vía de recepción
       fd.append('via_recepcion', viaRecepcion);
       if (viaRecepcion === 'CORREO_ELECTRONICO') {
@@ -372,7 +410,14 @@ export const Dashboard_Oficial: React.FC = () => {
         setAvisoCompresion(aviso);
         setTimeout(() => setAvisoCompresion(null), 6000);
       }
-    } catch (err: any) { setCreateError(err.message); }
+    } catch (err: any) {
+      setCreateError(err.message);
+      // El servidor devuelve los oficios parecidos para que el oficial los revise.
+      if (err.detalles?.advertencias?.length) {
+        setDuplicados(err.detalles.advertencias);
+        setDupConfirmado(false);
+      }
+    }
     finally { setSubmitting(false); }
   };
 
@@ -393,9 +438,16 @@ export const Dashboard_Oficial: React.FC = () => {
                 {total} registro{total !== 1 ? 's' : ''}
               </p>
             </div>
-            <button onClick={() => setShowCreate(true)} style={btnPrimary}>
-              + Registrar Oficio
-            </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {puedeCatalogos && (
+                <button onClick={() => setVerCatalogos(true)} style={btnSecondary}>
+                  Catálogos
+                </button>
+              )}
+              <button onClick={() => setShowCreate(true)} style={btnPrimary}>
+                + Registrar Oficio
+              </button>
+            </div>
           </div>
 
           {avisoCompresion && (
@@ -556,6 +608,11 @@ export const Dashboard_Oficial: React.FC = () => {
                     oficio={selected}
                     onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
                   />
+                  <DeConocimientoPanel
+                    oficio={selected}
+                    onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                  />
+                  <TurnarPanel oficio={selected} onDone={() => { setSelected(null); fetchOficios(); }} />
 
                   {/* El texto extraído por OCR se muestra al abrir el documento "Oficio"
                       desde la tabla de documentos requisitos (visor). */}
@@ -573,6 +630,16 @@ export const Dashboard_Oficial: React.FC = () => {
       )}
 
       {/* ── Create Modal — un solo formulario ─────────────── */}
+      {/* Catálogos: buscar dónde está ya capturado algo y depurar duplicados */}
+      <Modal
+        open={verCatalogos}
+        title="Catálogos de ingreso"
+        onClose={() => setVerCatalogos(false)}
+        width={1100}
+      >
+        <SeccionCatalogos />
+      </Modal>
+
       <Modal
         open={showCreate}
         title="Registrar Oficio"
@@ -743,6 +810,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     style={{ ...inputStyle, textTransform: 'uppercase' }}
                     value={numOficioOrigen}
                     onChange={(e) => setNumOficioOrigen(e.target.value.toUpperCase())}
+                    onBlur={revisarDuplicados}
                     placeholder=""
                   />
                 </Field>
@@ -758,6 +826,41 @@ export const Dashboard_Oficial: React.FC = () => {
                 </Field>
               </div>
             </div>
+            {/* Oficios parecidos ya capturados: se muestran para que el oficial decida */}
+            {duplicados.length > 0 && (
+              <div style={{
+                marginBottom: '16px', padding: '12px 14px', borderRadius: '8px',
+                backgroundColor: '#FFFBEB', border: '1px solid #F59E0B',
+              }}>
+                <p style={{ margin: '0 0 8px', fontSize: '0.82rem', fontWeight: 700, color: '#92400E' }}>
+                  {duplicados.length === 1
+                    ? 'Ya hay un oficio parecido capturado'
+                    : `Ya hay ${duplicados.length} oficios parecidos capturados`}
+                </p>
+                <div style={{ display: 'grid', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+                  {duplicados.map((d) => (
+                    <div key={d.id} style={{ fontSize: '0.78rem', color: theme.colors.textPrimary }}>
+                      <strong>{d.folio}</strong>
+                      {d.numero_oficio_origen && <> · {d.numero_oficio_origen}</>}
+                      {d.remitente && <> · {d.remitente}</>}
+                      <span style={{ display: 'block', fontSize: '0.72rem', color: '#92400E' }}>
+                        {d.explicacion}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={dupConfirmado}
+                    onChange={(e) => setDupConfirmado(e.target.checked)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  Ya los revisé: este oficio es distinto y quiero registrarlo
+                </label>
+              </div>
+            )}
+
             {/* Vía de recepción: por ventanilla o por correo electrónico */}
             <div style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.border}`, borderRadius: '8px' }}>
               <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal, marginBottom: '8px' }}>

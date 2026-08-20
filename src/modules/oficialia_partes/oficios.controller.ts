@@ -22,6 +22,8 @@ import { AppError }     from '../../utils/AppError';
 import { logger }       from '../../utils/logger';
 import { RolUsuario, EstatusOficio } from './oficios.types';
 import { tieneDelegatoriosPendientes } from './delegatorios.controller';
+import { buscarDuplicados, hashArchivo } from './duplicados';
+import { notifyDelegatorio } from '../../notifications/notification.dispatcher';
 
 /** Documentos categorizados que acompañan al ingreso de oficio (uno por tipo) */
 export const OFICIO_DOC_FIELDS = ['anexos', 'identificacion', 'oficio', 'recibos', 'solicitud'] as const;
@@ -153,6 +155,38 @@ async function resolverEncargadoDeOficio(dirigidoAId: number | null): Promise<nu
 const TIPOS_CON_FLUJO_PROPIO = ['DELEGACION', 'DIRECCION'];
 function tieneFlujoPropio(rol?: string | null, tipo?: string | null): boolean {
   return rol === 'DIRECTOR' && TIPOS_CON_FLUJO_PROPIO.includes(tipo ?? '');
+}
+
+/**
+ * ¿Este usuario pertenece a la Dirección Jurídica?
+ *
+ * Vale tanto para su gente operativa (su unidad ES la Dirección Jurídica) como
+ * para su encargado configurado, que puede estar adscrito a otra unidad — es el
+ * caso de Óscar Gopar, encargado de Jurídica y de la Dirección General a la vez.
+ *
+ * La unidad se identifica por nombre y no por id, para que siga funcionando si
+ * el catálogo se reorganiza.
+ */
+async function esDeJuridica(user: any): Promise<boolean> {
+  const juridica = await db('catalogo_unidades')
+    .where('tipo', 'DIRECCION')
+    .andWhere('activo', true)
+    .whereRaw("translate(lower(nombre),'áéíóú','aeiou') LIKE '%juridic%'")
+    .select('id')
+    .first();
+  if (!juridica) return false;
+
+  if (user.unidad_id === juridica.id || user.oficina_id === juridica.id) return true;
+
+  const encargado = await db('configuracion_flujos')
+    .where({
+      modulo_clave: 'oficialia_partes',
+      rol_flujo:    'ENCARGADO',
+      unidad_id:    juridica.id,
+      usuario_id:   user.id,
+    })
+    .first();
+  return !!encargado;
 }
 
 /**
@@ -577,6 +611,9 @@ export async function listarOficios(
     // ¿El usuario actual es la SECRETARIA? (rol nativo o designada en configuracion_flujos)
     const esSecretaria = await canActAsSecretaria(user);
 
+    // Solo la Dirección Jurídica marca oficios «de conocimiento».
+    const puedeMarcarConocimiento = await esDeJuridica(user);
+
     // Compute dias_restantes client-side to avoid DB timezone issues
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -636,12 +673,23 @@ export async function listarOficios(
         ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
         : esSecretaria);
 
+      // Turnar a otra área: lo hace el encargado del área que hoy tiene el oficio.
+      const puede_turnar = o.estatus !== 'FINALIZADO'
+        && unidadesEncargado.includes(o.dirigido_a_unidad_id);
+
+      // La casilla «de conocimiento» solo la ve Jurídica, y solo mientras el
+      // oficio no esté cerrado por firma.
+      const puede_de_conocimiento = puedeMarcarConocimiento
+        && (o.de_conocimiento || o.estatus !== 'FINALIZADO');
+
       return {
         ...o,
         dias_restantes,
         delegatorios_pendientes,
         puede_vobo,
         puede_finalizar,
+        puede_de_conocimiento,
+        puede_turnar,
         en_bandeja_de,
         vobo_por_nombre,
         secretaria_nombre: secretariaNombre,
@@ -672,6 +720,31 @@ export async function listarOficios(
  *  - Inserta el oficio
  *  - Crea registro de auditoría (null → RECIBIDO)
  */
+/**
+ * GET /oficios/verificar-duplicado
+ *
+ * Lo consulta el formulario mientras se captura, para avisar antes de que el
+ * oficial llene todo lo demás. El alta vuelve a verificar por su cuenta: esto
+ * es una ayuda de captura, no el control.
+ */
+export async function verificarDuplicado(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const resultado = await buscarDuplicados({
+      dependencia_origen:   req.query.dependencia_origen as string,
+      numero_oficio_origen: req.query.numero_oficio_origen as string,
+      remitente:            req.query.remitente as string,
+      fecha_oficio:         req.query.fecha_oficio as string,
+    });
+    res.json({ data: resultado });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function crearOficio(
   req: Request,
   res: Response,
@@ -718,6 +791,38 @@ export async function crearOficio(
       if (!formatoCorreo.test(cOrigen) || !formatoCorreo.test(cDestino)) {
         throw new AppError('Alguno de los correos no tiene un formato válido', 400);
       }
+    }
+
+    // ── Duplicados ────────────────────────────────────────────
+    // Se revisa antes de generar folio y de guardar archivos, para no dejar
+    // basura si resulta que el oficio ya estaba capturado.
+    const archivo_hash = oficioFile ? hashArchivo(oficioFile.buffer) : null;
+    const duplicados = await buscarDuplicados({
+      dependencia_origen:   dependencia_origen,
+      numero_oficio_origen: numero_oficio_origen,
+      remitente:            remitente,
+      fecha_oficio:         fecha_oficio,
+      archivo_hash,
+    });
+
+    if (duplicados.bloqueantes.length) {
+      const yaExiste = duplicados.bloqueantes[0];
+      throw new AppError(
+        `Este oficio ya está registrado con el folio ${yaExiste.folio} (${yaExiste.explicacion.toLowerCase()}).`,
+        409,
+      );
+    }
+
+    // Los parecidos no bloquean, pero sí exigen que el oficial los haya visto.
+    const confirmado = req.body?.confirmar_duplicado === true
+      || req.body?.confirmar_duplicado === 'true';
+    if (duplicados.advertencias.length && !confirmado) {
+      const err = new AppError(
+        'Hay oficios parecidos ya registrados. Revísalos y confirma si aun así deseas continuar.',
+        409,
+      );
+      (err as any).detalles = { advertencias: duplicados.advertencias };
+      throw err;
     }
 
     // ── Validaciones ──────────────────────────────────────────
@@ -803,6 +908,7 @@ export async function crearOficio(
           // SIQROO y SIGER se marcan después, desde el detalle del oficio.
           siqroo_aplica:        false,
           siger_aplica:         false,
+          archivo_hash,
           via_recepcion:        via,
           correo_origen:        cOrigen,
           correo_destino:       cDestino,
@@ -916,6 +1022,229 @@ export async function actualizarSistemas(
     const actualizado = await db('oficios').where({ id: oficio_id }).first();
 
     res.json({ data: actualizado, message: 'Registro en sistemas actualizado' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── PATCH /oficios/:id/de-conocimiento ──────────────────────────────────────
+
+/**
+ * Marca (o desmarca) un oficio como «de conocimiento».
+ *
+ * Hay oficios que no piden respuesta: solo informan algo a la operación interna.
+ * Al marcarlos, el oficio se cierra sin pasar por proyecto, visto bueno ni firma.
+ *
+ * Solo la Dirección Jurídica —su encargado o su gente— puede hacerlo, y es
+ * reversible: al desmarcarlo, el oficio regresa al punto del flujo en el que
+ * estaba, porque se guardó su estatus anterior.
+ */
+export async function marcarDeConocimiento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+
+    if (!(await esDeJuridica(user))) {
+      throw new AppError('Solo la Dirección Jurídica puede marcar un oficio de conocimiento', 403);
+    }
+
+    const marcar = req.body?.de_conocimiento !== false && req.body?.de_conocimiento !== 'false';
+
+    // No se cierra un oficio con delegatorios abiertos: quedarían huérfanos.
+    if (marcar && await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede cerrar hasta que todas las áreas respondan.', 409);
+    }
+
+    const actualizado = await db.transaction(async (trx) => {
+      const oficio = await getOficioOrFail(trx, oficio_id);
+
+      if (marcar) {
+        if (oficio.de_conocimiento) {
+          throw new AppError('Este oficio ya está marcado de conocimiento', 422);
+        }
+        // Un oficio ya finalizado con firma no se convierte en informativo.
+        if (oficio.estatus === 'FINALIZADO') {
+          throw new AppError('Este oficio ya está finalizado', 422);
+        }
+
+        await trx('oficios').where({ id: oficio_id }).update({
+          de_conocimiento:             true,
+          de_conocimiento_por:         user.id,
+          de_conocimiento_en:          new Date(),
+          estatus_previo_conocimiento: oficio.estatus,
+          estatus:                     'FINALIZADO' as EstatusOficio,
+        });
+        await createAuditLog(trx, oficio_id, oficio.estatus, 'FINALIZADO', user.id);
+      } else {
+        if (!oficio.de_conocimiento) {
+          throw new AppError('Este oficio no está marcado de conocimiento', 422);
+        }
+        // Regresa a donde estaba. Si por alguna razón no se guardó, vuelve a RECIBIDO.
+        const previo = (oficio.estatus_previo_conocimiento ?? 'RECIBIDO') as EstatusOficio;
+
+        await trx('oficios').where({ id: oficio_id }).update({
+          de_conocimiento:             false,
+          de_conocimiento_por:         null,
+          de_conocimiento_en:          null,
+          estatus_previo_conocimiento: null,
+          estatus:                     previo,
+        });
+        await createAuditLog(trx, oficio_id, oficio.estatus, previo, user.id);
+      }
+
+      return trx('oficios').where({ id: oficio_id }).first();
+    });
+
+    res.json({
+      data:    actualizado,
+      message: marcar
+        ? 'Oficio marcado de conocimiento y cerrado'
+        : 'Se quitó la marca de conocimiento; el oficio regresó al flujo',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Turnar el oficio a otra área ────────────────────────────────────────────
+
+/** Unidades a las que se puede turnar un oficio: cualquiera activa con titular. */
+export async function areasTurno(
+  _req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const areas = await db('catalogo_unidades as cu')
+      .join('usuarios as u', function () {
+        this.on('u.unidad_id', 'cu.id').andOn(db.raw("u.rol = 'DIRECTOR'")).andOn(db.raw('u.activo'));
+      })
+      .where('cu.activo', true)
+      .select('cu.id', 'cu.nombre', 'cu.tipo', 'u.nombre as titular')
+      .orderBy('cu.tipo', 'asc')
+      .orderBy('cu.nombre', 'asc');
+    res.json({ data: areas });
+  } catch (err) { next(err); }
+}
+
+/**
+ * PATCH /oficios/:id/turnar
+ *
+ * El oficio cambia de área: deja de estar dirigido al titular actual y pasa al
+ * de la unidad destino, reiniciando el flujo ahí. Lo hace el encargado del área
+ * que lo tiene, cuando lo solicitado no es de su competencia.
+ *
+ * El folio se conserva —es el del acuse ya entregado— y el recorrido queda en
+ * `oficio_turnos` para saber por dónde pasó.
+ */
+export async function turnarOficio(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const destinoId = Number(req.body?.unidad_destino_id);
+    const motivo    = String(req.body?.motivo ?? '').trim();
+    if (!destinoId) throw new AppError('Selecciona el área a la que se turna', 422);
+    if (!motivo)    throw new AppError('Indica por qué se turna a esa área', 422);
+
+    // Unidad actual del oficio (la del destinatario) y quién la tiene a cargo.
+    const actual = await db('oficios as o')
+      .leftJoin('usuarios as u', 'u.id', 'o.dirigido_a_id')
+      .where('o.id', oficio_id)
+      .select('o.id', 'o.estatus', 'o.dirigido_a_id', 'u.unidad_id as unidad_actual')
+      .first();
+    if (!actual) throw new AppError('Oficio no encontrado', 404);
+
+    if (actual.estatus === 'FINALIZADO') {
+      throw new AppError('Este oficio ya está finalizado; no se puede turnar', 422);
+    }
+    if (actual.unidad_actual === destinoId) {
+      throw new AppError('El oficio ya está en esa área', 422);
+    }
+
+    // Solo el encargado del área que hoy tiene el oficio puede turnarlo.
+    const esEncargado = await db('configuracion_flujos')
+      .where({
+        modulo_clave: 'oficialia_partes',
+        rol_flujo:    'ENCARGADO',
+        usuario_id:   user.id,
+        unidad_id:    actual.unidad_actual ?? -1,
+      })
+      .first();
+    if (!esEncargado) {
+      throw new AppError('Solo el encargado del área que tiene el oficio puede turnarlo', 403);
+    }
+
+    // Con delegatorios abiertos el turno dejaría a otras áreas trabajando de más.
+    if (await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. Resuélvelos antes de turnarlo a otra área.', 409);
+    }
+
+    // El oficio queda dirigido al titular del área destino.
+    const destino = await db('catalogo_unidades').where({ id: destinoId, activo: true }).first();
+    if (!destino) throw new AppError('El área destino no existe o está inactiva', 422);
+
+    const titular = await db('usuarios')
+      .where({ unidad_id: destinoId, rol: 'DIRECTOR', activo: true })
+      .orderBy('id', 'asc')
+      .first();
+    if (!titular) {
+      throw new AppError(`«${destino.nombre}» no tiene un titular activo al cual dirigir el oficio`, 422);
+    }
+
+    await db.transaction(async (trx) => {
+      const oficio = await getOficioOrFail(trx, oficio_id);
+
+      await trx('oficio_turnos').insert({
+        oficio_id,
+        unidad_origen_id:     actual.unidad_actual ?? null,
+        unidad_destino_id:    destinoId,
+        dirigido_anterior_id: actual.dirigido_a_id ?? null,
+        dirigido_nuevo_id:    titular.id,
+        estatus_previo:       oficio.estatus,
+        motivo,
+        turnado_por_id:       user.id,
+        creado_en:            new Date(),
+      });
+
+      // El flujo arranca de cero en la nueva área.
+      await trx('oficios').where({ id: oficio_id }).update({
+        dirigido_a_id: titular.id,
+        estatus:       'RECIBIDO' as EstatusOficio,
+      });
+
+      // Solo se registra el cambio de estatus si realmente cambió: el turno ya
+      // aparece en la línea de tiempo y un «RECIBIDO → RECIBIDO» no aporta nada.
+      if (oficio.estatus !== 'RECIBIDO') {
+        await createAuditLog(trx, oficio_id, oficio.estatus, 'RECIBIDO', user.id);
+      }
+    });
+
+    // Aviso al encargado del área que ahora lo recibe. Si falla el correo, el
+    // turno ya quedó hecho y no se revierte.
+    const encargadosDestino = await db('configuracion_flujos')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO', unidad_id: destinoId })
+      .whereNotNull('usuario_id')
+      .pluck('usuario_id');
+    const datosOficio = await db('oficios').where({ id: oficio_id })
+      .select('folio', 'dependencia_origen').first();
+    notifyDelegatorio({
+      event:              'OFICIO_TURNADO',
+      usuarioIds:         [...encargadosDestino, titular.id],
+      oficio_id,
+      folio:              datosOficio?.folio ?? '',
+      dependencia_origen: datosOficio?.dependencia_origen ?? undefined,
+      area:               destino.nombre,
+      nota:               motivo,
+    }).catch((err) => logger.error({ err, oficio_id }, 'Notificación de turno falló'));
+
+    res.json({ message: `Oficio turnado a ${destino.nombre}` });
   } catch (err) {
     next(err);
   }
@@ -1308,8 +1637,30 @@ export async function getHistorial(
       // Por id: si dos movimientos caen en el mismo segundo, el orden se respeta.
       .orderBy('c.id', 'asc');
 
+    // Los cambios de área también son parte de la vida del oficio.
+    const turnos = await db('oficio_turnos as t')
+      .join('usuarios as u', 'u.id', 't.turnado_por_id')
+      .leftJoin('catalogo_unidades as origen',  'origen.id',  't.unidad_origen_id')
+      .leftJoin('catalogo_unidades as destino', 'destino.id', 't.unidad_destino_id')
+      .where('t.oficio_id', oficio_id)
+      .select(
+        't.id', 't.motivo', 't.estatus_previo', 't.creado_en',
+        'u.nombre as usuario_nombre',
+        'origen.nombre as origen', 'destino.nombre as destino',
+      )
+      .orderBy('t.id', 'asc');
+
     const historial = [
       ...estados,
+      ...turnos.map((t: any) => ({
+        // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
+        id:              -1000000 - t.id,
+        estado_anterior: t.estatus_previo,
+        estado_nuevo:    'TURNADO',
+        fecha_cambio:    t.creado_en,
+        usuario_nombre:  t.usuario_nombre,
+        detalle:         `${t.origen ?? 'Sin área'} → ${t.destino}: ${t.motivo}`,
+      })),
       ...delegatorios.map((c: any) => ({
         // Id negativo para no chocar con los de auditoría al usarlo como llave.
         id:              -c.id,
@@ -1372,6 +1723,16 @@ export async function getCandidatosAsignacion(
 ): Promise<void> {
   try {
     const user = req.user!;
+
+    // Quién puede recibir un oficio para trabajarlo (el «analista jurídico» del
+    // área). No hay un rol capturado para esto: se deduce por exclusión, con las
+    // piezas que ya se administran hoy.
+    //
+    //   · De la misma área que el encargado y con el módulo habilitado.
+    //   · Rol OPERATIVO o JURIDICO — deja fuera al titular (DIRECTOR) y a perfiles
+    //     ajenos al trámite, como PARTICULAR.
+    //   · Que no sea oficial de partes ni encargado: esos capturan y distribuyen,
+    //     no elaboran el proyecto de contestación.
     const candidatos = await db('usuarios as u')
       .join('usuario_modulos as um', 'um.usuario_id', 'u.id')
       .join('modulos as m', 'm.id', 'um.modulo_id')
@@ -1379,8 +1740,17 @@ export async function getCandidatosAsignacion(
       .andWhere('u.activo', true)
       .andWhere('m.clave', 'oficialia_partes')
       .andWhereNot('u.id', user.id)
+      .whereIn('u.rol', ['OPERATIVO', 'JURIDICO'])
+      .whereNotExists(function () {
+        this.select('*')
+          .from('configuracion_flujos as cf')
+          .whereRaw('cf.usuario_id = u.id')
+          .andWhere('cf.modulo_clave', 'oficialia_partes')
+          .whereIn('cf.rol_flujo', ['OFICIAL', 'ENCARGADO']);
+      })
       .distinct('u.id', 'u.nombre', 'u.cargo', 'u.email')
       .orderBy('u.nombre', 'asc');
+
     res.json({ data: candidatos });
   } catch (err) { next(err); }
 }
