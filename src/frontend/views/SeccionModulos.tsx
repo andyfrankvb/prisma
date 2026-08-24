@@ -32,6 +32,17 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ── ROL labels / colors ───────────────────────────────────────
 
+/** Roles que aparecen en el filtro, en el orden en que se usan. */
+const ROLES_FILTRO: RolUsuario[] = [
+  'OFICIAL', 'ENCARGADO', 'JURIDICO', 'SECRETARIA', 'DIRECTOR', 'OPERATIVO', 'PARTICULAR', 'SUPERADMIN',
+];
+
+/** Campos de la barra de filtros, igual que en Administración. */
+const filtroInput: React.CSSProperties = {
+  padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '7px',
+  fontSize: '0.82rem', fontFamily: theme.font.family, boxSizing: 'border-box', minWidth: 0,
+};
+
 const ROL_LABEL: Record<RolUsuario, string> = {
   OFICIAL:    'Oficial de Partes',
   ENCARGADO:  'Director Jurídico',
@@ -40,9 +51,11 @@ const ROL_LABEL: Record<RolUsuario, string> = {
   DIRECTOR:   'Dirección General',
   SUPERADMIN: 'Super Administrador',
   OPERATIVO:  'Operativo',
+  PARTICULAR: 'Particular',
 };
 
 const ROL_COLOR: Record<RolUsuario, { bg: string; text: string }> = {
+  PARTICULAR: { bg: '#EDE9E4', text: '#3D3935' },
   OFICIAL:    { bg: '#FEF3C7', text: '#92400E' },
   ENCARGADO:  { bg: '#FDE8EF', text: '#AB0A3D' },
   JURIDICO:   { bg: '#D1FAE5', text: '#065F46' },
@@ -67,6 +80,25 @@ export const SeccionModulos: React.FC = () => {
   const [toggleErrors,   setToggleErrors]   = useState<Record<number, string>>({});
   const [pillsTick,      setPillsTick]      = useState(0);
 
+  // ── Filtros: buscar por persona y acotar por el módulo que maneja ──
+  const [search,     setSearch]     = useState('');
+  const [searchDeb,  setSearchDeb]  = useState('');
+  const [filtroMod,  setFiltroMod]  = useState('');
+  const [filtroRol,  setFiltroRol]  = useState('');
+  const [catalogo,   setCatalogo]   = useState<{ id: number; clave: string; nombre_display: string }[]>([]);
+
+  useEffect(() => {
+    const t = setTimeout(() => { setSearchDeb(search); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // El catálogo de módulos alimenta el selector.
+  useEffect(() => {
+    apiFetch<{ data: { id: number; clave: string; nombre_display: string }[] }>('/admin/modulos')
+      .then((r) => setCatalogo(r.data))
+      .catch(() => setCatalogo([]));
+  }, []);
+
   const isMobile = useIsMobile();
   const LIMIT = 20;
 
@@ -74,7 +106,12 @@ export const SeccionModulos: React.FC = () => {
     setLoading(true);
     setListError(null);
     try {
-      const res = await adminListarUsuarios({ page, limit: LIMIT });
+      const res = await adminListarUsuarios({
+        page, limit: LIMIT,
+        search: searchDeb || undefined,
+        modulo: filtroMod || undefined,
+        rol:    filtroRol || undefined,
+      });
       setUsuarios(res.data);
       setTotal(res.meta.total);
     } catch (err: any) {
@@ -82,7 +119,7 @@ export const SeccionModulos: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, searchDeb, filtroMod, filtroRol]);
 
   useEffect(() => { fetchUsuarios(); }, [fetchUsuarios]);
 
@@ -163,6 +200,50 @@ export const SeccionModulos: React.FC = () => {
               {total} usuario{total !== 1 ? 's' : ''} — clic en fila para gestionar módulos
             </p>
           </div>
+        </div>
+
+        {/* Filtros — mismo diseño que Administración */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px', padding: '14px 16px', backgroundColor: theme.colors.surface, borderRadius: '10px', border: `1px solid ${theme.colors.border}` }}>
+          <input
+            type="search"
+            placeholder="Buscar nombre o email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ ...filtroInput, width: '220px' }}
+            aria-label="Buscar"
+          />
+          <select
+            value={filtroMod}
+            onChange={(e) => { setFiltroMod(e.target.value); setPage(1); }}
+            style={{ ...filtroInput, width: '230px' }}
+            aria-label="Módulo"
+          >
+            <option value="">Todos los módulos</option>
+            {catalogo.map((m) => (
+              <option key={m.id} value={m.clave}>{m.nombre_display}</option>
+            ))}
+          </select>
+          <select
+            value={filtroRol}
+            onChange={(e) => { setFiltroRol(e.target.value); setPage(1); }}
+            style={{ ...filtroInput, width: '170px' }}
+            aria-label="Rol"
+          >
+            <option value="">Todos los roles</option>
+            {ROLES_FILTRO.map((r) => <option key={r} value={r}>{ROL_LABEL[r] ?? r}</option>)}
+          </select>
+          {(search || filtroMod || filtroRol) && (
+            <button
+              onClick={() => { setSearch(''); setSearchDeb(''); setFiltroMod(''); setFiltroRol(''); setPage(1); }}
+              style={{
+                padding: '8px 14px', fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primary,
+                backgroundColor: '#fff', border: `1px solid ${theme.colors.primary}`,
+                borderRadius: '7px', cursor: 'pointer', fontFamily: theme.font.family,
+              }}
+            >
+              Limpiar
+            </button>
+          )}
         </div>
 
         {listError && (

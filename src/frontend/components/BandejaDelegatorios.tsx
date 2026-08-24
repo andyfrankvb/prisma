@@ -13,8 +13,10 @@ import { theme } from '../theme';
 import {
   getBandejaDelegatorios, getCandidatosAsignacion, asignarDelegatorio,
   responderDelegatorio, devolverDelegatorio, aprobarDelegatorio,
+  rechazarDelegatorio,
 } from '../api';
 import type { Abogado } from '../types';
+import { useDialogo }  from '../context/DialogoContext';
 
 type Item = Awaited<ReturnType<typeof getBandejaDelegatorios>>['data'][number];
 
@@ -27,6 +29,7 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
   const [observacion, setObservacion] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const dialogo = useDialogo();
 
   const cargar = useCallback(() => {
     getBandejaDelegatorios().then((r) => setItems(r.data)).catch((e) => setError(e.message));
@@ -55,10 +58,29 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
   const aprobar = async (id: number) => {
     try { const r = await aprobarDelegatorio(id); notificar(r.message); } catch (e) { fallar(e); }
   };
+  /** El área regresa el delegatorio por no ser de su competencia. */
+  const rechazar = async (id: number) => {
+    const m = await dialogo.pedirTexto({
+      titulo:      'No compete a mi área',
+      mensaje:     'Se regresará a quien lo solicitó y se le informará el motivo.',
+      etiqueta:    '¿Por qué no le compete a tu área?',
+      placeholder: 'ESCRIBE EL MOTIVO…',
+      confirmar:   'Rechazar',
+      peligro:     true,
+    });
+    if (!m) return;
+    try { const r = await rechazarDelegatorio(id, m); notificar(r.message); } catch (e) { fallar(e); }
+  };
   const devolver = async (id: number) => {
-    const c = prompt('¿Qué debe corregirse?');
-    if (!c?.trim()) return;
-    try { const r = await devolverDelegatorio(id, c.trim()); notificar(r.message); } catch (e) { fallar(e); }
+    const c = await dialogo.pedirTexto({
+      titulo:      'Devolver a corregir',
+      mensaje:     'Se regresará a quien lo trabajó con tus comentarios.',
+      etiqueta:    '¿Qué debe corregirse?',
+      placeholder: 'ESCRIBE LO QUE HAY QUE CORREGIR…',
+      confirmar:   'Devolver',
+    });
+    if (!c) return;
+    try { const r = await devolverDelegatorio(id, c); notificar(r.message); } catch (e) { fallar(e); }
   };
 
   if (items.length === 0) return null;
@@ -109,6 +131,13 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
                 <option value="">— Asignar a alguien de tu área —</option>
                 {gente.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
               </select>
+              <button
+                onClick={() => rechazar(d.id)}
+                title="Regresarlo a quien lo solicitó, por no ser de tu competencia"
+                style={{ ...btnSec, color: '#B45309', borderColor: '#B45309' }}
+              >
+                No compete a mi área
+              </button>
             </div>
           )}
 
@@ -117,9 +146,9 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
             activo === d.id ? (
               <div style={{ display: 'grid', gap: '8px' }}>
                 <textarea
-                  value={observacion} onChange={(e) => setObservacion(e.target.value)} rows={2}
-                  placeholder="Justificación de la respuesta…"
-                  style={{ ...input, resize: 'vertical' }}
+                  value={observacion} onChange={(e) => setObservacion(e.target.value.toUpperCase())} rows={2}
+                  placeholder="JUSTIFICACIÓN DE LA RESPUESTA…"
+                  style={{ ...input, resize: 'vertical', textTransform: 'uppercase' }}
                 />
                 <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
                   style={{ fontSize: '0.78rem', fontFamily: theme.font.family }} />
@@ -134,6 +163,13 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => { setActivo(d.id); setObservacion(''); setArchivo(null); }} style={btnPri}>
                   Responder
+                </button>
+                <button
+                  onClick={() => rechazar(d.id)}
+                  title="Regresarlo a quien lo solicitó, por no ser de tu competencia"
+                  style={{ ...btnSec, color: '#B45309', borderColor: '#B45309' }}
+                >
+                  No compete a mi área
                 </button>
                 <span style={{ fontSize: '0.73rem', color: theme.colors.textSecondary, alignSelf: 'center' }}>
                   {d.asignado_a ? `Asignado a ${d.asignado_a}` : ''}

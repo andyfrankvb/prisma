@@ -23,6 +23,7 @@ import { logger }       from '../../utils/logger';
 import { RolUsuario, EstatusOficio } from './oficios.types';
 import { tieneDelegatoriosPendientes } from './delegatorios.controller';
 import { buscarDuplicados, hashArchivo } from './duplicados';
+import { sumarDiasHabiles, aFechaSql } from '../../utils/dias-habiles';
 import { notifyDelegatorio } from '../../notifications/notification.dispatcher';
 
 /** Documentos categorizados que acompañan al ingreso de oficio (uno por tipo) */
@@ -167,7 +168,7 @@ function tieneFlujoPropio(rol?: string | null, tipo?: string | null): boolean {
  * La unidad se identifica por nombre y no por id, para que siga funcionando si
  * el catálogo se reorganiza.
  */
-async function esDeJuridica(user: any): Promise<boolean> {
+export async function esDeJuridica(user: any): Promise<boolean> {
   const juridica = await db('catalogo_unidades')
     .where('tipo', 'DIRECCION')
     .andWhere('activo', true)
@@ -350,6 +351,42 @@ export async function listarOficios(
                   WHERE d.oficio_id = oficios.id
                     AND d.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION'))::int
                 AS delegatorios_pendientes`),
+        // ¿Llegó por un turno? Solo entonces se puede devolver a quien lo mandó.
+        db.raw(`(SELECT count(*) FROM oficio_turnos t
+                  WHERE t.oficio_id = oficios.id
+                    AND t.unidad_destino_id = dir_u.unidad_id)::int
+                AS turnos_recibidos`),
+        // ¿El último movimiento que lo trajo fue una devolución? Cambia la etiqueta.
+        // Marcado en SIGER sin delegatorio a una delegación: no puede cerrarse.
+        db.raw(`(oficios.siger_aplica AND NOT EXISTS (
+                   SELECT 1 FROM oficio_delegatorios d
+                   JOIN catalogo_unidades dcu ON dcu.id = d.unidad_destino_id
+                   WHERE d.oficio_id = oficios.id
+                     AND dcu.tipo = 'DELEGACION'
+                     AND d.estado <> 'RECHAZADO'))
+                AS siger_sin_delegatorio`),
+        // FRE marcado sin delegatorio a la Dirección de Informática.
+        db.raw(`(oficios.fre_incorporado AND NOT EXISTS (
+                   SELECT 1 FROM oficio_delegatorios d
+                   JOIN catalogo_unidades dcu ON dcu.id = d.unidad_destino_id
+                   WHERE d.oficio_id = oficios.id
+                     AND dcu.tipo = 'DIRECCION'
+                     AND translate(lower(dcu.nombre),'áéíóú','aeiou') LIKE '%informat%'
+                     AND d.estado <> 'RECHAZADO'))
+                AS fre_sin_delegatorio`),
+        // Testamento marcado sin delegatorio a ninguna delegación.
+        db.raw(`(oficios.testamento AND NOT EXISTS (
+                   SELECT 1 FROM oficio_delegatorios d
+                   JOIN catalogo_unidades dcu ON dcu.id = d.unidad_destino_id
+                   WHERE d.oficio_id = oficios.id
+                     AND dcu.tipo = 'DELEGACION'
+                     AND d.estado <> 'RECHAZADO'))
+                AS testamento_sin_delegatorio`),
+        db.raw(`(SELECT t.es_devolucion FROM oficio_turnos t
+                  WHERE t.oficio_id = oficios.id
+                    AND t.unidad_destino_id = dir_u.unidad_id
+                  ORDER BY t.id DESC LIMIT 1)
+                AS llego_por_devolucion`),
         'enc_u.nombre as encargado_nombre',
         'fin_aud.fecha_cambio as fecha_firmado',
         'oficial_u.nombre as ingresado_por_nombre',
@@ -541,15 +578,11 @@ export async function listarOficios(
     // Filtro «NCI pendiente»: marcado en un sistema pero sin su número de control.
     // Cubre SIQROO y SIGER — basta que falte en cualquiera de los dos.
     if (req.query.siqroo_pendiente === 'true') {
-      query = query.andWhere((q) => {
-        q.where((s) => s
-          .where('oficios.siqroo_aplica', true)
-          .whereNull('oficios.siqroo_control_interno')
-          .whereNull('oficios.siqroo_boleta_url'));
-        q.orWhere((s) => s
-          .where('oficios.siger_aplica', true)
-          .whereNull('oficios.siger_control_interno'));
-      });
+      // Solo SIQROO: SIGER no lleva número de control.
+      query = query
+        .andWhere('oficios.siqroo_aplica', true)
+        .whereNull('oficios.siqroo_control_interno')
+        .whereNull('oficios.siqroo_boleta_url');
     }
 
     // Aprobados sin documento de firma subido: tienen VoBo pero aún no se finalizan.
@@ -659,7 +692,10 @@ export async function listarOficios(
       const delegatorios_pendientes = Number((o as any).delegatorios_pendientes ?? 0);
 
       // ¿Puede el usuario actual dar el VoBo?
-      const puede_vobo = delegatorios_pendientes === 0 && (voboLoDaElEncargado
+      const sigerPendiente = !!(o as any).siger_sin_delegatorio
+        || !!(o as any).fre_sin_delegatorio
+        || !!(o as any).testamento_sin_delegatorio;
+      const puede_vobo = delegatorios_pendientes === 0 && !sigerPendiente && (voboLoDaElEncargado
         ? unidadesEncargado.includes(o.dirigido_a_unidad_id)   // el encargado de esa unidad
         : o.dirigido_a_id === user.id);                         // el titular (dirigido a)
 
@@ -669,13 +705,15 @@ export async function listarOficios(
       // ¿Puede el usuario actual subir el firmado / finalizar este oficio?
       // Delegación o dirección de área: el titular (dirigido a) o el encargado de esa
       // unidad. Dirección General: la secretaría.
-      const puede_finalizar = delegatorios_pendientes === 0 && (esFlujoPropio
+      const puede_finalizar = delegatorios_pendientes === 0 && !sigerPendiente && (esFlujoPropio
         ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
         : esSecretaria);
 
       // Turnar a otra área: lo hace el encargado del área que hoy tiene el oficio.
       const puede_turnar = o.estatus !== 'FINALIZADO'
         && unidadesEncargado.includes(o.dirigido_a_unidad_id);
+      // Y devolverlo, solo si llegó por un turno.
+      const puede_devolver_turno = puede_turnar && Number((o as any).turnos_recibidos ?? 0) > 0;
 
       // La casilla «de conocimiento» solo la ve Jurídica, y solo mientras el
       // oficio no esté cerrado por firma.
@@ -690,6 +728,7 @@ export async function listarOficios(
         puede_finalizar,
         puede_de_conocimiento,
         puede_turnar,
+        puede_devolver_turno,
         en_bandeja_de,
         vobo_por_nombre,
         secretaria_nombre: secretariaNombre,
@@ -901,7 +940,7 @@ export async function crearOficio(
           oficial_registro_id:  user.id,
           unidad_registro_id:   user.oficina_id,
           fecha_registro:       new Date(),
-          descripcion_solicitud,
+          descripcion_solicitud: mayus(descripcion_solicitud),
           tiene_termino:        Boolean(tiene_termino),
           fecha_vencimiento:    fecha_vencimiento ?? null,
           pdf_original_path,
@@ -998,16 +1037,24 @@ export async function actualizarSistemas(
     const siqroo = esBool(req.body?.siqroo_aplica);
     const siger  = esBool(req.body?.siger_aplica);
 
-    const nciSiqroo = String(req.body?.siqroo_control_interno ?? '').trim();
-    const nciSiger  = String(req.body?.siger_control_interno  ?? '').trim();
+    const nciSiqroo = String(req.body?.siqroo_control_interno ?? '').trim().toUpperCase();
 
-    // Desmarcar un sistema borra su NCI: dejarlo colgando confundiría después.
+    // SIGER no lleva número de control: solo se marca si la solicitud se capturó
+    // ahí. Desmarcar SIQROO borra su NCI, para no dejarlo colgando.
     const update: Record<string, unknown> = {
-      siqroo_aplica:         siqroo,
-      siger_aplica:          siger,
+      siqroo_aplica:          siqroo,
+      siger_aplica:           siger,
       siqroo_control_interno: siqroo ? (nciSiqroo || null) : null,
-      siger_control_interno:  siger  ? (nciSiger  || null) : null,
+      siger_control_interno:  null,
     };
+
+    // Incorporación del FRE a SIQROO: constancia con fecha. Se conserva la que
+    // ya tenía si sigue marcada, para no perder cuándo se hizo realmente.
+    if (req.body?.fre_incorporado !== undefined) {
+      const fre = esBool(req.body.fre_incorporado);
+      update.fre_incorporado    = fre;
+      update.fre_incorporado_en = fre ? (oficio.fre_incorporado_en ?? new Date()) : null;
+    }
 
     // La boleta de SIQROO se conserva como estaba; solo se reemplaza si viene una nueva.
     const boleta = (req as any).file as Express.Multer.File | undefined;
@@ -1022,6 +1069,80 @@ export async function actualizarSistemas(
     const actualizado = await db('oficios').where({ id: oficio_id }).first();
 
     res.json({ data: actualizado, message: 'Registro en sistemas actualizado' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── PATCH /oficios/:id/testamento ───────────────────────────────────────────
+
+/** Plazo de cada etapa, en días hábiles. */
+const TESTAMENTO_DIAS_DELEGACIONES = 5;
+const TESTAMENTO_DIAS_TOTAL        = 10;
+
+/**
+ * Marca el oficio como búsqueda de testamentos y arranca sus plazos.
+ *
+ * Son dos etapas de 5 días hábiles: primero las delegaciones seleccionadas
+ * buscan y entregan, después el encargado arma el proyecto de contestación.
+ * Los plazos son FIJOS: si una delegación contesta antes, quien sigue puede
+ * adelantarse pero no pierde sus días.
+ *
+ * La búsqueda se opera con los delegatorios de siempre: al marcarlo se fijan
+ * los plazos, y el oficio no se cierra hasta que se delegue a alguna
+ * delegación desde «Delegar a otra área». Es el mismo trato que SIGER.
+ */
+export async function marcarTestamento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+    const marcar    = req.body?.testamento !== false && req.body?.testamento !== 'false';
+
+    const oficio = await db('oficios').where({ id: oficio_id }).first();
+    if (!oficio) throw new AppError('Oficio no encontrado', 404);
+
+    // ── Quitar la marca ──────────────────────────────────────
+    if (!marcar) {
+      if (!oficio.testamento) throw new AppError('Este oficio no está marcado como testamento', 422);
+      await db('oficios').where({ id: oficio_id }).update({
+        testamento: false,
+        testamento_en: null,
+        testamento_vence_delegaciones: null,
+        testamento_vence_encargado: null,
+      });
+      res.json({ message: 'Se quitó la marca de testamento. Los delegatorios creados siguen su curso.' });
+      return;
+    }
+
+    if (oficio.testamento) throw new AppError('Este oficio ya está marcado como testamento', 422);
+
+    const ahora   = new Date();
+    const venceD  = sumarDiasHabiles(ahora, TESTAMENTO_DIAS_DELEGACIONES);
+    const venceE  = sumarDiasHabiles(ahora, TESTAMENTO_DIAS_TOTAL);
+
+    await db('oficios').where({ id: oficio_id }).update({
+      testamento:                    true,
+      testamento_en:                 ahora,
+      testamento_vence_delegaciones: aFechaSql(venceD),
+      testamento_vence_encargado:    aFechaSql(venceE),
+      // Si la autoridad ya había puesto un plazo, se respeta el suyo.
+      ...(oficio.tiene_termino ? {} : {
+        tiene_termino:     true,
+        fecha_vencimiento: aFechaSql(venceE),
+      }),
+    });
+
+    res.json({
+      message: 'Búsqueda de testamentos marcada. Delega el oficio a las delegaciones que la harán.',
+      data: {
+        testamento_vence_delegaciones: aFechaSql(venceD),
+        testamento_vence_encargado:    aFechaSql(venceE),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -1057,6 +1178,15 @@ export async function marcarDeConocimiento(
     // No se cierra un oficio con delegatorios abiertos: quedarían huérfanos.
     if (marcar && await tieneDelegatoriosPendientes(oficio_id)) {
       throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede cerrar hasta que todas las áreas respondan.', 409);
+    }
+    if (marcar && await sigerSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado en SIGER, así que debe delegarse a una delegación antes de cerrarse.', 409);
+    }
+    if (marcar && await freSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio tiene marcada la incorporación de FRE, así que debe delegarse a la Dirección de Informática antes de cerrarse.', 409);
+    }
+    if (marcar && await testamentoSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado como testamento, así que debe delegarse a alguna delegación antes de cerrarse.', 409);
     }
 
     const actualizado = await db.transaction(async (trx) => {
@@ -1110,6 +1240,146 @@ export async function marcarDeConocimiento(
   }
 }
 
+/**
+ * ¿El oficio está marcado en SIGER pero todavía no se delegó a ninguna
+ * delegación? SIGER es el sistema de las delegaciones: marcarlo implica que
+ * alguna de ellas tiene que atenderlo, así que el oficio no se cierra hasta que
+ * exista ese delegatorio.
+ */
+export async function sigerSinDelegatorio(oficioId: number): Promise<boolean> {
+  const oficio = await db('oficios').where({ id: oficioId }).select('siger_aplica').first();
+  if (!oficio?.siger_aplica) return false;
+
+  const [fila] = await db('oficio_delegatorios as d')
+    .join('catalogo_unidades as cu', 'cu.id', 'd.unidad_destino_id')
+    .where('d.oficio_id', oficioId)
+    .andWhere('cu.tipo', 'DELEGACION')
+    .whereNot('d.estado', 'RECHAZADO')
+    .count('d.id as n');
+  return Number((fila as any)?.n ?? 0) === 0;
+}
+
+/**
+ * Texto libre del módulo en MAYÚSCULAS.
+ *
+ * Los oficios se capturan así por convención de la oficialía, y mezclar
+ * mayúsculas con minúsculas hacía que el mismo dato se viera distinto según
+ * quién lo escribió. No aplica a correos ni a rutas de archivo.
+ */
+const mayus = (v: unknown): string | null => {
+  const t = String(v ?? '').trim();
+  return t ? t.toUpperCase() : null;
+};
+
+/** La Dirección de Informática, identificada por nombre y no por id. */
+export async function unidadInformatica(): Promise<{ id: number; nombre: string } | undefined> {
+  return db('catalogo_unidades')
+    .where('tipo', 'DIRECCION')
+    .andWhere('activo', true)
+    .whereRaw("translate(lower(nombre),'áéíóú','aeiou') LIKE '%informat%'")
+    .select('id', 'nombre')
+    .first();
+}
+
+/**
+ * ¿Se marcó como testamento pero todavía no se delegó a ninguna delegación?
+ * La búsqueda la hacen ellas, así que el oficio no se cierra sin ese paso.
+ */
+export async function testamentoSinDelegatorio(oficioId: number): Promise<boolean> {
+  const oficio = await db('oficios').where({ id: oficioId }).select('testamento').first();
+  if (!oficio?.testamento) return false;
+
+  const [fila] = await db('oficio_delegatorios as d')
+    .join('catalogo_unidades as cu', 'cu.id', 'd.unidad_destino_id')
+    .where('d.oficio_id', oficioId)
+    .andWhere('cu.tipo', 'DELEGACION')
+    .whereNot('d.estado', 'RECHAZADO')
+    .count('d.id as n');
+  return Number((fila as any)?.n ?? 0) === 0;
+}
+
+/**
+ * ¿Se marcó la incorporación del FRE pero el oficio no se ha delegado a la
+ * Dirección de Informática? Es quien la realiza, así que el oficio no se cierra
+ * hasta que exista ese delegatorio.
+ */
+export async function freSinDelegatorio(oficioId: number): Promise<boolean> {
+  const oficio = await db('oficios').where({ id: oficioId }).select('fre_incorporado').first();
+  if (!oficio?.fre_incorporado) return false;
+
+  const informatica = await unidadInformatica();
+  if (!informatica) return false;
+
+  const [fila] = await db('oficio_delegatorios')
+    .where({ oficio_id: oficioId, unidad_destino_id: informatica.id })
+    .whereNot('estado', 'RECHAZADO')
+    .count('id as n');
+  return Number((fila as any)?.n ?? 0) === 0;
+}
+
+// ─── GET /oficios/destinatarios ──────────────────────────────────────────────
+
+/**
+ * A quién se le puede dirigir un oficio al registrarlo.
+ *
+ * Desde una DELEGACIÓN solo tiene sentido dirigir a su propio titular o a la
+ * Dirección General: son los oficios que físicamente llegan a esa ventanilla.
+ * Ver a los titulares de las otras delegaciones solo se presta a equivocaciones.
+ *
+ * Desde la Dirección General o desde una dirección de área no se acota: ahí sí
+ * llegan oficios dirigidos a cualquiera de las direcciones.
+ *
+ * Si de todas formas llega a una delegación algo que compete a otra área, se
+ * registra y se resuelve turnándolo por competencia.
+ */
+export async function listarDestinatarios(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user = req.user!;
+
+    const query = db('usuarios as u')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('u.activo', true)
+      .whereIn('u.rol', ['DIRECTOR', 'ENCARGADO'])
+      .select('u.id', 'u.nombre', 'u.cargo', 'u.email', 'cu.nombre as oficina_nombre')
+      .orderBy('cu.nombre', 'asc')
+      .orderBy('u.nombre', 'asc');
+
+    // El tipo se lee de la base y no del token: los tokens emitidos antes de que
+    // existiera `unidad_tipo` no lo traen.
+    const propia = await db('catalogo_unidades')
+      .where('id', user.unidad_id ?? user.oficina_id ?? 0)
+      .select('id', 'tipo', 'recibe_direcciones_area')
+      .first();
+
+    if (propia?.tipo === 'DELEGACION') {
+      // Siempre: su propio titular y la Dirección General.
+      const dg = await db('catalogo_unidades')
+        .where({ tipo: 'DIRECCION_GENERAL', activo: true })
+        .select('id')
+        .first();
+      const permitidas: number[] = [propia.id, dg?.id].filter(Boolean) as number[];
+
+      // Y, si comparte sede con ellas, también las direcciones de área.
+      if (propia.recibe_direcciones_area) {
+        const direcciones = await db('catalogo_unidades')
+          .where({ tipo: 'DIRECCION', activo: true })
+          .pluck('id');
+        permitidas.push(...direcciones);
+      }
+
+      query.whereIn('u.unidad_id', permitidas);
+    }
+
+    res.json({ data: await query });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── Turnar el oficio a otra área ────────────────────────────────────────────
 
 /** Unidades a las que se puede turnar un oficio: cualquiera activa con titular. */
@@ -1149,7 +1419,7 @@ export async function turnarOficio(
     const oficio_id = parseInt(req.params.id, 10);
 
     const destinoId = Number(req.body?.unidad_destino_id);
-    const motivo    = String(req.body?.motivo ?? '').trim();
+    const motivo    = String(req.body?.motivo ?? '').trim().toUpperCase();
     if (!destinoId) throw new AppError('Selecciona el área a la que se turna', 422);
     if (!motivo)    throw new AppError('Indica por qué se turna a esa área', 422);
 
@@ -1250,6 +1520,120 @@ export async function turnarOficio(
   }
 }
 
+/**
+ * PATCH /oficios/:id/turnar/devolver
+ *
+ * El área que recibió un oficio turnado lo regresa a quien se lo mandó, porque
+ * el asunto no le compete. Es el movimiento inverso del turno: el oficio vuelve
+ * al destinatario anterior y arranca de nuevo allá, con la justificación en la
+ * línea de tiempo.
+ */
+export async function devolverTurno(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const motivo = String(req.body?.motivo ?? '').trim().toUpperCase();
+    if (!motivo) throw new AppError('Indica por qué se devuelve el oficio', 422);
+
+    const actual = await db('oficios as o')
+      .leftJoin('usuarios as u', 'u.id', 'o.dirigido_a_id')
+      .where('o.id', oficio_id)
+      .select('o.id', 'o.estatus', 'o.dirigido_a_id', 'u.unidad_id as unidad_actual')
+      .first();
+    if (!actual) throw new AppError('Oficio no encontrado', 404);
+
+    if (actual.estatus === 'FINALIZADO') {
+      throw new AppError('Este oficio ya está finalizado; no se puede devolver', 422);
+    }
+
+    const esEncargado = await db('configuracion_flujos')
+      .where({
+        modulo_clave: 'oficialia_partes',
+        rol_flujo:    'ENCARGADO',
+        usuario_id:   user.id,
+        unidad_id:    actual.unidad_actual ?? -1,
+      })
+      .first();
+    if (!esEncargado) {
+      throw new AppError('Solo el encargado del área que tiene el oficio puede devolverlo', 403);
+    }
+
+    if (await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. Resuélvelos antes de devolverlo.', 409);
+    }
+
+    // El turno que lo trajo hasta aquí: de ahí salen el área y la persona de regreso.
+    const ultimo = await db('oficio_turnos')
+      .where({ oficio_id, unidad_destino_id: actual.unidad_actual ?? -1 })
+      .orderBy('id', 'desc')
+      .first();
+    if (!ultimo) {
+      throw new AppError('Este oficio no llegó por un turno, así que no hay a quién devolverlo', 422);
+    }
+    if (!ultimo.dirigido_anterior_id) {
+      throw new AppError('No se puede determinar a quién regresar el oficio', 422);
+    }
+
+    const destino = await db('catalogo_unidades').where('id', ultimo.unidad_origen_id ?? 0).first();
+    const titular = await db('usuarios').where({ id: ultimo.dirigido_anterior_id }).first();
+    if (!titular?.activo) {
+      throw new AppError('Quien turnó el oficio ya no está activo; repórtalo al administrador', 422);
+    }
+
+    await db.transaction(async (trx) => {
+      const oficio = await getOficioOrFail(trx, oficio_id);
+
+      await trx('oficio_turnos').insert({
+        oficio_id,
+        unidad_origen_id:     actual.unidad_actual ?? null,
+        unidad_destino_id:    ultimo.unidad_origen_id,
+        dirigido_anterior_id: actual.dirigido_a_id ?? null,
+        dirigido_nuevo_id:    titular.id,
+        estatus_previo:       oficio.estatus,
+        motivo,
+        turnado_por_id:       user.id,
+        es_devolucion:        true,
+        creado_en:            new Date(),
+      });
+
+      await trx('oficios').where({ id: oficio_id }).update({
+        dirigido_a_id: titular.id,
+        estatus:       'RECIBIDO' as EstatusOficio,
+      });
+
+      if (oficio.estatus !== 'RECIBIDO') {
+        await createAuditLog(trx, oficio_id, oficio.estatus, 'RECIBIDO', user.id);
+      }
+    });
+
+    // Aviso a quien lo había turnado, para que lo reencamine.
+    const encargadosDestino = await db('configuracion_flujos')
+      .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'ENCARGADO', unidad_id: ultimo.unidad_origen_id })
+      .whereNotNull('usuario_id')
+      .pluck('usuario_id');
+    const datosOficio = await db('oficios').where({ id: oficio_id })
+      .select('folio', 'dependencia_origen').first();
+    notifyDelegatorio({
+      event:              'OFICIO_TURNADO',
+      usuarioIds:         [...encargadosDestino, titular.id, ultimo.turnado_por_id],
+      oficio_id,
+      folio:              datosOficio?.folio ?? '',
+      dependencia_origen: datosOficio?.dependencia_origen ?? undefined,
+      area:               destino?.nombre ?? 'tu área',
+      nota:               `Devuelto por no ser de su competencia: ${motivo}`,
+    }).catch((err) => logger.error({ err, oficio_id }, 'Notificación de devolución falló'));
+
+    res.json({ message: `Oficio devuelto a ${destino?.nombre ?? 'el área anterior'}` });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ─── PATCH /oficios/:id/reasignar ────────────────────────────────────────────
 
 /**
@@ -1317,7 +1701,7 @@ export async function reasignarOficio(
         abogado_id,
         asignado_por_id:  user.id,
         fecha_asignacion: new Date(),
-        observaciones:    motivo ?? null,
+        observaciones:    mayus(motivo),
       });
 
       // Regresar estatus a ASIGNADO
@@ -1384,7 +1768,7 @@ export async function asignarOficio(
         abogado_id,
         asignado_por_id:  user.id,
         fecha_asignacion: new Date(),
-        observaciones:    observaciones ?? null,
+        observaciones:    mayus(observaciones),
       });
 
       await createAuditLog(trx, oficio_id, oficio.estatus, 'ASIGNADO', user.id);
@@ -1551,7 +1935,7 @@ export async function reconsiderarOficio(
       await trx('comentarios_reconsideracion').insert({
         oficio_id,
         encargado_id: user.id,
-        comentario:   comentario.trim(),
+        comentario:   comentario.trim().toUpperCase(),
         fecha:        new Date(),
         version,
         resuelto:     false,
@@ -1644,7 +2028,7 @@ export async function getHistorial(
       .leftJoin('catalogo_unidades as destino', 'destino.id', 't.unidad_destino_id')
       .where('t.oficio_id', oficio_id)
       .select(
-        't.id', 't.motivo', 't.estatus_previo', 't.creado_en',
+        't.id', 't.motivo', 't.estatus_previo', 't.creado_en', 't.es_devolucion',
         'u.nombre as usuario_nombre',
         'origen.nombre as origen', 'destino.nombre as destino',
       )
@@ -1656,7 +2040,7 @@ export async function getHistorial(
         // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
         id:              -1000000 - t.id,
         estado_anterior: t.estatus_previo,
-        estado_nuevo:    'TURNADO',
+        estado_nuevo:    t.es_devolucion ? 'DEVUELTO' : 'TURNADO',
         fecha_cambio:    t.creado_en,
         usuario_nombre:  t.usuario_nombre,
         detalle:         `${t.origen ?? 'Sin área'} → ${t.destino}: ${t.motivo}`,
@@ -1789,6 +2173,17 @@ export async function aprobarVobo(
       throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede dar el VoBo hasta que todas las áreas respondan.', 409);
     }
 
+    // SIGER implica que una delegación tiene que atenderlo.
+    if (await sigerSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado en SIGER, así que debe delegarse a una delegación antes de cerrarse.', 409);
+    }
+    if (await freSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio tiene marcada la incorporación de FRE, así que debe delegarse a la Dirección de Informática antes de cerrarse.', 409);
+    }
+    if (await testamentoSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado como testamento, así que debe delegarse a alguna delegación antes de cerrarse.', 409);
+    }
+
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
 
@@ -1872,6 +2267,17 @@ export async function finalizarOficio(
     // antes de tocar el archivo para no guardar nada que luego se rechace.
     if (await tieneDelegatoriosPendientes(oficio_id)) {
       throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede finalizar hasta que todas las áreas respondan.', 409);
+    }
+
+    // SIGER implica que una delegación tiene que atenderlo.
+    if (await sigerSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado en SIGER, así que debe delegarse a una delegación antes de cerrarse.', 409);
+    }
+    if (await freSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio tiene marcada la incorporación de FRE, así que debe delegarse a la Dirección de Informática antes de cerrarse.', 409);
+    }
+    if (await testamentoSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado como testamento, así que debe delegarse a alguna delegación antes de cerrarse.', 409);
     }
 
     if (!req.file) {

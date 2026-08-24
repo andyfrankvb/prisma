@@ -20,10 +20,22 @@ import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
 import { storage }  from '../../services/storage.service';
 import { notifyDelegatorio } from '../../notifications/notification.dispatcher';
+import { esDeJuridica, unidadInformatica } from './oficios.controller';
+import { diasHabilesEntre } from '../../utils/dias-habiles';
 import { logger }   from '../../utils/logger';
 
+/** Una fecha —venga como Date o como texto— al inicio de su día. */
+function aMedianoche(valor: Date | string): Date {
+  const d = valor instanceof Date ? new Date(valor.getTime()) : new Date(`${String(valor).slice(0, 10)}T00:00:00`);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 /** Estados por los que pasa un delegatorio. */
-type EstadoDelegatorio = 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO';
+type EstadoDelegatorio =
+  | 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO'
+  /** El área lo regresó por no ser de su competencia. */
+  | 'RECHAZADO';
 
 /** Un delegatorio deja de bloquear cuando queda CONTESTADO. */
 const ABIERTOS: EstadoDelegatorio[] = ['PENDIENTE', 'ASIGNADO', 'EN_REVISION'];
@@ -138,7 +150,7 @@ export async function listarDelegatorios(
       .where('d.oficio_id', oficioId)
       .select(
         'd.id', 'd.estado', 'd.descripcion', 'd.documento_url', 'd.observacion',
-        'd.creado_en', 'd.respondido_en', 'd.unidad_destino_id',
+        'd.creado_en', 'd.respondido_en', 'd.unidad_destino_id', 'd.fecha_vencimiento',
         'cu.nombre as area',
         'sol.nombre as solicitado_por',
         'asig.nombre as asignado_a',
@@ -146,8 +158,26 @@ export async function listarDelegatorios(
       )
       .orderBy('cu.nombre', 'asc');
 
+    // Cuánto lleva cada área y si ya se pasó de su plazo. Se cuenta hasta que
+    // contestó; después de eso el reloj deja de correr.
+    const hoy = new Date();
+    const conPlazo = filas.map((f: any) => {
+      const corte = f.respondido_en ? new Date(f.respondido_en) : hoy;
+      const dias_transcurridos = diasHabilesEntre(new Date(f.creado_en), corte);
+      let dias_restantes: number | null = null;
+      let vencido = false;
+      if (f.fecha_vencimiento) {
+        // La columna DATE llega como Date desde el driver, no como texto.
+        const limite = aMedianoche(f.fecha_vencimiento);
+        const referencia = aMedianoche(corte);
+        dias_restantes = diasHabilesEntre(referencia, limite);
+        vencido = referencia > limite;
+      }
+      return { ...f, dias_transcurridos, dias_restantes, vencido };
+    });
+
     res.json({
-      data: filas,
+      data: conPlazo,
       meta: { pendientes: filas.filter((f: any) => ABIERTOS.includes(f.estado)).length },
     });
   } catch (err) { next(err); }
@@ -166,7 +196,14 @@ export async function crearDelegatorios(
       throw new AppError('Solo el encargado de la Dirección General o el jurídico asignado pueden delegar este oficio', 403);
     }
 
-    const descripcion = String(req.body?.descripcion ?? '').trim();
+    const descripcion = String(req.body?.descripcion ?? '').trim().toUpperCase();
+    // Si el oficio es de testamentos, los delegatorios a delegaciones heredan
+    // el plazo ya fijado al marcarlo. No hay nada que capturar.
+    const datosOficio = await db('oficios').where({ id: oficioId })
+      .select('testamento', 'testamento_vence_delegaciones').first();
+    const venceTestamento = datosOficio?.testamento
+      ? datosOficio.testamento_vence_delegaciones ?? null
+      : null;
     const unidades: number[] = Array.isArray(req.body?.unidades)
       ? req.body.unidades.map(Number).filter(Boolean)
       : [];
@@ -185,24 +222,55 @@ export async function crearDelegatorios(
       throw new AppError('Alguna de las áreas seleccionadas no es un destino válido', 422);
     }
 
-    // Áreas a las que ya se delegó este oficio: no se duplican.
+    // Áreas a las que ya se delegó este oficio: no se duplican. Las que lo
+    // rechazaron sí se pueden volver a intentar, por si el rechazo fue un error.
     const yaDelegadas = await db('oficio_delegatorios')
       .where('oficio_id', oficioId)
       .whereIn('unidad_destino_id', validas)
+      .whereNot('estado', 'RECHAZADO')
+      .pluck('unidad_destino_id');
+    const rechazadas = await db('oficio_delegatorios')
+      .where('oficio_id', oficioId)
+      .whereIn('unidad_destino_id', validas)
+      .andWhere('estado', 'RECHAZADO')
       .pluck('unidad_destino_id');
     const nuevas = validas.filter((u: number) => !yaDelegadas.includes(u));
     if (!nuevas.length) {
       throw new AppError('Ese oficio ya fue delegado a las áreas seleccionadas', 409);
     }
 
+    // Solo las delegaciones llevan el plazo del testamento.
+    const tiposDestino = new Map<number, string>(
+      (await db('catalogo_unidades').whereIn('id', nuevas).select('id', 'tipo'))
+        .map((u: any) => [u.id, u.tipo]),
+    );
+    const plazoDe = (unidadId: number) =>
+      (venceTestamento && tiposDestino.get(unidadId) === 'DELEGACION') ? venceTestamento : null;
+
     await db.transaction(async (trx) => {
       for (const unidadId of nuevas) {
+        // Reintento sobre un rechazo previo: se reabre el mismo registro.
+        if (rechazadas.includes(unidadId)) {
+          const [fila] = await trx('oficio_delegatorios')
+            .where({ oficio_id: oficioId, unidad_destino_id: unidadId })
+            .update({
+              descripcion, estado: 'PENDIENTE', solicitado_por_id: user.id,
+              asignado_a_id: null, documento_url: null, observacion: null,
+              respondido_por_id: null, actualizado_en: new Date(),
+              fecha_vencimiento: plazoDe(unidadId),
+            })
+            .returning('id');
+          await registrarComentario(trx, Number(fila.id ?? fila), user.id,
+            `Delegatorio reenviado: ${descripcion}`, 'RECHAZADO');
+          continue;
+        }
         const [fila] = await trx('oficio_delegatorios').insert({
           oficio_id:         oficioId,
           unidad_destino_id: unidadId,
           solicitado_por_id: user.id,
           descripcion,
           estado:            'PENDIENTE',
+          fecha_vencimiento: plazoDe(unidadId),
           creado_en:         new Date(),
           actualizado_en:    new Date(),
         }).returning('id');
@@ -326,7 +394,7 @@ export async function responderDelegatorio(
       throw new AppError('Este delegatorio no está en una etapa donde se pueda responder', 422);
     }
 
-    const observacion = String(req.body?.observacion ?? '').trim();
+    const observacion = String(req.body?.observacion ?? '').trim().toUpperCase();
     if (!observacion) throw new AppError('La justificación es obligatoria', 422);
     if (!req.file && !d.documento_url) throw new AppError('Adjunta el documento de respuesta', 422);
 
@@ -370,7 +438,7 @@ export async function devolverDelegatorio(
     const id   = parseInt(req.params.id, 10);
     const d    = await getDelegatorioOrFail(id);
 
-    const comentario = String(req.body?.comentario ?? '').trim();
+    const comentario = String(req.body?.comentario ?? '').trim().toUpperCase();
     if (!comentario) throw new AppError('Indica qué debe corregirse', 422);
 
     const unidades = await unidadesDelEncargado(user.id);
@@ -444,6 +512,52 @@ export async function aprobarDelegatorio(
   } catch (err) { next(err); }
 }
 
+// ── PATCH /delegatorios/:id/rechazar ─────────────────────────
+/**
+ * El área destino regresa el delegatorio a quien lo detonó, porque el asunto no
+ * le compete. Convive con responder: si el área sí puede atenderlo, sube su
+ * documento y su observación como siempre; si no, lo rechaza justificando.
+ *
+ * Un delegatorio rechazado deja de contar como pendiente, así que ya no bloquea
+ * el visto bueno ni la firma del oficio.
+ */
+export async function rechazarDelegatorio(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const user = req.user!;
+    const id   = parseInt(req.params.id, 10);
+    const d    = await getDelegatorioOrFail(id);
+
+    const motivo = String(req.body?.motivo ?? '').trim().toUpperCase();
+    if (!motivo) throw new AppError('Indica por qué no le compete a tu área', 422);
+
+    // Solo el encargado del área destino: rechazar habla por toda el área, no
+    // por la persona a quien se le haya asignado.
+    const unidades = await unidadesDelEncargado(user.id);
+    if (!unidades.includes(d.unidad_destino_id)) {
+      throw new AppError('Solo el encargado del área destino puede rechazar el delegatorio', 403);
+    }
+    if (d.estado === 'RECHAZADO')  throw new AppError('Este delegatorio ya fue rechazado', 422);
+    if (d.estado === 'CONTESTADO') throw new AppError('Este delegatorio ya fue contestado', 422);
+
+    await db.transaction(async (trx) => {
+      await trx('oficio_delegatorios').where({ id }).update({
+        estado: 'RECHAZADO', actualizado_en: new Date(),
+      });
+      await registrarComentario(trx, id, user.id, `Rechazado: ${motivo}`, d.estado);
+    });
+
+    const ctx = await contextoDelegatorio(d.oficio_id, d.unidad_destino_id);
+    avisar({
+      event: 'DELEGATORIO_DEVUELTO', usuarioIds: [d.solicitado_por_id],
+      oficio_id: d.oficio_id, nota: `No compete a ${ctx.area ?? 'esa área'}: ${motivo}`, ...ctx,
+    });
+
+    res.json({ message: 'Delegatorio rechazado y regresado a quien lo solicitó' });
+  } catch (err) { next(err); }
+}
+
 // ── GET /delegatorios/:id/historial ──────────────────────────
 export async function historialDelegatorio(
   req: Request, res: Response, next: NextFunction,
@@ -462,15 +576,35 @@ export async function historialDelegatorio(
 // ── GET /delegatorios/areas-destino ──────────────────────────
 // Delegaciones y direcciones de área. La Dirección General no aparece.
 export async function areasDestino(
-  _req: Request, res: Response, next: NextFunction,
+  req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
+    // La Dirección Jurídica —su encargado y sus abogados— delega hacia las
+    // delegaciones, no hacia las otras direcciones de área.
+    const esJuridica = await esDeJuridica(req.user);
+    const tipos = esJuridica ? ['DELEGACION'] : ['DELEGACION', 'DIRECCION'];
+
     const areas = await db('catalogo_unidades')
-      .whereIn('tipo', ['DELEGACION', 'DIRECCION'])
+      .whereIn('tipo', tipos)
       .andWhere('activo', true)
       .select('id', 'nombre', 'tipo')
       .orderBy('tipo', 'asc')
       .orderBy('nombre', 'asc');
+
+    // Excepción: si el oficio tiene marcada la incorporación de FRE, tiene que
+    // poder delegarse a Informática aunque quien pregunta sea de Jurídica —de
+    // otro modo la regla del FRE sería imposible de cumplir.
+    const oficioId = Number(req.query.oficio_id) || 0;
+    if (esJuridica && oficioId) {
+      const oficio = await db('oficios').where({ id: oficioId }).select('fre_incorporado').first();
+      if (oficio?.fre_incorporado) {
+        const informatica = await unidadInformatica();
+        if (informatica && !areas.some((a: any) => a.id === informatica.id)) {
+          areas.push({ ...informatica, tipo: 'DIRECCION' });
+        }
+      }
+    }
+
     res.json({ data: areas });
   } catch (err) { next(err); }
 }

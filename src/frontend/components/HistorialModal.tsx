@@ -22,6 +22,7 @@ const ESTATUS_LABEL: Record<string, string> = {
   FINALIZADO:         'Solicitud finalizada',
   DELEGATORIO:        'Delegatorio',
   TURNADO:            'Turnado a otra área',
+  DEVUELTO:           'Devuelto por competencia',
 };
 
 const ETAPA: Record<string, string> = {
@@ -33,6 +34,7 @@ const ETAPA: Record<string, string> = {
   FINALIZADO:         'Entrega',
   DELEGATORIO:        'Delegatorio',
   TURNADO:            'Cambio de área',
+  DEVUELTO:           'Cambio de área',
 };
 
 const EVENTOS: Record<string, string> = {

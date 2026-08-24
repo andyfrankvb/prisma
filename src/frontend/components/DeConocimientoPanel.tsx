@@ -14,6 +14,7 @@ import React, { useState } from 'react';
 import { theme }                 from '../theme';
 import { marcarDeConocimiento }  from '../api';
 import type { Oficio }           from '../types';
+import { useDialogo }            from '../context/DialogoContext';
 
 export const DeConocimientoPanel: React.FC<{
   oficio: Oficio;
@@ -21,16 +22,25 @@ export const DeConocimientoPanel: React.FC<{
 }> = ({ oficio, onDone }) => {
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState<string | null>(null);
+  const dialogo = useDialogo();
 
   if (!oficio.puede_de_conocimiento) return null;
 
   const marcado = !!oficio.de_conocimiento;
 
   const cambiar = async () => {
-    const aviso = marcado
-      ? '¿Quitar la marca de conocimiento? El oficio regresará al punto del flujo en el que estaba.'
-      : 'Al marcarlo de conocimiento el oficio queda cerrado, sin proyecto de contestación ni firma. ¿Continuar?';
-    if (!window.confirm(aviso)) return;
+    const sigue = await dialogo.confirmar(marcado
+      ? {
+          titulo:  'Quitar la marca de conocimiento',
+          mensaje: 'El oficio regresará al punto del flujo en el que estaba.',
+          confirmar: 'Quitar',
+        }
+      : {
+          titulo:  'Marcar de conocimiento',
+          mensaje: 'El oficio queda cerrado, sin proyecto de contestación ni firma.',
+          confirmar: 'Marcar y cerrar',
+        });
+    if (!sigue) return;
 
     setSaving(true); setError(null);
     try {

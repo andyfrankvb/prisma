@@ -438,6 +438,51 @@ export async function turnarOficio(id: number, unidad_destino_id: number, motivo
   return handleResponse<{ message: string }>(res);
 }
 
+/** El área regresa el oficio a quien se lo turnó, por no ser de su competencia. */
+export async function devolverTurno(id: number, motivo: string) {
+  const res = await fetch(`${BASE}/oficios/${id}/turnar/devolver`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** El área regresa un delegatorio a quien lo detonó, por no ser de su competencia. */
+export async function rechazarDelegatorio(id: number, motivo: string) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/rechazar`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/**
+ * Inicia la búsqueda de testamentos: marca el oficio, fija los plazos y devuelve
+ * cuántos días hábiles tienen las delegaciones para contestar.
+ */
+export async function marcarTestamento(id: number) {
+  const res = await fetch(`${BASE}/oficios/${id}/testamento`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ testamento: true }),
+  });
+  return handleResponse<{ message: string; data: {
+    testamento_vence_delegaciones: string;
+    testamento_vence_encargado: string;
+  } }>(res);
+}
+
+export async function quitarTestamento(id: number) {
+  const res = await fetch(`${BASE}/oficios/${id}/testamento`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ testamento: false }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 /** Marca o desmarca un oficio como «de conocimiento» (lo cierra o lo regresa al flujo). */
 export async function marcarDeConocimiento(id: number, marcar: boolean) {
   const res = await fetch(`${BASE}/oficios/${id}/de-conocimiento`, {
@@ -451,6 +496,7 @@ export async function marcarDeConocimiento(id: number, marcar: boolean) {
 export async function actualizarSistemas(id: number, datos: {
   siqroo_aplica: boolean;  siqroo_control_interno?: string;
   siger_aplica:  boolean;  siger_control_interno?:  string;
+  fre_incorporado?: boolean;
 }) {
   const res = await fetch(`${BASE}/oficios/${id}/sistemas`, {
     method:  'PATCH',
@@ -485,6 +531,16 @@ export async function getCandidatosAsignacion(): Promise<Abogado[]> {
   const res = await fetch(`${BASE}/oficios/candidatos-asignacion`, {
     headers: authHeaders(),
   });
+  return handleResponse<{ data: Abogado[] }>(res).then((r) => r.data);
+}
+
+/**
+ * A quién se puede dirigir un oficio al registrarlo. El servidor acota la lista
+ * según el área de quien pregunta: desde una delegación, solo su propio titular
+ * y la Dirección General.
+ */
+export async function getDestinatarios(): Promise<Abogado[]> {
+  const res = await fetch(`${BASE}/oficios/destinatarios`, { headers: authHeaders() });
   return handleResponse<{ data: Abogado[] }>(res).then((r) => r.data);
 }
 
@@ -557,12 +613,15 @@ export async function adminListarUsuarios(params?: {
   oficina_id?: number;
   activo?:    boolean;
   search?:    string;
+  /** Clave del módulo que debe tener habilitado. */
+  modulo?:    string;
 }) {
   const qs = new URLSearchParams();
   if (params?.page)       qs.set('page',       String(params.page));
   if (params?.limit)      qs.set('limit',      String(params.limit));
   if (params?.rol)        qs.set('rol',        params.rol);
   if (params?.oficina_id) qs.set('oficina_id', String(params.oficina_id));
+  if (params?.modulo)     qs.set('modulo',     params.modulo);
   if (params?.activo !== undefined) qs.set('activo', String(params.activo));
   if (params?.search)     qs.set('search',     params.search);
 
@@ -698,6 +757,11 @@ export async function quitarArchivoRecurso(slot: number) {
 export type EstadoDelegatorio = 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO';
 
 export interface Delegatorio {
+  /** Plazo del área, cuando lo tiene (búsqueda de testamentos). */
+  fecha_vencimiento?:   string | null;
+  dias_transcurridos?:  number;
+  dias_restantes?:      number | null;
+  vencido?:             boolean;
   id:              number;
   estado:          EstadoDelegatorio;
   descripcion:     string;
@@ -719,8 +783,9 @@ export async function getDelegatorios(oficioId: number) {
 }
 
 /** Áreas a las que se puede delegar (delegaciones y direcciones; la DG no). */
-export async function getAreasDestino() {
-  const res = await fetch(`${BASE}/delegatorios/areas-destino`, { headers: authHeaders() });
+export async function getAreasDestino(oficioId?: number) {
+  const qs = oficioId ? `?oficio_id=${oficioId}` : '';
+  const res = await fetch(`${BASE}/delegatorios/areas-destino${qs}`, { headers: authHeaders() });
   return handleResponse<{ data: { id: number; nombre: string; tipo: string }[] }>(res);
 }
 

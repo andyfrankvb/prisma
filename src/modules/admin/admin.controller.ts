@@ -35,7 +35,7 @@ export async function listarUsuariosAdmin(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { rol, oficina_id, search, activo } = req.query;
+    const { rol, oficina_id, search, activo, modulo } = req.query;
 
     const page  = Math.max(1, parseInt(String(req.query.page  ?? 1), 10));
     const limit = Math.min(100, parseInt(String(req.query.limit ?? 20), 10));
@@ -62,6 +62,17 @@ export async function listarUsuariosAdmin(
       query = query.where((q) =>
         q.whereILike('u.nombre', term).orWhereILike('u.email', term),
       );
+    }
+    // Filtrar por el módulo que tienen habilitado: es la forma de ver de un
+    // vistazo quién trabaja cada tipo de información.
+    if (modulo) {
+      query = query.whereExists(function () {
+        this.select('*')
+          .from('usuario_modulos as um')
+          .join('modulos as m', 'm.id', 'um.modulo_id')
+          .whereRaw('um.usuario_id = u.id')
+          .andWhere('m.clave', String(modulo));
+      });
     }
 
     const countRows = await query.clone().clearSelect().count('u.id as count');
@@ -744,6 +755,7 @@ export async function listarDelegacionesVobo(
         'cu.nombre',
         'cu.tipo',            // define la etiqueta del titular: Delegado o Director
         'cu.vobo_por',
+        'cu.recibe_direcciones_area',
         'd.nombre as delegado_nombre',
         'e.nombre as encargado_nombre',
       )
@@ -763,19 +775,38 @@ export async function actualizarDelegacionVobo(
 ): Promise<void> {
   try {
     const unidadId = parseInt(req.params.unidadId, 10);
-    const vobo_por = String(req.body?.vobo_por ?? '').toUpperCase();
-    if (!['DELEGADO', 'ENCARGADO'].includes(vobo_por)) {
-      throw new AppError('vobo_por debe ser DELEGADO o ENCARGADO', 422);
-    }
+
     // Solo las unidades con flujo propio (delegaciones y direcciones de área) tienen
-    // VoBo configurable; la Dirección General queda fuera a propósito.
+    // esta configuración; la Dirección General queda fuera a propósito.
     const unidad = await db('catalogo_unidades')
       .where({ id: unidadId })
       .whereIn('tipo', ['DELEGACION', 'DIRECCION'])
       .first();
-    if (!unidad) throw new AppError('Unidad no encontrada o sin VoBo configurable', 404);
-    await db('catalogo_unidades').where({ id: unidadId }).update({ vobo_por });
-    res.json({ message: 'Configuración de VoBo actualizada', data: { id: unidadId, vobo_por } });
+    if (!unidad) throw new AppError('Unidad no encontrada o sin configuración propia', 404);
+
+    const cambios: Record<string, unknown> = {};
+
+    if (req.body?.vobo_por !== undefined) {
+      const vobo_por = String(req.body.vobo_por).toUpperCase();
+      if (!['DELEGADO', 'ENCARGADO'].includes(vobo_por)) {
+        throw new AppError('vobo_por debe ser DELEGADO o ENCARGADO', 422);
+      }
+      cambios.vobo_por = vobo_por;
+    }
+
+    // A qué áreas puede dirigir oficios esta delegación al registrarlos.
+    if (req.body?.recibe_direcciones_area !== undefined) {
+      if (unidad.tipo !== 'DELEGACION') {
+        throw new AppError('Esta opción solo aplica a delegaciones', 422);
+      }
+      cambios.recibe_direcciones_area =
+        req.body.recibe_direcciones_area === true || req.body.recibe_direcciones_area === 'true';
+    }
+
+    if (!Object.keys(cambios).length) throw new AppError('No hay cambios que aplicar', 422);
+
+    await db('catalogo_unidades').where({ id: unidadId }).update(cambios);
+    res.json({ message: 'Configuración actualizada', data: { id: unidadId, ...cambios } });
   } catch (err) {
     next(err);
   }

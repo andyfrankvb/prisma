@@ -18,6 +18,7 @@ import {
 } from '../api';
 import type { UsuarioAdmin, OficinaAdmin } from '../api';
 import type { RolUsuario } from '../types';
+import { useDialogo } from '../context/DialogoContext';
 
 const LIMIT = 20;
 
@@ -64,6 +65,7 @@ export const AdminUsuarios: React.FC = () => {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [oficinas, setOficinas] = useState<OficinaAdmin[]>([]);
+  const dialogo = useDialogo();
 
   const [showCreate,  setShowCreate]  = useState(false);
   const [createForm,  setCreateForm]  = useState(FORM_EMPTY);
@@ -160,7 +162,13 @@ export const AdminUsuarios: React.FC = () => {
   // ── Toggle activo ─────────────────────────────────────────
   const handleToggle = async (u: UsuarioAdmin) => {
     const accion = u.activo ? 'deshabilitar' : 'habilitar';
-    if (!confirm(`¿${accion.charAt(0).toUpperCase() + accion.slice(1)} a ${u.nombre}?`)) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    `${accion.charAt(0).toUpperCase() + accion.slice(1)} usuario`,
+      mensaje:   `Se va a ${accion} a ${u.nombre}.`,
+      confirmar: accion.charAt(0).toUpperCase() + accion.slice(1),
+      peligro:   accion.toLowerCase().includes('desactiv'),
+    });
+    if (!sigue) return;
     try {
       const { message } = await adminToggleActivo(u.id);
       setActionMsg(message);

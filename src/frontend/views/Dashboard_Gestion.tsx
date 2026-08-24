@@ -17,9 +17,9 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
-import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
-import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
-import { TurnarPanel } from '../components/TurnarPanel';
+import { SistemasChips } from '../components/SistemasPanel';
+import { AccionesOficio } from '../components/AccionesOficio';
+import { useDialogo } from '../context/DialogoContext';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import {
@@ -42,7 +42,6 @@ import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { OficiosResumen } from '../components/OficiosResumen';
 import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
-import { DelegatoriosPanel } from '../components/DelegatoriosPanel';
 import { ESTATUS_META } from '../components/oficiosEstatus';
 
 const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
@@ -54,6 +53,7 @@ export const Dashboard_Gestion: React.FC = () => {
 
   // Verificar si el usuario es el ENCARGADO configurado en flujos
   const [esEncargado, setEsEncargado] = useState(rol === 'ENCARGADO');
+  const dialogo = useDialogo();
 
   useEffect(() => {
     if (rol === 'ENCARGADO') { setEsEncargado(true); return; }
@@ -152,6 +152,16 @@ export const Dashboard_Gestion: React.FC = () => {
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
+  // Si el detalle está abierto, se mantiene al día cuando la lista se recarga:
+  // así los cambios hechos desde las acciones se reflejan sin cerrarlo.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev) return prev;
+      const fresco = oficios.find((o) => o.id === prev.id);
+      return fresco ? { ...prev, ...fresco } : prev;
+    });
+  }, [oficios]);
+
   // Load candidatos when assign or reassign modal opens.
   // Usuarios de la unidad del encargado que tienen el módulo de oficios habilitado.
   useEffect(() => {
@@ -201,7 +211,12 @@ export const Dashboard_Gestion: React.FC = () => {
   };
 
   const handleVobo = async (oficio: Oficio) => {
-    if (!confirm(`¿Otorgar VoBo al oficio ${oficio.folio}?`)) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    'Otorgar visto bueno',
+      mensaje:   `Se aprueba el proyecto de contestación del oficio ${oficio.folio} y pasa a firma.`,
+      confirmar: 'Otorgar VoBo',
+    });
+    if (!sigue) return;
     try {
       await aprobarVobo(oficio.id);
       setActionMsg('VoBo otorgado correctamente');
@@ -511,7 +526,7 @@ export const Dashboard_Gestion: React.FC = () => {
                     <td style={tdStyle}>{o.remitente}</td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                     <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
-                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
+                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
                     <td style={tdStyle}>
                       <SistemasChips oficio={o} />
                     </td>
@@ -566,8 +581,9 @@ export const Dashboard_Gestion: React.FC = () => {
                         </>
                       )}
 
-                      {/* Ver el proyecto — el encargado o quien aprueba (para decidir el VoBo) */}
-                      {(esEncargado || o.puede_vobo) && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
+                      {/* Ver el proyecto — el encargado o quien aprueba (para decidir el VoBo).
+                          Un oficio de conocimiento no tiene proyecto: se cerró sin contestación. */}
+                      {!o.de_conocimiento && (esEncargado || o.puede_vobo) && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
                         <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/proyecto`)} style={{ ...btnAction, backgroundColor: '#EFF6FF', color: '#1E40AF' }}>
                           📝 Proyecto
                         </button>
@@ -579,8 +595,8 @@ export const Dashboard_Gestion: React.FC = () => {
                           ✍️ Subir Firmado
                         </button>
                       )}
-                      {/* Ver documento firmado — al finalizar */}
-                      {o.estatus === 'FINALIZADO' && (
+                      {/* Ver documento firmado — al finalizar. Tampoco aplica si es de conocimiento. */}
+                      {o.estatus === 'FINALIZADO' && !o.de_conocimiento && (
                         <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/firmado`)} style={{ ...btnAction, backgroundColor: '#D1FAE5', color: '#065F46' }}>
                           ✍️ Firmado
                         </button>
@@ -615,20 +631,14 @@ export const Dashboard_Gestion: React.FC = () => {
               oficio={selected}
               acciones={
                 <>
-                <DelegatoriosPanel
-                  oficioId={selected.id}
+                <AccionesOficio
+                  oficio={selected}
+                  conDelegatorios
                   puedeDelegar={selected.dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
-                  onCambio={() => fetchOficios()}
+                  onActualizar={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                  onSalio={() => { setSelected(null); fetchOficios(); }}
+                  onRefrescar={() => fetchOficios()}
                 />
-                <SistemasPanel
-                  oficio={selected}
-                  onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-                />
-                <DeConocimientoPanel
-                  oficio={selected}
-                  onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-                />
-                <TurnarPanel oficio={selected} onDone={() => { setSelected(null); fetchOficios(); }} />
                 {selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
                   <div style={{
                     padding: '14px 16px',
@@ -685,7 +695,7 @@ export const Dashboard_Gestion: React.FC = () => {
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Observaciones</label>
-            <textarea style={{ ...inputStyle, width: '100%', height: '80px', resize: 'vertical' }} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Instrucciones adicionales…" />
+            <textarea style={{ ...inputStyle, width: '100%', height: '80px', resize: 'vertical', textTransform: 'uppercase' }} value={observaciones} onChange={(e) => setObservaciones(e.target.value.toUpperCase())} placeholder="INSTRUCCIONES ADICIONALES…" />
           </div>
           {assignError && <div role="alert" style={alertStyle}>{assignError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -748,11 +758,12 @@ export const Dashboard_Gestion: React.FC = () => {
             </label>
             <textarea
               value={reconComentario}
-              onChange={(e) => setReconComentario(e.target.value)}
+              onChange={(e) => setReconComentario(e.target.value.toUpperCase())}
               required
               rows={5}
-              placeholder="Describe qué debe corregir el jurídico en su proyecto de contestación…"
+              placeholder="DESCRIBE QUÉ DEBE CORREGIR EL JURÍDICO EN SU PROYECTO DE CONTESTACIÓN…"
               style={{
+                textTransform: 'uppercase',
                 width: '100%', padding: '10px 12px',
                 border: `1.5px solid ${theme.colors.border}`,
                 borderRadius: theme.radius.sm,
@@ -850,10 +861,10 @@ export const Dashboard_Gestion: React.FC = () => {
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Motivo de reasignación</label>
             <textarea
-              style={{ ...inputStyle, width: '100%', height: '80px', resize: 'vertical' }}
+              style={{ ...inputStyle, width: '100%', height: '80px', resize: 'vertical', textTransform: 'uppercase' }}
               value={reassignMotivo}
-              onChange={(e) => setReassignMotivo(e.target.value)}
-              placeholder="Indica el motivo del cambio de asignación…"
+              onChange={(e) => setReassignMotivo(e.target.value.toUpperCase())}
+              placeholder="INDICA EL MOTIVO DEL CAMBIO DE ASIGNACIÓN…"
             />
           </div>
 

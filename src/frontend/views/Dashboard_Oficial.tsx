@@ -14,14 +14,14 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { SistemasPanel, SistemasChips } from '../components/SistemasPanel';
-import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
-import { TurnarPanel } from '../components/TurnarPanel';
+import { SistemasChips } from '../components/SistemasPanel';
+import { useDialogo } from '../context/DialogoContext';
+import { AccionesOficio } from '../components/AccionesOficio';
 import { SeccionCatalogos } from './SeccionCatalogos';
 import { Modal }        from '../components/Modal';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
-import { getOficios, createOficio, getUsuarios, finalizarOficio,
+import { getOficios, createOficio, getDestinatarios, finalizarOficio,
          getDependencias, crearDependencia, getRemitentes, crearRemitente,
          getUnidadesInternas, crearUnidadInterna,
          getCorreos, crearCorreo, verificarDuplicado, getPermisosCatalogos } from '../api';
@@ -60,6 +60,7 @@ export const Dashboard_Oficial: React.FC = () => {
 
   // ── List state ────────────────────────────────────────────
   const [oficios,   setOficios]   = useState<Oficio[]>([]);
+  const dialogo = useDialogo();
   const [total,     setTotal]     = useState(0);
   const [conteos,   setConteos]   = useState<Record<string, number>>({});
   const [page,      setPage]      = useState(1);
@@ -162,9 +163,7 @@ export const Dashboard_Oficial: React.FC = () => {
   // ── Destinatarios ─────────────────────────────────────────
   const [destinatarios, setDestinatarios] = useState<Abogado[]>([]);
   useEffect(() => {
-    Promise.all([getUsuarios({ rol: 'DIRECTOR' }), getUsuarios({ rol: 'ENCARGADO' })])
-      .then(([dirs, encs]) => setDestinatarios([...dirs, ...encs]))
-      .catch(() => {});
+    getDestinatarios().then(setDestinatarios).catch(() => {});
   }, []);
 
   // ── Fetch ─────────────────────────────────────────────────
@@ -188,6 +187,16 @@ export const Dashboard_Oficial: React.FC = () => {
     finally { setLoading(false); }
   }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino, dirigidoAId]);
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
+
+  // Si el detalle está abierto, se mantiene al día cuando la lista se recarga:
+  // así los cambios hechos desde las acciones se reflejan sin cerrarlo.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev) return prev;
+      const fresco = oficios.find((o) => o.id === prev.id);
+      return fresco ? { ...prev, ...fresco } : prev;
+    });
+  }, [oficios]);
 
   // Polling: mientras el OCR del oficio seleccionado no termine
   // (ocr_procesado === false), refresca cada 4s para que la leyenda
@@ -248,7 +257,7 @@ export const Dashboard_Oficial: React.FC = () => {
     if (existente) {
       seleccionarDependencia(existente.id, existente.nombre);
       setAddDepMode(false); setNuevaDepNombre(''); setCreateError(null);
-      window.alert(`La dependencia «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.`);
+      dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `La dependencia «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.` });
       return;
     }
     try {
@@ -258,7 +267,7 @@ export const Dashboard_Oficial: React.FC = () => {
         [...prev.filter((d) => d.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarDependencia(data.id, data.nombre);
       setAddDepMode(false); setNuevaDepNombre('');
-      if ((resp as any).yaExistia) window.alert(`La dependencia «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
+      if ((resp as any).yaExistia) dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `La dependencia «${data.nombre}» ya existía. Se seleccionó el registro existente.` });
     } catch (err: any) { setCreateError(err.message); }
   };
   const agregarUnidad = async () => {
@@ -268,7 +277,7 @@ export const Dashboard_Oficial: React.FC = () => {
     if (existente) {
       seleccionarUnidad(existente.id, existente.nombre);
       setAddUniMode(false); setNuevaUniNombre(''); setCreateError(null);
-      window.alert(`La sub-unidad «${existente.nombre}» ya existe en esta dependencia. Se seleccionó el registro existente.`);
+      dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `La sub-unidad «${existente.nombre}» ya existe en esta dependencia. Se seleccionó el registro existente.` });
       return;
     }
     try {
@@ -278,7 +287,7 @@ export const Dashboard_Oficial: React.FC = () => {
         [...prev.filter((u) => u.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarUnidad(data.id, data.nombre);
       setAddUniMode(false); setNuevaUniNombre('');
-      if ((resp as any).yaExistia) window.alert(`La sub-unidad «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
+      if ((resp as any).yaExistia) dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `La sub-unidad «${data.nombre}» ya existía. Se seleccionó el registro existente.` });
     } catch (err: any) { setCreateError(err.message); }
   };
   const agregarRemitente = async () => {
@@ -288,7 +297,7 @@ export const Dashboard_Oficial: React.FC = () => {
     if (existente) {
       seleccionarRemitente(existente.id, existente.nombre);
       setAddRemMode(false); setNuevoRemNombre(''); setCreateError(null);
-      window.alert(`El remitente «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.`);
+      dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `El remitente «${existente.nombre}» ya existe en el catálogo. Se seleccionó el registro existente.` });
       return;
     }
     try {
@@ -298,7 +307,7 @@ export const Dashboard_Oficial: React.FC = () => {
         [...prev.filter((r) => r.id !== data.id), data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
       seleccionarRemitente(data.id, data.nombre);
       setAddRemMode(false); setNuevoRemNombre('');
-      if ((resp as any).yaExistia) window.alert(`El remitente «${data.nombre}» ya existía. Se seleccionó el registro existente.`);
+      if ((resp as any).yaExistia) dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `El remitente «${data.nombre}» ya existía. Se seleccionó el registro existente.` });
     } catch (err: any) { setCreateError(err.message); }
   };
 
@@ -335,7 +344,7 @@ export const Dashboard_Oficial: React.FC = () => {
     const existente = lista.find((c) => c.nombre === correo);
     if (existente) {
       usar(existente.nombre); setAddCorMode(null); setNuevoCorreo(''); setCreateError(null);
-      window.alert(`El correo «${existente.nombre}» ya está en el catálogo. Se seleccionó el registro existente.`);
+      dialogo.avisar({ titulo: 'Ya existe en el catálogo', mensaje: `El correo «${existente.nombre}» ya está en el catálogo. Se seleccionó el registro existente.` });
       return;
     }
     try {
@@ -531,7 +540,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     <td style={tdStyle}>
                       <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} />
                     </td>
-                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
+                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
                       {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
                     </td>
@@ -604,15 +613,12 @@ export const Dashboard_Oficial: React.FC = () => {
                   )}
 
                   {/* Registro en SIQROO / SIGER: se marca aquí, no al ingresar */}
-                  <SistemasPanel
+                  <AccionesOficio
                     oficio={selected}
-                    onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                    onActualizar={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+                    onSalio={() => { setSelected(null); fetchOficios(); }}
+                  onRefrescar={() => fetchOficios()}
                   />
-                  <DeConocimientoPanel
-                    oficio={selected}
-                    onDone={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-                  />
-                  <TurnarPanel oficio={selected} onDone={() => { setSelected(null); fetchOficios(); }} />
 
                   {/* El texto extraído por OCR se muestra al abrir el documento "Oficio"
                       desde la tabla de documentos requisitos (visor). */}
@@ -878,18 +884,20 @@ export const Dashboard_Oficial: React.FC = () => {
               </div>
 
               {viaRecepcion === 'CORREO_ELECTRONICO' && (
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '12px' }}>
-                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                <div style={{ display: 'grid', gap: '14px', marginTop: '12px' }}>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
                       Correo de quien envía <span style={{ color: theme.colors.alert.red }}>*</span>
                     </label>
                     {addCorMode === 'origen' ? (
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="email" value={nuevoCorreo} autoFocus
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        <input style={{ ...inputStyle, fontSize: '0.85rem', width: '100%' }} type="email" value={nuevoCorreo} autoFocus
                           onChange={(e) => setNuevoCorreo(e.target.value.toLowerCase())}
                           placeholder="correo@dependencia.gob.mx" />
-                        <button type="button" onClick={() => agregarCorreo('origen')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
-                        <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>✕</button>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>Cancelar</button>
+                          <button type="button" onClick={() => agregarCorreo('origen')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                        </div>
                       </div>
                     ) : (
                       <SearchableSelect
@@ -902,17 +910,19 @@ export const Dashboard_Oficial: React.FC = () => {
                       />
                     )}
                   </div>
-                  <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
                       Correo que lo recibió <span style={{ color: theme.colors.alert.red }}>*</span>
                     </label>
                     {addCorMode === 'destino' ? (
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="email" value={nuevoCorreo} autoFocus
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        <input style={{ ...inputStyle, fontSize: '0.85rem', width: '100%' }} type="email" value={nuevoCorreo} autoFocus
                           onChange={(e) => setNuevoCorreo(e.target.value.toLowerCase())}
                           placeholder="cuenta@rppc.qroo.gob.mx" />
-                        <button type="button" onClick={() => agregarCorreo('destino')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
-                        <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>✕</button>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button type="button" onClick={() => { setAddCorMode(null); setNuevoCorreo(''); }} style={btnSecondary}>Cancelar</button>
+                          <button type="button" onClick={() => agregarCorreo('destino')} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
+                        </div>
                       </div>
                     ) : (
                       <SearchableSelect
@@ -938,7 +948,7 @@ export const Dashboard_Oficial: React.FC = () => {
               />
             </Field>
             <Field label="Asunto" required>
-              <textarea style={{ ...inputStyle, height: '90px', resize: 'vertical' }} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} required />
+              <textarea style={{ ...inputStyle, height: '90px', resize: 'vertical', textTransform: 'uppercase' }} value={descripcion} onChange={(e) => setDescripcion(e.target.value.toUpperCase())} required />
             </Field>
 
 

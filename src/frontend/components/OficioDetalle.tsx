@@ -205,7 +205,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
               <Campo label="Correo que recibió"    value={oficio.correo_destino || '—'} />
             </>
           )}
-          <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} />} />
+          <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />} />
           <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} />} />
         </div>
       </Seccion>
@@ -363,10 +363,11 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
       <Seccion titulo="Detalle de la solicitud">
         <div style={gridCampos}>
           <Campo label="Fecha y hora de ingreso"   value={fmtFecha(oficio.fecha_registro)} />
-          <Campo label="Estatus de la solicitud"   value={<StatusBadge estatus={oficio.estatus as EstatusOficio} />} />
+          <Campo label="Estatus de la solicitud"   value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />} />
           <Campo label="Delegación de gestión"     value={oficio.delegacion_nombre} />
           <Campo label="SIQROO" value={sistemaTexto(oficio.siqroo_aplica, oficio.siqroo_control_interno)} />
-          <Campo label="SIGER"  value={sistemaTexto(oficio.siger_aplica,  oficio.siger_control_interno)} />
+          <Campo label="SIGER"  value={oficio.siger_aplica ? 'Ingresada' : 'No aplica'} />
+          <Campo label="Incorporar FRE" value={oficio.fre_incorporado ? 'Incorporado' : 'No aplica'} />
           {oficio.de_conocimiento && (
             <Campo label="Cierre" value={
               <span style={{ fontSize: '0.7rem', fontWeight: 700, backgroundColor: '#E0F2FE', color: '#075985', padding: '2px 9px', borderRadius: '10px' }}>

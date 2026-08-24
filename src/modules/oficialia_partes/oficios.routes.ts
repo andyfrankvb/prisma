@@ -25,9 +25,12 @@ import {
   finalizarOficio,
   actualizarSistemas,
   marcarDeConocimiento,
+  marcarTestamento,
   verificarDuplicado,
   areasTurno,
+  listarDestinatarios,
   turnarOficio,
+  devolverTurno,
   getCandidatosAsignacion,
   OFICIO_DOC_FIELDS,
 } from './oficios.controller';
@@ -62,6 +65,7 @@ import {
   responderDelegatorio,
   devolverDelegatorio,
   aprobarDelegatorio,
+  rechazarDelegatorio,
   historialDelegatorio,
   areasDestino,
 } from './delegatorios.controller';
@@ -160,11 +164,20 @@ router.post('/oficios/:id/finalizar', upload.single('file'), finalizarOficio);
 /** PATCH /oficios/:id/sistemas — marcar SIQROO/SIGER y capturar sus NCI */
 router.patch('/oficios/:id/sistemas', uploadOficio.single('boleta'), actualizarSistemas);
 
+/** GET /oficios/destinatarios — a quién se puede dirigir un oficio al registrarlo */
+router.get('/oficios/destinatarios', listarDestinatarios);
+
 /** GET /oficios/areas-turno — áreas a las que se puede turnar un oficio */
 router.get('/oficios/areas-turno', areasTurno);
 
 /** PATCH /oficios/:id/turnar — el oficio cambia de área y reinicia su flujo ahí */
 router.patch('/oficios/:id/turnar', turnarOficio);
+
+/** PATCH /oficios/:id/turnar/devolver — regresarlo a quien lo turnó, por no competerle */
+router.patch('/oficios/:id/turnar/devolver', devolverTurno);
+
+/** PATCH /oficios/:id/testamento — iniciar la búsqueda de testamentos y sus plazos */
+router.patch('/oficios/:id/testamento', marcarTestamento);
 
 /** PATCH /oficios/:id/de-conocimiento — cerrar (o reabrir) un oficio informativo */
 router.patch('/oficios/:id/de-conocimiento', marcarDeConocimiento);
@@ -172,6 +185,8 @@ router.patch('/oficios/:id/de-conocimiento', marcarDeConocimiento);
 // ── Delegatorios: la DG turna parte de un oficio a otra área ──
 router.get  ('/delegatorios/bandeja',        bandejaDelegatorios);
 router.get  ('/delegatorios/areas-destino',  areasDestino);
+/** PATCH /delegatorios/:id/rechazar — el área lo regresa por no ser de su competencia */
+router.patch('/delegatorios/:id/rechazar',  rechazarDelegatorio);
 router.get  ('/delegatorios/:id/historial',  historialDelegatorio);
 router.patch('/delegatorios/:id/asignar',    asignarDelegatorio);
 router.post ('/delegatorios/:id/responder',  uploadOficio.single('documento'), responderDelegatorio);

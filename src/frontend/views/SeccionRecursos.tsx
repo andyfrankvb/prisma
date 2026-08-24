@@ -11,6 +11,7 @@ import {
   quitarArchivoRecurso, urlArchivoRecurso,
 } from '../api';
 import type { RecursoConfig, TipoRecurso } from '../api';
+import { useDialogo } from '../context/DialogoContext';
 
 const VACIO: RecursoConfig = {
   titulo: '', tipo: 'enlace', habilitado: false, url: '', tieneArchivo: false, visible: false,
@@ -18,6 +19,7 @@ const VACIO: RecursoConfig = {
 
 export const SeccionRecursos: React.FC = () => {
   const [r1, setR1] = useState<RecursoConfig>(VACIO);
+  const dialogo = useDialogo();
   const [r2, setR2] = useState<RecursoConfig>(VACIO);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +104,13 @@ const Apartado: React.FC<{
   };
 
   const retirar = async () => {
-    if (!confirm('¿Retirar el archivo de este apartado?')) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    'Retirar el archivo',
+      mensaje:   'El apartado quedará sin documento hasta que subas otro.',
+      confirmar: 'Retirar',
+      peligro:   true,
+    });
+    if (!sigue) return;
     try {
       await quitarArchivoRecurso(n);
       set({ tieneArchivo: false });

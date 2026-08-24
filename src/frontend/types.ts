@@ -59,6 +59,28 @@ export interface Oficio {
   puede_de_conocimiento?:   boolean;
   /** El encargado del área que lo tiene puede turnarlo a otra. Lo calcula el servidor. */
   puede_turnar?:            boolean;
+  /** Llegó por un turno, así que se puede regresar a quien lo mandó. */
+  puede_devolver_turno?:    boolean;
+  /** Cuántos turnos trajeron este oficio al área que lo tiene hoy. */
+  turnos_recibidos?:        number;
+  /** Delegatorios de este oficio que ninguna área ha contestado todavía. */
+  delegatorios_pendientes?: number;
+  /** El último turno que lo trajo aquí fue una devolución por competencia. */
+  llego_por_devolucion?:    boolean;
+  /** Marcado en SIGER sin delegatorio a una delegación: no puede cerrarse. */
+  siger_sin_delegatorio?:   boolean;
+  /** El folio real electrónico ya se incorporó a SIQROO. */
+  fre_incorporado?:         boolean;
+  fre_incorporado_en?:      string | null;
+  /** FRE marcado sin delegatorio a la Dirección de Informática: no puede cerrarse. */
+  fre_sin_delegatorio?:     boolean;
+  /** Búsqueda de testamentos: plazo fijo de 10 días hábiles en dos etapas. */
+  testamento?:              boolean;
+  testamento_en?:           string | null;
+  testamento_vence_delegaciones?: string | null;
+  testamento_vence_encargado?:    string | null;
+  /** Marcado como testamento sin delegatorio a ninguna delegación. */
+  testamento_sin_delegatorio?:    boolean;
   // computed by API
   dias_restantes?:       number | null;
   /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */

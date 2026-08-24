@@ -9,9 +9,7 @@ import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
 import { OficioDetalle } from '../components/OficioDetalle';
-import { SistemasPanel } from '../components/SistemasPanel';
-import { DeConocimientoPanel } from '../components/DeConocimientoPanel';
-import { TurnarPanel } from '../components/TurnarPanel';
+import { AccionesOficio } from '../components/AccionesOficio';
 import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
@@ -19,7 +17,6 @@ import { FiltrosOficios } from '../components/FiltrosOficios';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { OficiosResumen } from '../components/OficiosResumen';
 import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
-import { DelegatoriosPanel } from '../components/DelegatoriosPanel';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion } from '../api';
@@ -86,6 +83,16 @@ export const Dashboard_Juridico: React.FC = () => {
   }, [filtros]);
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
+
+  // Si el detalle está abierto, se mantiene al día cuando la lista se recarga:
+  // así los cambios hechos desde las acciones se reflejan sin cerrarlo.
+  useEffect(() => {
+    setDetalleOficio((prev) => {
+      if (!prev) return prev;
+      const fresco = oficios.find((o) => o.id === prev.id);
+      return fresco ? { ...prev, ...fresco } : prev;
+    });
+  }, [oficios]);
 
   // Abrir detalle. El argumento `tab` se conserva por compatibilidad con las
   // tarjetas del kanban; ahora el detalle es una sola vista por secciones.
@@ -198,7 +205,7 @@ export const Dashboard_Juridico: React.FC = () => {
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', textTransform: 'uppercase' }}>{o.dependencia_origen}</td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                       <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
-                      <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} /></td>
+                      <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
                     </tr>
                 ))
               )}
@@ -219,24 +226,14 @@ export const Dashboard_Juridico: React.FC = () => {
             {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
             <OficioDetalle oficio={detalleOficio} />
 
-            <DelegatoriosPanel
-              oficioId={detalleOficio.id}
+            <AccionesOficio
+              oficio={detalleOficio}
+              conDelegatorios
               puedeDelegar={(detalleOficio as any).dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
-              onCambio={() => fetchOficios()}
+              onActualizar={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
+              onSalio={() => { setDetalleOficio(null); fetchOficios(); }}
+                  onRefrescar={() => fetchOficios()}
             />
-
-            {/* SIQROO — el abogado asignado también puede capturar el NCI pendiente */}
-            <div style={{ marginTop: '18px' }}>
-              <SistemasPanel
-                oficio={detalleOficio}
-                onDone={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-              />
-              <DeConocimientoPanel
-                oficio={detalleOficio}
-                onDone={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-              />
-              <TurnarPanel oficio={detalleOficio} onDone={() => { setDetalleOficio(null); fetchOficios(); }} />
-            </div>
 
             {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}
             {(detalleOficio as any).texto_ocr && (
@@ -443,7 +440,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
         <strong style={{ fontSize: '0.875rem', color: theme.colors.primary }}>{oficio.folio}</strong>
-        <StatusBadge estatus={oficio.estatus as EstatusOficio} />
+        <StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />
       </div>
 
       <p style={{ margin: '0 0 4px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{oficio.remitente}</p>

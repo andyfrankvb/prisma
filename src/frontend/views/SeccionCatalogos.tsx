@@ -18,6 +18,7 @@ import {
 } from '../api';
 import { Modal } from '../components/Modal';
 import type { CatalogoItem, HallazgoCatalogo } from '../api';
+import { useDialogo } from '../context/DialogoContext';
 
 // ── Columna genérica de un nivel ─────────────────────────────
 interface ColumnaProps {
@@ -50,6 +51,7 @@ const Columna: React.FC<ColumnaProps> = ({
   const [editId,   setEditId]   = useState<number | null>(null);
   const [editVal,  setEditVal]  = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const dialogo = useDialogo();
 
   const agregar = async () => {
     const nombre = normEntrada(nuevo.trim());
@@ -57,7 +59,13 @@ const Columna: React.FC<ColumnaProps> = ({
     try { await crear(nombre); setNuevo(''); reload(); } catch (e: any) { onError(e.message); }
   };
   const quitar = async (it: CatalogoItem) => {
-    if (!confirm(`¿Eliminar "${it.nombre}"?`)) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    'Eliminar del catálogo',
+      mensaje:   `«${it.nombre}» dejará de aparecer al capturar oficios. Los oficios ya registrados no se alteran.`,
+      confirmar: 'Eliminar',
+      peligro:   true,
+    });
+    if (!sigue) return;
     try { await eliminar(it.id); reload(); } catch (e: any) { onError(e.message); }
   };
   const guardar = async (it: CatalogoItem) => {
@@ -158,6 +166,7 @@ export const SeccionCatalogos: React.FC = () => {
   const [buscaDest, setBuscaDest] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso]       = useState<string | null>(null);
+  const dialogoSec = useDialogo();
 
   const cerrarMover = () => { setMover(null); setDestino(''); setBuscaDest(''); };
 
@@ -175,7 +184,12 @@ export const SeccionCatalogos: React.FC = () => {
 
   const hacerPromover = async () => {
     if (!mover) return;
-    if (!confirm(`«${mover.item.nombre}» dejará de ser sub-unidad y pasará a ser una dependencia independiente. ¿Continuar?`)) return;
+    const sigue = await dialogoSec.confirmar({
+      titulo:    'Convertir en dependencia',
+      mensaje:   `«${mover.item.nombre}» dejará de ser sub-unidad y pasará a ser una autoridad independiente.`,
+      confirmar: 'Convertir',
+    });
+    if (!sigue) return;
     setGuardando(true);
     try {
       const r = await subunidadADependencia(mover.item.id);

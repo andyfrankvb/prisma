@@ -13,9 +13,10 @@
  */
 import React, { useEffect, useState } from 'react';
 import { theme }                    from '../theme';
-import { getAreasTurno, turnarOficio } from '../api';
+import { getAreasTurno, turnarOficio, devolverTurno } from '../api';
 import type { AreaTurno }           from '../api';
 import type { Oficio }              from '../types';
+import { useDialogo }               from '../context/DialogoContext';
 
 export const TurnarPanel: React.FC<{
   oficio: Oficio;
@@ -27,6 +28,8 @@ export const TurnarPanel: React.FC<{
   const [motivo,  setMotivo]  = useState('');
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+  const [devolviendo, setDevolviendo] = useState(false);
+  const dialogo = useDialogo();
 
   useEffect(() => {
     if (abierto && areas.length === 0) {
@@ -39,12 +42,37 @@ export const TurnarPanel: React.FC<{
 
   if (!oficio.puede_turnar) return null;
 
+  /** Regresarlo a quien lo mandó: solo tiene sentido si llegó por un turno. */
+  const devolver = async () => {
+    const motivo = await dialogo.pedirTexto({
+      titulo:      'Devolver el oficio',
+      mensaje:     'Se regresará a quien te lo turnó y se le informará el motivo.',
+      etiqueta:    '¿Por qué no le compete a tu área?',
+      placeholder: 'ESCRIBE EL MOTIVO…',
+      confirmar:   'Devolver',
+      peligro:     true,
+    });
+    if (!motivo) return;
+    setDevolviendo(true); setError(null);
+    try {
+      await devolverTurno(oficio.id, motivo);
+      onDone?.();
+    } catch (e: any) {
+      setError(e?.message ?? 'No se pudo devolver el oficio');
+    } finally {
+      setDevolviendo(false);
+    }
+  };
+
   const enviar = async () => {
     if (!destino || !motivo.trim()) return;
     const area = areas.find((a) => a.id === destino);
-    if (!window.confirm(
-      `El oficio ${oficio.folio} dejará tu área y pasará a «${area?.nombre}», donde iniciará su trámite. ¿Continuar?`,
-    )) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    'Turnar a otra área',
+      mensaje:   `El oficio ${oficio.folio} dejará tu área y pasará a «${area?.nombre}», donde iniciará su trámite.`,
+      confirmar: 'Turnar',
+    });
+    if (!sigue) return;
 
     setSaving(true); setError(null);
     try {
@@ -70,9 +98,26 @@ export const TurnarPanel: React.FC<{
           </span>
         </div>
         {!abierto && (
-          <button type="button" onClick={() => setAbierto(true)} style={btnSec}>Turnar a otra área</button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {oficio.puede_devolver_turno && (
+              <button
+                type="button"
+                onClick={devolver}
+                disabled={devolviendo}
+                title="Regresarlo a quien te lo turnó, por no ser de tu competencia"
+                style={{ ...btnSec, color: '#B45309', borderColor: '#B45309', opacity: devolviendo ? 0.6 : 1 }}
+              >
+                {devolviendo ? 'Devolviendo…' : 'Devolver a quien lo turnó'}
+              </button>
+            )}
+            <button type="button" onClick={() => setAbierto(true)} style={btnSec}>Turnar a otra área</button>
+          </div>
         )}
       </div>
+
+      {!abierto && error && (
+        <p style={{ margin: '8px 0 0', fontSize: '0.72rem', color: theme.colors.alert.red }}>{error}</p>
+      )}
 
       {abierto && (
         <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
@@ -89,10 +134,10 @@ export const TurnarPanel: React.FC<{
 
           <textarea
             value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
+            onChange={(e) => setMotivo(e.target.value.toUpperCase())}
             rows={2}
-            placeholder="¿Por qué corresponde a esa área?"
-            style={{ ...input, resize: 'vertical' }}
+            placeholder="¿POR QUÉ CORRESPONDE A ESA ÁREA?"
+            style={{ ...input, resize: 'vertical', textTransform: 'uppercase' }}
           />
 
           {error && <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.alert.red }}>{error}</p>}

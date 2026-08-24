@@ -7,6 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { theme } from '../theme';
 import type { UsuarioDisponible } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useDialogo } from '../context/DialogoContext';
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? '/api/v1';
 
@@ -72,6 +73,8 @@ interface DelegacionVobo {
   nombre:           string;
   tipo:             string;          // DELEGACION | DIRECCION — define la etiqueta del titular
   vobo_por:         'DELEGADO' | 'ENCARGADO';
+  /** Delegación que además puede dirigir oficios a las direcciones de área. */
+  recibe_direcciones_area?: boolean;
   delegado_nombre:  string | null;
   encargado_nombre: string | null;
 }
@@ -109,6 +112,7 @@ export const ConfiguracionFlujos: React.FC = () => {
   const isMobile = useIsMobile();
   const [modulos,   setModulos]   = useState<ModuloFlujo[]>([]);
   const [delegaciones, setDelegaciones] = useState<DelegacionVobo[]>([]);
+  const dialogo = useDialogo();
   const [voboSaving,   setVoboSaving]   = useState<number | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
@@ -132,6 +136,26 @@ export const ConfiguracionFlujos: React.FC = () => {
   }, []);
 
   // Cambiar quién da el VoBo en una delegación
+  /** Marca si una delegación puede dirigir oficios a las direcciones de área. */
+  const cambiarDestinos = useCallback(async (unidadId: number, valor: boolean) => {
+    setVoboSaving(unidadId);
+    const previo = delegaciones;
+    setDelegaciones(prev => prev.map(d => d.id === unidadId ? { ...d, recibe_direcciones_area: valor } : d));
+    try {
+      const res = await fetch(`${BASE}/admin/delegaciones-vobo/${unidadId}`, {
+        method:  'PATCH',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ recibe_direcciones_area: valor }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'No se pudo guardar');
+    } catch (e: any) {
+      setDelegaciones(previo);
+      setError(e.message);
+    } finally {
+      setVoboSaving(null);
+    }
+  }, [delegaciones]);
+
   const cambiarVobo = useCallback(async (unidadId: number, vobo_por: 'DELEGADO' | 'ENCARGADO') => {
     setVoboSaving(unidadId);
     // Optimista
@@ -142,7 +166,7 @@ export const ConfiguracionFlujos: React.FC = () => {
         body: JSON.stringify({ vobo_por }),
       });
     } catch (err: any) {
-      alert(err.message);
+      dialogo.avisar({ titulo: 'No se pudo guardar', mensaje: err.message });
       cargarFlujos();
     } finally {
       setVoboSaving(null);
@@ -222,7 +246,13 @@ export const ConfiguracionFlujos: React.FC = () => {
 
   // Eliminar entrada por unidad
   const eliminarEntrada = useCallback(async (moduloClave: string, rolFlujo: string, unidadId: number, usuarioId?: number) => {
-    if (!confirm('¿Eliminar esta configuración?')) return;
+    const sigue = await dialogo.confirmar({
+      titulo:    'Eliminar configuración',
+      mensaje:   'Esta persona dejará de tener ese papel en el flujo del módulo.',
+      confirmar: 'Eliminar',
+      peligro:   true,
+    });
+    if (!sigue) return;
     try {
       // usuario_id es necesario en los roles con varios actores por unidad (OFICIAL),
       // si no se borrarían todos los de esa delegación.
@@ -230,7 +260,7 @@ export const ConfiguracionFlujos: React.FC = () => {
       await apiFetch(`${BASE}/admin/flujos/${moduloClave}/${rolFlujo}/${unidadId}${qs}`, { method: 'DELETE' });
       cargarFlujos();
     } catch (err: any) {
-      alert(err.message);
+      dialogo.avisar({ titulo: 'No se pudo guardar', mensaje: err.message });
     }
   }, [cargarFlujos]);
 
@@ -453,6 +483,7 @@ export const ConfiguracionFlujos: React.FC = () => {
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.primaryDark }}>Visto bueno por área</h3>
             <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
               Elige quién aprueba (VoBo) los oficios en cada área: su titular o el encargado.
+              En las delegaciones, además, a qué áreas pueden dirigir los oficios que registran.
             </p>
           </div>
 
@@ -485,6 +516,25 @@ export const ConfiguracionFlujos: React.FC = () => {
                   );
                 })}
               </div>
+
+              {d.tipo === 'DELEGACION' && (
+                <label
+                  title="Marca esto si a esta delegación le llegan oficios dirigidos a la Jurídica, la Administrativa o la de Innovación (comparte sede con ellas)."
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: theme.colors.textSecondary, cursor: 'pointer', flexBasis: '100%' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!d.recibe_direcciones_area}
+                    disabled={voboSaving === d.id}
+                    onChange={(e) => cambiarDestinos(d.id, e.target.checked)}
+                    style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                  />
+                  También puede dirigir oficios a las direcciones de área
+                  <span style={{ color: theme.colors.grayMid }}>
+                    (sin esto: solo a su delegado y a la Dirección General)
+                  </span>
+                </label>
+              )}
             </div>
           ))}
         </div>

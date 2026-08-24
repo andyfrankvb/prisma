@@ -14,12 +14,14 @@ import {
   getDelegatorios, getAreasDestino, crearDelegatorios, devolverDelegatorio,
 } from '../api';
 import type { Delegatorio } from '../api';
+import { useDialogo }       from '../context/DialogoContext';
 
 const ETIQUETA: Record<string, { texto: string; color: string; fondo: string }> = {
   PENDIENTE:   { texto: 'Pendiente',      color: '#92400E', fondo: '#FEF3C7' },
   ASIGNADO:    { texto: 'En proceso',     color: '#92400E', fondo: '#FEF3C7' },
   EN_REVISION: { texto: 'En revisión',    color: '#1E40AF', fondo: '#DBEAFE' },
   CONTESTADO:  { texto: '✓ Contestado',   color: '#065F46', fondo: '#D1FAE5' },
+  RECHAZADO:   { texto: 'No le compete',  color: '#B45309', fondo: '#FEF3C7' },
 };
 
 export const DelegatoriosPanel: React.FC<{
@@ -38,6 +40,7 @@ export const DelegatoriosPanel: React.FC<{
   const [descripcion, setDescripcion] = useState('');
   const [seleccion, setSeleccion] = useState<number[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const dialogo = useDialogo();
 
   const cargar = useCallback(() => {
     setCargando(true);
@@ -48,12 +51,16 @@ export const DelegatoriosPanel: React.FC<{
   }, [oficioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
   useEffect(() => {
-    if (abierto && areas.length === 0) getAreasDestino().then((r) => setAreas(r.data)).catch(() => {});
-  }, [abierto, areas.length]);
+    if (abierto && areas.length === 0) {
+      getAreasDestino(oficioId).then((r) => setAreas(r.data)).catch(() => {});
+    }
+  }, [abierto, areas.length, oficioId]);
 
   const yaDelegadas = items.map((i) => i.unidad_destino_id);
-  const pendientes  = items.filter((i) => i.estado !== 'CONTESTADO').length;
+  // Un rechazo cierra el delegatorio: deja de contar como pendiente.
+  const pendientes  = items.filter((i) => !['CONTESTADO', 'RECHAZADO'].includes(i.estado)).length;
 
   const enviar = async () => {
     setGuardando(true); setError(null);
@@ -66,10 +73,16 @@ export const DelegatoriosPanel: React.FC<{
   };
 
   const devolver = async (id: number) => {
-    const c = prompt('¿Qué debe corregir el área?');
-    if (!c?.trim()) return;
+    const c = await dialogo.pedirTexto({
+      titulo:      'Devolver a corregir',
+      mensaje:     'El área recibirá tus comentarios y podrá volver a responder.',
+      etiqueta:    '¿Qué debe corregir el área?',
+      placeholder: 'ESCRIBE LO QUE HAY QUE CORREGIR…',
+      confirmar:   'Devolver',
+    });
+    if (!c) return;
     try {
-      await devolverDelegatorio(id, c.trim());
+      await devolverDelegatorio(id, c);
       cargar(); onCambio?.();
     } catch (e: any) { setError(e.message); }
   };
@@ -106,11 +119,14 @@ export const DelegatoriosPanel: React.FC<{
         <div style={{ border: `1px solid ${theme.colors.border}`, borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
           <label style={etiqueta}>¿Qué información se solicita?</label>
           <textarea
-            value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={2}
-            placeholder="Describe lo que necesitas del área…"
-            style={{ ...input, resize: 'vertical' }}
+            value={descripcion} onChange={(e) => setDescripcion(e.target.value.toUpperCase())} rows={2}
+            placeholder="DESCRIBE LO QUE NECESITAS DEL ÁREA…"
+            style={{ ...input, resize: 'vertical', textTransform: 'uppercase' }}
           />
-          <label style={{ ...etiqueta, marginTop: '10px' }}>Áreas destino</label>
+
+          <label style={{ ...etiqueta, marginTop: '10px' }}>
+            Áreas destino
+          </label>
           <div style={{ display: 'grid', gap: '4px', maxHeight: '170px', overflowY: 'auto' }}>
             {areas.map((a) => {
               const ya = yaDelegadas.includes(a.id);
@@ -149,8 +165,25 @@ export const DelegatoriosPanel: React.FC<{
           <div key={d.id} style={fila}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
               <strong style={{ fontSize: '0.82rem', color: theme.colors.textPrimary }}>{d.area}</strong>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: e.color, backgroundColor: e.fondo, padding: '2px 9px', borderRadius: '10px', whiteSpace: 'nowrap' }}>
-                {e.texto}
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                {/* Días que lleva el área. Solo aparece si el delegatorio tiene plazo. */}
+                {d.fecha_vencimiento && (
+                  <span
+                    title={`Vence el ${new Date(`${String(d.fecha_vencimiento).slice(0, 10)}T00:00:00`).toLocaleDateString('es-MX')}`}
+                    style={{
+                      fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap',
+                      backgroundColor: d.vencido ? '#FEE2E2' : '#F3F4F6',
+                      color:           d.vencido ? '#991B1B' : theme.colors.textSecondary,
+                    }}
+                  >
+                    {d.vencido
+                      ? `Vencido · ${d.dias_transcurridos} d`
+                      : `${d.dias_transcurridos} de ${(d.dias_transcurridos ?? 0) + (d.dias_restantes ?? 0)} d`}
+                  </span>
+                )}
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: e.color, backgroundColor: e.fondo, padding: '2px 9px', borderRadius: '10px', whiteSpace: 'nowrap' }}>
+                  {e.texto}
+                </span>
               </span>
             </div>
 
@@ -179,7 +212,9 @@ export const DelegatoriosPanel: React.FC<{
               </div>
             ) : (
               <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-                {d.asignado_a ? `Trabajándolo: ${d.asignado_a}` : 'Esperando que el área lo asigne'}
+                {d.estado === 'RECHAZADO'
+                  ? 'El área lo regresó por no ser de su competencia. Puedes delegarlo a otra.'
+                  : d.asignado_a ? `Trabajándolo: ${d.asignado_a}` : 'Esperando que el área lo asigne'}
               </p>
             )}
           </div>
