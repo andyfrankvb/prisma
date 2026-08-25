@@ -32,7 +32,7 @@ async function resolveDeadlineRecipients(oficio_id: number): Promise<RecipientIn
   const abogados: RecipientInfo[] = await db('asignaciones_juridicas as aj')
     .join('usuarios as u', 'u.id', 'aj.abogado_id')
     .where('aj.oficio_id', oficio_id)
-    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.oficina_id');
+    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.unidad_id as oficina_id');
 
   // Encargado(s) of the registering oficina
   const encargados: RecipientInfo[] = await db('oficios as o')
@@ -42,7 +42,7 @@ async function resolveDeadlineRecipients(oficio_id: number): Promise<RecipientIn
         .andOnVal('u.rol', 'ENCARGADO'),
     )
     .where('o.id', oficio_id)
-    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.oficina_id');
+    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.unidad_id as oficina_id');
 
   // Deduplicate by user_id
   const seen = new Set<number>();
@@ -54,15 +54,27 @@ async function resolveDeadlineRecipients(oficio_id: number): Promise<RecipientIn
 }
 
 /**
- * For VoBo notifications: notify all SECRETARIA users of the
- * Dirección General (or the registering oficina, depending on config).
+ * Aviso de visto bueno: va a quien sube el documento firmado, o sea la secretaría.
+ *
+ * Se resuelve de la configuración de flujos y no del nombre de la unidad: el
+ * SuperAdmin puede cambiar quién ocupa ese puesto y el aviso debe seguir al puesto,
+ * no a la persona. Como respaldo, si nadie está configurado, se toma a quien tenga
+ * el rol de cuenta SECRETARIA en la Dirección General.
  */
-async function resolveVoboRecipients(oficio_id: number): Promise<RecipientInfo[]> {
+async function resolveVoboRecipients(_oficio_id: number): Promise<RecipientInfo[]> {
+  const configuradas = await db('configuracion_flujos as cf')
+    .join('usuarios as u', 'u.id', 'cf.usuario_id')
+    .where({ 'cf.modulo_clave': 'oficialia_partes', 'cf.rol_flujo': 'SECRETARIA' })
+    .andWhere('u.activo', true)
+    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.unidad_id as oficina_id');
+  if (configuradas.length) return configuradas;
+
   return db('usuarios as u')
-    .join('catalogo_oficinas as co', 'co.id', 'u.oficina_id')
+    .join('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
     .where('u.rol', 'SECRETARIA')
-    .andWhere('co.nombre', 'Direccion General')
-    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.oficina_id');
+    .andWhere('u.activo', true)
+    .andWhere('cu.tipo', 'DIRECCION_GENERAL')
+    .select('u.id as user_id', 'u.nombre', 'u.email', 'u.unidad_id as oficina_id');
 }
 
 async function resolveRecipients(
@@ -282,7 +294,8 @@ export async function notifyTramite(payload: {
  */
 export async function notifyDelegatorio(payload: {
   event: 'DELEGATORIO_NUEVO' | 'DELEGATORIO_ASIGNADO' | 'DELEGATORIO_EN_REVISION'
-       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO' | 'OFICIO_TURNADO';
+       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO' | 'OFICIO_TURNADO'
+       | 'PASE_FIRMA_ENVIADO' | 'PASE_FIRMA_FIRMADO' | 'PASE_FIRMA_DEVUELTO';
   usuarioIds: number[];
   oficio_id:  number;
   folio:      string;

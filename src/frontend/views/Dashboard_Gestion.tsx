@@ -526,7 +526,7 @@ export const Dashboard_Gestion: React.FC = () => {
                     <td style={tdStyle}>{o.remitente}</td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                     <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
-                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
+                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     <td style={tdStyle}>
                       <SistemasChips oficio={o} />
                     </td>
@@ -579,6 +579,15 @@ export const Dashboard_Gestion: React.FC = () => {
                             Reconsiderar
                           </button>
                         </>
+                      )}
+
+                      {/* Un oficio que la Dirección General regresó de firma ya trae el
+                          visto bueno dado, y aun así hay que poder devolvérselo al
+                          jurídico que lo redactó. Mientras espera firma, no. */}
+                      {o.puede_vobo && o.estatus === 'VOBO_APROBADO' && !o.en_pase_firma && (
+                        <button style={{ ...btnAction, backgroundColor: theme.colors.alert.yellow, color: '#78350F' }} onClick={() => { handleSelectOficio(o); setShowRecon(true); }}>
+                          Reconsiderar
+                        </button>
                       )}
 
                       {/* Ver el proyecto — el encargado o quien aprueba (para decidir el VoBo).

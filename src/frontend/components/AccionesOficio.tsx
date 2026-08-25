@@ -16,6 +16,7 @@ import { DeConocimientoPanel } from './DeConocimientoPanel';
 import { TurnarPanel }         from './TurnarPanel';
 import { DelegatoriosPanel }   from './DelegatoriosPanel';
 import { TestamentoPanel }     from './TestamentoPanel';
+import { PaseFirmaPanel }      from './PaseFirmaPanel';
 import type { Oficio }         from '../types';
 
 interface Props {
@@ -45,6 +46,8 @@ export const AccionesOficio: React.FC<Props> = ({
   if (oficio.siqroo_aplica && !oficio.siqroo_control_interno) avisos.push('NCI de SIQROO pendiente');
   if (oficio.siger_aplica  && !oficio.siger_control_interno)  avisos.push('NCI de SIGER pendiente');
   if (oficio.testamento) avisos.push('Testamento en curso');
+  if (oficio.en_pase_firma) avisos.push('Esperando firma de la Dirección General');
+  if (!oficio.en_pase_firma && oficio.pase_firma_devuelto_motivo) avisos.push('Regresado sin firmar');
   if ((oficio.delegatorios_pendientes ?? 0) > 0) {
     const n = oficio.delegatorios_pendientes ?? 0;
     avisos.push(n === 1 ? '1 delegatorio sin contestar' : `${n} delegatorios sin contestar`);
@@ -75,6 +78,7 @@ export const AccionesOficio: React.FC<Props> = ({
         <div style={{ marginTop: '12px' }}>
           <SistemasPanel oficio={oficio} onDone={(o) => onActualizar?.(o)} />
           <DeConocimientoPanel oficio={oficio} onDone={(o) => onActualizar?.(o)} />
+          <PaseFirmaPanel oficio={oficio} onDone={() => onRefrescar?.()} />
           <TurnarPanel oficio={oficio} onDone={() => onSalio?.()} />
           {conDelegatorios && (
             <TestamentoPanel

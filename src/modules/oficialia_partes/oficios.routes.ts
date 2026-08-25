@@ -27,6 +27,8 @@ import {
   marcarDeConocimiento,
   marcarTestamento,
   verificarDuplicado,
+  mandarAPaseFirma,
+  devolverPaseFirma,
   areasTurno,
   listarDestinatarios,
   turnarOficio,
@@ -160,6 +162,12 @@ router.patch('/oficios/:id/vobo', aprobarVobo);
 
 /** POST /oficios/:id/finalizar — secretaría sube documento firmado */
 router.post('/oficios/:id/finalizar', upload.single('file'), finalizarOficio);
+
+/** POST /oficios/:id/pase-firma — el área lo manda a firma de la Dirección General. */
+router.post('/oficios/:id/pase-firma', mandarAPaseFirma);
+
+/** PATCH /oficios/:id/pase-firma/devolver — la DG lo regresa al área sin firmarlo. */
+router.patch('/oficios/:id/pase-firma/devolver', devolverPaseFirma);
 
 /** PATCH /oficios/:id/sistemas — marcar SIQROO/SIGER y capturar sus NCI */
 router.patch('/oficios/:id/sistemas', uploadOficio.single('boleta'), actualizarSistemas);

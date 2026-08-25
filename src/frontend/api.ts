@@ -429,6 +429,29 @@ export async function getAreasTurno() {
 }
 
 /** Manda el oficio completo a otra área; ahí reinicia su flujo. */
+/**
+ * Manda el oficio a firma de la Directora General. No cambia de área: el oficio
+ * sigue siendo del que lo trabajó, solo que lo cierra la Dirección General.
+ */
+export async function mandarAPaseFirma(id: number, motivo?: string) {
+  const res = await fetch(`${BASE}/oficios/${id}/pase-firma`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ motivo: motivo ?? '' }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** La Dirección General lo regresa al área en vez de firmarlo. */
+export async function devolverPaseFirma(id: number, motivo: string) {
+  const res = await fetch(`${BASE}/oficios/${id}/pase-firma/devolver`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 export async function turnarOficio(id: number, unidad_destino_id: number, motivo: string) {
   const res = await fetch(`${BASE}/oficios/${id}/turnar`, {
     method:  'PATCH',

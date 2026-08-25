@@ -87,6 +87,14 @@ export interface Oficio {
   puede_vobo?:           boolean;
   /** true si el usuario actual puede subir el firmado y finalizar este oficio */
   puede_finalizar?:      boolean;
+  /** el oficio está esperando la firma de la Dirección General */
+  en_pase_firma?:        boolean;
+  /** true si el usuario actual puede mandarlo a firma de la Dirección General */
+  puede_mandar_firma?:   boolean;
+  /** true si el usuario actual puede regresarlo al área sin firmarlo */
+  puede_devolver_pase_firma?: boolean;
+  /** por qué lo regresó la Dirección General la última vez, si pasó */
+  pase_firma_devuelto_motivo?: string | null;
   /** delegación a la que corresponde el oficio (según el "dirigido a") */
   delegacion_nombre?:    string | null;
   /** nombre del usuario que tiene el oficio en su bandeja ahora */

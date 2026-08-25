@@ -205,7 +205,7 @@ export const Dashboard_Juridico: React.FC = () => {
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', textTransform: 'uppercase' }}>{o.dependencia_origen}</td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                       <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
-                      <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
+                      <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     </tr>
                 ))
               )}
@@ -440,7 +440,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
         <strong style={{ fontSize: '0.875rem', color: theme.colors.primary }}>{oficio.folio}</strong>
-        <StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />
+        <StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} enPaseFirma={!!oficio.en_pase_firma} />
       </div>
 
       <p style={{ margin: '0 0 4px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{oficio.remitente}</p>

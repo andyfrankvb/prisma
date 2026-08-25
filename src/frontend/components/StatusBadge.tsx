@@ -20,11 +20,18 @@ interface Props {
    * daría a entender que hay un documento firmado, y no lo hay.
    */
   deConocimiento?: boolean;
+  /**
+   * Esperando la firma de la Directora General. Decir «VoBo aprobado» no dice
+   * dónde está: el área ya terminó y el oficio está fuera de sus manos.
+   */
+  enPaseFirma?: boolean;
 }
 
-export const StatusBadge: React.FC<Props> = ({ estatus, turnado, devuelto, deConocimiento }) => {
+export const StatusBadge: React.FC<Props> = ({ estatus, turnado, devuelto, deConocimiento, enPaseFirma }) => {
   const cfg = deConocimiento
     ? { bg: '#E0F2FE', text: '#075985', label: 'De conocimiento' }
+    : enPaseFirma
+    ? { bg: '#FDE8EF', text: '#9F2241', label: 'En firma DG' }
     : (turnado && estatus === 'RECIBIDO')
     ? (devuelto
         ? { bg: '#FEF3C7', text: '#92400E', label: 'Devuelto' }

@@ -540,7 +540,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     <td style={tdStyle}>
                       <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} />
                     </td>
-                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} /></td>
+                    <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
                       {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
                     </td>

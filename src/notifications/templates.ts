@@ -327,6 +327,9 @@ export function renderTemplate(
     case 'DELEGATORIO_CONTESTADO':
     case 'DELEGATORIO_DEVUELTO':
     case 'OFICIO_TURNADO':
+    case 'PASE_FIRMA_ENVIADO':
+    case 'PASE_FIRMA_FIRMADO':
+    case 'PASE_FIRMA_DEVUELTO':
       return templateDelegatorio(event, vars);
     default:
       throw new Error(`No template defined for event: ${event}`);
@@ -364,6 +367,18 @@ const DELEGATORIO_TEXTOS: Record<string, {
   DELEGATORIO_DEVUELTO: {
     emoji: '↩️', titulo: 'Delegatorio devuelto', color: '#92400E', fondo: '#FEF3C7',
     instruccion: 'Revisa los comentarios y corrige la respuesta.',
+  },
+  PASE_FIRMA_ENVIADO: {
+    emoji: '✒️', titulo: 'Oficio en espera de firma', color: '#440412', fondo: '#FDE8EF',
+    instruccion: 'El área ya lo aprobó y espera la firma de la Dirección General.',
+  },
+  PASE_FIRMA_FIRMADO: {
+    emoji: '✅', titulo: 'Oficio firmado', color: '#065F46', fondo: '#D1FAE5',
+    instruccion: 'El oficio que mandaste a firma quedó firmado y cerrado.',
+  },
+  PASE_FIRMA_DEVUELTO: {
+    emoji: '↩️', titulo: 'Regresado sin firmar', color: '#92400E', fondo: '#FEF3C7',
+    instruccion: 'La Dirección General pide correcciones antes de firmarlo.',
   },
 };
 

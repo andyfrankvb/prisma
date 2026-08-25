@@ -216,13 +216,32 @@ async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promis
 }
 
 /**
- * ¿Puede este usuario subir el documento firmado y finalizar el oficio?
- * En delegaciones y direcciones de área lo puede hacer TANTO el titular como el
- * ENCARGADO de esa unidad (el primero que lo suba finaliza; el otro ya no puede
- * porque el oficio deja de estar en VOBO_APROBADO). En la Dirección General lo
- * hace la SECRETARIA.
+ * ¿Este oficio está esperando la firma de la Dirección General?
+ *
+ * Mientras lo esté, el oficio sigue dirigido a quien siempre estuvo —el destinatario
+ * es un dato del documento y no se reescribe—, pero quien lo cierra es la secretaría
+ * de la Dirección General y no el área.
  */
-async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise<boolean> {
+async function enPaseFirma(oficio_id: number, trx: any = db): Promise<boolean> {
+  const row = await trx('oficio_pases_firma')
+    .where({ oficio_id })
+    .whereNull('cerrado_en')
+    .first();
+  return !!row;
+}
+
+/**
+ * ¿Puede este usuario subir el documento firmado y finalizar el oficio?
+ *
+ * Si el oficio está en pase de firma, lo cierra la secretaría de la Dirección
+ * General, sin importar de qué área venga. Si no, en delegaciones y direcciones de
+ * área lo puede hacer TANTO el titular como el ENCARGADO de esa unidad (el primero
+ * que lo suba finaliza; el otro ya no puede porque el oficio deja de estar en
+ * VOBO_APROBADO). En la Dirección General lo hace la SECRETARIA.
+ */
+async function puedeSubirFirmado(user: any, dirigidoAId: number | null, oficio_id?: number): Promise<boolean> {
+  if (oficio_id && await enPaseFirma(oficio_id)) return canActAsSecretaria(user);
+
   if (dirigidoAId) {
     const dirigido = await db('usuarios as u')
       .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
@@ -234,8 +253,65 @@ async function puedeSubirFirmado(user: any, dirigidoAId: number | null): Promise
       const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
       return encargadoId === user.id;                           // el encargado de esa unidad
     }
+    // Dirección General: firma su encargado, que es quien dio el visto bueno. Antes
+    // el oficio pasaba solo a la secretaría al aprobarse; ahora se queda con él, que
+    // decide si lo firma o lo manda a firma de la Directora General.
+    const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
+    if (encargadoId === user.id) return true;
   }
-  return canActAsSecretaria(user);   // DG: la secretaría (rol nativo o configurada en flujos)
+  return canActAsSecretaria(user);   // sin encargado resuelto: la secretaría, como antes
+}
+
+/**
+ * ¿Puede este usuario mandar el oficio a firma de la Dirección General?
+ *
+ * Lo deciden los dos que responden por el contenido: quien dio el visto bueno y el
+ * encargado del área. Aplica en todas las áreas del módulo, la Dirección General
+ * incluida: ahí su encargado también se queda con el oficio al aprobarlo y decide
+ * si lo firma o si lo pasa a la firma de la Directora General.
+ */
+async function puedeMandarAPaseFirma(user: any, dirigidoAId: number | null): Promise<boolean> {
+  if (!dirigidoAId) return false;
+  if (await puedeAprobarOficio(user, dirigidoAId)) return true;
+  const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
+  return encargadoId === user.id;
+}
+
+/** La unidad de la Dirección General y su titular, para dirigir los avisos. */
+async function direccionGeneral(): Promise<{ unidad_id: number; titular_id: number | null } | null> {
+  const unidad = await db('catalogo_unidades')
+    .where({ tipo: 'DIRECCION_GENERAL', activo: true })
+    .select('id')
+    .first();
+  if (!unidad) return null;
+  const titular = await db('usuarios')
+    .where({ unidad_id: unidad.id, rol: 'DIRECTOR', activo: true })
+    .select('id')
+    .first();
+  return { unidad_id: unidad.id, titular_id: titular?.id ?? null };
+}
+
+/**
+ * A quién se avisa cuando un oficio cae en la Dirección General esperando firma.
+ *
+ * La secretaría se resuelve de la configuración de flujos y no del nombre de la
+ * unidad: el SuperAdmin puede cambiar quién ocupa ese puesto y el aviso debe seguirlo.
+ * Se suman la titular y quienes la acompañan en su oficina.
+ */
+async function destinatariosPaseFirma(): Promise<number[]> {
+  const dg = await direccionGeneral();
+  if (!dg) return [];
+
+  const secretarias = await db('configuracion_flujos')
+    .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'SECRETARIA' })
+    .pluck('usuario_id');
+
+  const acompanan = await db('usuarios')
+    .where({ unidad_id: dg.unidad_id, activo: true })
+    .whereIn('rol', ['DIRECTOR', 'PARTICULAR'])
+    .pluck('id');
+
+  return [...new Set([...secretarias, ...acompanan, dg.titular_id].filter(Boolean) as number[])];
 }
 
 // ─── POST /oficios/analizar-pdf ──────────────────────────────────────────────
@@ -387,6 +463,18 @@ export async function listarOficios(
                     AND t.unidad_destino_id = dir_u.unidad_id
                   ORDER BY t.id DESC LIMIT 1)
                 AS llego_por_devolucion`),
+        // Esperando la firma de la Dirección General: no cambia de área, pero sí
+        // cambia quién lo cierra y en qué bandeja se muestra.
+        db.raw(`EXISTS (SELECT 1 FROM oficio_pases_firma pf
+                         WHERE pf.oficio_id = oficios.id
+                           AND pf.cerrado_en IS NULL)
+                AS en_pase_firma`),
+        // Y si la Dirección General lo regresó, el área necesita leer por qué.
+        db.raw(`(SELECT pf.motivo_cierre FROM oficio_pases_firma pf
+                  WHERE pf.oficio_id = oficios.id
+                    AND pf.resultado = 'CORREGIR'
+                  ORDER BY pf.id DESC LIMIT 1)
+                AS pase_firma_devuelto_motivo`),
         'enc_u.nombre as encargado_nombre',
         'fin_aud.fecha_cambio as fecha_firmado',
         'oficial_u.nombre as ingresado_por_nombre',
@@ -681,9 +769,11 @@ export async function listarOficios(
           en_bandeja_de = aprobadorNombre; break;
         case 'VOBO_APROBADO':                         // listo para firma
         case 'FINALIZADO':                            // firmado/cerrado
-          // Delegación o dirección de área: su encargado sube el firmado (o el titular).
-          // Dirección General: la secretaría.
-          en_bandeja_de = esFlujoPropio ? o.encargado_nombre : secretariaNombre; break;
+          // Cada área sube su propio firmado —su encargado o su titular—, la
+          // Dirección General incluida. Solo lo que se mandó a firma cae con la
+          // secretaría, que es quien recaba la firma de la Directora General.
+          en_bandeja_de = (o as any).en_pase_firma ? secretariaNombre : o.encargado_nombre;
+          break;
         default:
           en_bandeja_de = o.encargado_nombre;
       }
@@ -703,11 +793,24 @@ export async function listarOficios(
       const vobo_por_nombre = aprobadorNombre;
 
       // ¿Puede el usuario actual subir el firmado / finalizar este oficio?
-      // Delegación o dirección de área: el titular (dirigido a) o el encargado de esa
-      // unidad. Dirección General: la secretaría.
-      const puede_finalizar = delegatorios_pendientes === 0 && !sigerPendiente && (esFlujoPropio
-        ? (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id))
-        : esSecretaria);
+      // En pase de firma lo cierra la secretaría, venga de donde venga. Si no, lo
+      // cierra su propia área —el titular o el encargado—, y eso vale también para
+      // la Dirección General: su encargado se queda con el oficio al aprobarlo.
+      const enPase = !!(o as any).en_pase_firma;
+      const puede_finalizar = delegatorios_pendientes === 0 && !sigerPendiente && (enPase
+        ? esSecretaria
+        : (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id)));
+
+      // Mandarlo a firma de la Dirección General: quien dio el visto bueno y el
+      // encargado del área, en todas las áreas del módulo.
+      const puede_mandar_firma = o.estatus === 'VOBO_APROBADO'
+        && !enPase
+        && delegatorios_pendientes === 0
+        && !sigerPendiente
+        && (puede_vobo || unidadesEncargado.includes(o.dirigido_a_unidad_id));
+
+      // Y regresarlo al área sin firmarlo: solo la secretaría, mientras esté a firma.
+      const puede_devolver_pase_firma = enPase && esSecretaria;
 
       // Turnar a otra área: lo hace el encargado del área que hoy tiene el oficio.
       const puede_turnar = o.estatus !== 'FINALIZADO'
@@ -729,6 +832,8 @@ export async function listarOficios(
         puede_de_conocimiento,
         puede_turnar,
         puede_devolver_turno,
+        puede_mandar_firma,
+        puede_devolver_pase_firma,
         en_bandeja_de,
         vobo_por_nombre,
         secretaria_nombre: secretariaNombre,
@@ -1921,10 +2026,19 @@ export async function reconsiderarOficio(
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
 
-      if (!['EN_REVISION', 'EN_RECONSIDERACION'].includes(oficio.estatus)) {
+      // VOBO_APROBADO también entra: un oficio que la Dirección General regresó de
+      // firma ya trae el visto bueno dado, y aun así hay que devolvérselo al jurídico
+      // que redactó la contestación. Si estaba esperando firma, primero se regresa.
+      if (!['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO'].includes(oficio.estatus)) {
         throw new AppError(
           `El oficio debe estar EN_REVISION para solicitar reconsideración (estatus: ${oficio.estatus})`,
           422,
+        );
+      }
+      if (oficio.estatus === 'VOBO_APROBADO' && await enPaseFirma(oficio_id, trx)) {
+        throw new AppError(
+          'Este oficio está esperando la firma de la Dirección General. Pídele que lo regrese antes de mandarlo a corregir.',
+          409,
         );
       }
 
@@ -2034,8 +2148,45 @@ export async function getHistorial(
       )
       .orderBy('t.id', 'asc');
 
+    // Los pases de firma tampoco cambian el estatus, así que no dejarían rastro en
+    // la auditoría: se leen de su propia tabla. Cada viaje son dos renglones — la
+    // ida siempre, y la vuelta solo cuando ya se resolvió.
+    const pases = await db('oficio_pases_firma as pf')
+      .join('usuarios as env', 'env.id', 'pf.enviado_por_id')
+      .leftJoin('usuarios as cer', 'cer.id', 'pf.cerrado_por_id')
+      .where('pf.oficio_id', oficio_id)
+      .select(
+        'pf.id', 'pf.enviado_en', 'pf.cerrado_en', 'pf.resultado', 'pf.motivo', 'pf.motivo_cierre',
+        'env.nombre as enviado_por', 'cer.nombre as cerrado_por',
+      )
+      .orderBy('pf.id', 'asc');
+
+    const eventosPase = pases.flatMap((p: any) => {
+      const ida = {
+        // Otro rango de ids negativos, para no chocar con turnos ni delegatorios.
+        id:              -2000000 - p.id * 2,
+        estado_anterior: 'VOBO_APROBADO',
+        estado_nuevo:    'PASE_FIRMA',
+        fecha_cambio:    p.enviado_en,
+        usuario_nombre:  p.enviado_por,
+        detalle:         p.motivo
+          ? `A firma de la Dirección General: ${p.motivo}`
+          : 'A firma de la Dirección General',
+      };
+      if (!p.cerrado_en || p.resultado !== 'CORREGIR') return [ida];
+      return [ida, {
+        id:              -2000000 - (p.id * 2 + 1),
+        estado_anterior: 'PASE_FIRMA',
+        estado_nuevo:    'PASE_FIRMA_DEVUELTO',
+        fecha_cambio:    p.cerrado_en,
+        usuario_nombre:  p.cerrado_por ?? 'Dirección General',
+        detalle:         `Regresado sin firmar: ${p.motivo_cierre}`,
+      }];
+    });
+
     const historial = [
       ...estados,
+      ...eventosPase,
       ...turnos.map((t: any) => ({
         // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
         id:              -1000000 - t.id,
@@ -2259,7 +2410,7 @@ export async function finalizarOficio(
     // Autorización: SECRETARIA (Dirección General) o el delegado/encargado (delegaciones).
     const oficioAuth = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
     if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
-    if (!(await puedeSubirFirmado(user, oficioAuth.dirigido_a_id))) {
+    if (!(await puedeSubirFirmado(user, oficioAuth.dirigido_a_id, oficio_id))) {
       throw new AppError('No autorizado para subir el documento firmado', 403);
     }
 
@@ -2308,10 +2459,181 @@ export async function finalizarOficio(
         .where({ id: oficio_id })
         .update({ estatus: 'FINALIZADO' as EstatusOficio });
 
+      // Si venía esperando la firma de la Dirección General, ese viaje se cierra aquí.
+      await trx('oficio_pases_firma')
+        .where({ oficio_id })
+        .whereNull('cerrado_en')
+        .update({ cerrado_en: new Date(), cerrado_por_id: user.id, resultado: 'FIRMADO' });
+
       await createAuditLog(trx, oficio_id, oficio.estatus, 'FINALIZADO', user.id);
     });
 
+    // Avisar al área que lo mandó a firma: soltó el oficio y merece saber cómo acabó.
+    await avisarCierreDePase(oficio_id).catch((err) =>
+      logger.error({ err, oficio_id }, 'Error al avisar el cierre del pase de firma'),
+    );
+
     res.json({ message: 'Oficio finalizado correctamente', compresion: compresionInfo(guardadoFirmado) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Aviso a quien mandó el oficio a firma, cuando el pase se cierra por firma. */
+async function avisarCierreDePase(oficio_id: number): Promise<void> {
+  const pase = await db('oficio_pases_firma')
+    .where({ oficio_id, resultado: 'FIRMADO' })
+    .orderBy('id', 'desc')
+    .select('enviado_por_id')
+    .first();
+  if (!pase?.enviado_por_id) return;
+
+  const oficio = await db('oficios')
+    .where({ id: oficio_id })
+    .select('folio', 'dependencia_origen')
+    .first();
+  if (!oficio) return;
+
+  await notifyDelegatorio({
+    event:              'PASE_FIRMA_FIRMADO',
+    usuarioIds:         [pase.enviado_por_id],
+    oficio_id,
+    folio:              oficio.folio,
+    dependencia_origen: oficio.dependencia_origen,
+    area:               'Dirección General',
+  });
+}
+
+// ─── POST /oficios/:id/pase-firma ────────────────────────────────────────────
+
+/**
+ * El área manda el oficio a firma de la Directora General.
+ *
+ * Pasa cuando el asunto ya está resuelto y aprobado en el área, pero la firma no
+ * le corresponde a su titular. No es un turno: el oficio no cambia de área ni de
+ * destinatario, y el área lo sigue viendo en su lista. Solo cambia quién lo cierra.
+ *
+ * Lo deciden quien dio el visto bueno y el encargado.
+ */
+export async function mandarAPaseFirma(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+    const motivo    = String(req.body?.motivo ?? '').trim().toUpperCase();
+
+    const oficio = await db('oficios')
+      .where({ id: oficio_id })
+      .select('id', 'folio', 'estatus', 'dirigido_a_id', 'dependencia_origen')
+      .first();
+    if (!oficio) throw new AppError('Oficio no encontrado', 404);
+
+    if (!(await puedeMandarAPaseFirma(user, oficio.dirigido_a_id))) {
+      throw new AppError('Solo quien da el visto bueno o el encargado del área pueden mandarlo a firma', 403);
+    }
+    if (oficio.estatus !== 'VOBO_APROBADO') {
+      throw new AppError(
+        `El oficio debe tener el visto bueno de su área antes de mandarlo a firma (estatus actual: ${oficio.estatus})`,
+        422,
+      );
+    }
+    if (await enPaseFirma(oficio_id)) {
+      throw new AppError('Este oficio ya está esperando la firma de la Dirección General', 409);
+    }
+
+    // Los mismos frenos que para firmar: no se manda a firma algo que no está completo.
+    if (await tieneDelegatoriosPendientes(oficio_id)) {
+      throw new AppError('Este oficio tiene delegatorios sin contestar. No se puede mandar a firma hasta que todas las áreas respondan.', 409);
+    }
+    if (await sigerSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado en SIGER, así que debe delegarse a una delegación antes de mandarlo a firma.', 409);
+    }
+    if (await freSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio tiene marcada la incorporación de FRE, así que debe delegarse a la Dirección de Informática antes de mandarlo a firma.', 409);
+    }
+    if (await testamentoSinDelegatorio(oficio_id)) {
+      throw new AppError('Este oficio está marcado como testamento, así que debe delegarse a alguna delegación antes de mandarlo a firma.', 409);
+    }
+
+    await db('oficio_pases_firma').insert({
+      oficio_id,
+      enviado_por_id: user.id,
+      enviado_en:     new Date(),
+      motivo:         motivo || null,
+    });
+
+    const destinatarios = await destinatariosPaseFirma();
+    await notifyDelegatorio({
+      event:              'PASE_FIRMA_ENVIADO',
+      usuarioIds:         destinatarios,
+      oficio_id,
+      folio:              oficio.folio,
+      dependencia_origen: oficio.dependencia_origen,
+      area:               'Dirección General',
+      nota:               motivo || undefined,
+    }).catch((err) => logger.error({ err, oficio_id }, 'Error al avisar el pase de firma'));
+
+    res.json({ message: 'El oficio quedó en espera de la firma de la Dirección General' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── PATCH /oficios/:id/pase-firma/devolver ──────────────────────────────────
+
+/**
+ * La Dirección General regresa el oficio al área en vez de firmarlo.
+ *
+ * El oficio conserva su visto bueno y vuelve a quedar en manos de quien lo mandó,
+ * que decide si lo corrige y lo reenvía o si se lo regresa al jurídico que redactó
+ * la contestación, con la reconsideración de siempre.
+ */
+export async function devolverPaseFirma(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+    const motivo    = String(req.body?.motivo ?? '').trim().toUpperCase();
+
+    if (!motivo) throw new AppError('Indica qué hay que corregir', 422);
+    if (!(await canActAsSecretaria(user))) {
+      throw new AppError('Solo la Dirección General puede regresar un oficio que está a firma', 403);
+    }
+
+    const pase = await db('oficio_pases_firma')
+      .where({ oficio_id })
+      .whereNull('cerrado_en')
+      .first();
+    if (!pase) throw new AppError('Este oficio no está esperando firma de la Dirección General', 409);
+
+    await db('oficio_pases_firma')
+      .where({ id: pase.id })
+      .update({ cerrado_en: new Date(), cerrado_por_id: user.id, resultado: 'CORREGIR', motivo_cierre: motivo });
+
+    const oficio = await db('oficios')
+      .where({ id: oficio_id })
+      .select('folio', 'dependencia_origen')
+      .first();
+
+    if (oficio) {
+      await notifyDelegatorio({
+        event:              'PASE_FIRMA_DEVUELTO',
+        usuarioIds:         [pase.enviado_por_id],
+        oficio_id,
+        folio:              oficio.folio,
+        dependencia_origen: oficio.dependencia_origen,
+        area:               'Dirección General',
+        nota:               motivo,
+      }).catch((err) => logger.error({ err, oficio_id }, 'Error al avisar la devolución del pase de firma'));
+    }
+
+    res.json({ message: 'El oficio regresó al área que lo mandó a firma' });
   } catch (err) {
     next(err);
   }

@@ -34,7 +34,11 @@ export type NotificationEventType =
   | 'DELEGATORIO_CONTESTADO'
   | 'DELEGATORIO_DEVUELTO'
   // El oficio completo cambia de área por no ser de la competencia de la actual
-  | 'OFICIO_TURNADO';
+  | 'OFICIO_TURNADO'
+  // El área lo trabajó y aprobó, pero la firma le toca a la Directora General
+  | 'PASE_FIRMA_ENVIADO'
+  | 'PASE_FIRMA_FIRMADO'
+  | 'PASE_FIRMA_DEVUELTO';
 
 export interface NotificationPayload {
   event:       NotificationEventType;

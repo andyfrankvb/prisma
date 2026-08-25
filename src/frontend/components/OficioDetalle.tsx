@@ -205,7 +205,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
               <Campo label="Correo que recibió"    value={oficio.correo_destino || '—'} />
             </>
           )}
-          <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />} />
+          <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} enPaseFirma={!!oficio.en_pase_firma} />} />
           <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} />} />
         </div>
       </Seccion>
@@ -363,7 +363,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
       <Seccion titulo="Detalle de la solicitud">
         <div style={gridCampos}>
           <Campo label="Fecha y hora de ingreso"   value={fmtFecha(oficio.fecha_registro)} />
-          <Campo label="Estatus de la solicitud"   value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} />} />
+          <Campo label="Estatus de la solicitud"   value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} enPaseFirma={!!oficio.en_pase_firma} />} />
           <Campo label="Delegación de gestión"     value={oficio.delegacion_nombre} />
           <Campo label="SIQROO" value={sistemaTexto(oficio.siqroo_aplica, oficio.siqroo_control_interno)} />
           <Campo label="SIGER"  value={oficio.siger_aplica ? 'Ingresada' : 'No aplica'} />
