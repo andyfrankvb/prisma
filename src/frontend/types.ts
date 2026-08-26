@@ -82,6 +82,11 @@ export interface Oficio {
   fre_incorporado_en?:      string | null;
   /** FRE marcado sin delegatorio a la Dirección de Informática: no puede cerrarse. */
   fre_sin_delegatorio?:     boolean;
+  /** El asunto lo resuelve la Dirección General: la delegación avanzó y lo mandó. */
+  resolucion?:              boolean;
+  resolucion_en?:           string | null;
+  /** true si el usuario actual puede mandarlo como resolución a la Dirección General. */
+  puede_marcar_resolucion?: boolean;
   /** Búsqueda de testamentos: plazo fijo de 10 días hábiles en dos etapas. */
   testamento?:              boolean;
   testamento_en?:           string | null;

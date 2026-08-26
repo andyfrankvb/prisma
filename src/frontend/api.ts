@@ -493,11 +493,14 @@ export async function turnarOficio(
   motivo: string,
   tipo: 'COMPETENCIA' | 'INFORMACION' = 'COMPETENCIA',
   documento?: File | null,
+  /** Deja constancia de que el envío fue una resolución. */
+  resolucion = false,
 ) {
   const fd = new FormData();
   fd.append('unidad_destino_id', String(unidad_destino_id));
   fd.append('motivo', motivo);
   fd.append('tipo', tipo);
+  if (resolucion) fd.append('resolucion', 'true');
   if (documento) fd.append('documento', documento);
 
   const res = await fetch(`${BASE}/oficios/${id}/turnar`, {

@@ -1055,6 +1055,12 @@ export async function listarOficios(
       // Turna quien responde por el área: su titular o el encargado de oficios.
       const puede_turnar = o.estatus !== 'FINALIZADO'
         && (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id));
+
+      // La casilla «Resolución» manda el asunto a la Dirección General. No aplica
+      // a lo que ya está allá, ni a lo que ya se mandó.
+      const puede_marcar_resolucion = puede_turnar
+        && !o.resolucion
+        && o.dirigido_a_unidad_tipo !== 'DIRECCION_GENERAL';
       // Y devolverlo, solo si llegó por un turno.
       const puede_devolver_turno = puede_turnar && Number((o as any).turnos_recibidos ?? 0) > 0;
 
@@ -1079,6 +1085,7 @@ export async function listarOficios(
         puede_devolver_turno,
         puede_mandar_firma,
         puede_devolver_pase_firma,
+        puede_marcar_resolucion,
         en_bandeja_de,
         vobo_por_nombre,
         secretaria_nombre: secretariaNombre,
@@ -1804,6 +1811,9 @@ export async function turnarOficio(
     // continúe. Registrarlas igual dejaría el expediente contando lo contrario.
     const tipo = String(req.body?.tipo ?? 'COMPETENCIA').toUpperCase() === 'INFORMACION'
       ? 'INFORMACION' : 'COMPETENCIA';
+    // La casilla «Resolución» usa este mismo envío; solo deja dicho de qué se
+    // trataba, para poder distinguirlos después sin leer el oficio.
+    const esResolucion = req.body?.resolucion === true || req.body?.resolucion === 'true';
 
     if (!destinoId) throw new AppError('Selecciona el área a la que se turna', 422);
     if (!motivo)    throw new AppError(
@@ -1889,6 +1899,7 @@ export async function turnarOficio(
       await trx('oficios').where({ id: oficio_id }).update({
         dirigido_a_id: titular.id,
         estatus:       'RECIBIDO' as EstatusOficio,
+        ...(esResolucion ? { resolucion: true, resolucion_en: new Date() } : {}),
       });
 
       // Solo se registra el cambio de estatus si realmente cambió: el turno ya
