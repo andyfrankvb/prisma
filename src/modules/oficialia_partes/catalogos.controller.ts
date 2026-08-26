@@ -21,18 +21,19 @@ const normNombre = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ').t
 /**
  * ¿Puede este usuario depurar los catálogos (editar, eliminar, reorganizar)?
  *
- * Además del SUPERADMIN, cualquiera a quien se le haya dado el rol de flujo
- * «CATALOGOS» desde Configuración de Flujos. Se pensó para el oficial de partes:
- * es quien detecta los duplicados y los nombres mal escritos al capturar, y así
- * los corrige sin necesidad de darle acceso al resto del panel administrativo.
+ * Además del SUPERADMIN, cualquiera que tenga habilitado el módulo «Catálogo de
+ * dependencias y remitentes». Se decide por módulo y no por un rol de flujo
+ * porque el rol solo alcanzaba a quien entrara por la pantalla del oficial de
+ * partes: una delegada, o cualquier persona de un área, no llegaba nunca.
  *
- * La unidad con la que quedó asociado el permiso no importa: el catálogo es uno
- * solo para toda la institución.
+ * El catálogo es uno solo para toda la institución, así que el permiso no se
+ * acota por unidad: quien lo tiene, lo depura completo.
  */
 export async function puedeGestionarCatalogos(user: any): Promise<boolean> {
   if (user?.rol === 'SUPERADMIN') return true;
-  const fila = await db('configuracion_flujos')
-    .where({ modulo_clave: 'oficialia_partes', rol_flujo: 'CATALOGOS', usuario_id: user?.id ?? 0 })
+  const fila = await db('usuario_modulos as um')
+    .join('modulos as m', 'm.id', 'um.modulo_id')
+    .where({ 'um.usuario_id': user?.id ?? 0, 'm.clave': 'catalogos', 'm.activo': true })
     .first();
   return !!fila;
 }

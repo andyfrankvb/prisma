@@ -39,8 +39,13 @@ import type { Oficio, Abogado, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion, OficioDocumento } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import { FiltrosOficios } from '../components/FiltrosOficios';
+import { PestanasBandeja, PasoChip, totalDeConteos } from '../components/PestanasBandeja';
+import { MenuAcciones } from '../components/MenuAcciones';
+import { OrdenColumna } from '../components/OrdenColumna';
+import type { OrdenLista } from '../components/OrdenColumna';
+import type { AccionMenu } from '../components/MenuAcciones';
+import type { VistaBandeja } from '../components/PestanasBandeja';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
-import { OficiosResumen } from '../components/OficiosResumen';
 import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
 import { ESTATUS_META } from '../components/oficiosEstatus';
 
@@ -77,8 +82,27 @@ export const Dashboard_Gestion: React.FC = () => {
   const [oficios,   setOficios]   = useState<Oficio[]>([]);
   const [total,     setTotal]     = useState(0);
   const [conteos,   setConteos]   = useState<Record<string, number>>({});
+  const [miPendientes, setMiPendientes] = useState(0);
+  const [delegatoriosPend, setDelegatoriosPend] = useState(0);
+  const [deOtrasAreas, setDeOtrasAreas] = useState(0);
+  // Pestaña activa: el histórico del área, lo que espera algo de mí, o el archivo.
+  const [vista, setVista] = useState<VistaBandeja>('todo');
+  // Orden de la lista. Vacío = el de siempre, por fecha de ingreso descendente.
+  const [orden, setOrden] = useState<OrdenLista | null>(null);
+  const miBandeja = vista === 'mia';
+  /**
+   * ¿Vale la pena mostrar la columna «Delegación»?
+   *
+   * A quien solo alcanza a ver su propia área —una delegación, por ejemplo— la
+   * columna le repite el mismo nombre en todos los renglones y le quita ancho a
+   * lo que sí cambia. Se muestra únicamente cuando hay más de un área a la vista,
+   * como le pasa a quien es encargado de dos.
+   */
+  const variasAreas = new Set(
+    oficios.map((o) => o.delegacion_nombre).filter(Boolean),
+  ).size > 1;
   const [page,      setPage]      = useState(1);
-  const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '' });
+  const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '', en_bandeja_de: '', situacion: '' });
   const [loading,   setLoading]   = useState(false);
   const [exporting, setExporting] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -125,30 +149,88 @@ export const Dashboard_Gestion: React.FC = () => {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
 
+  /**
+   * Qué puede hacerse con este oficio ahora mismo. Son las mismas condiciones que
+   * antes decidían qué botón se pintaba; reunirlas aquí evita que la columna de
+   * acciones crezca a lo ancho y descuadre la tabla.
+   */
+  const accionesDe = (o: Oficio): AccionMenu[] => {
+    const acc: AccionMenu[] = [];
+    const estatus = o.estatus as EstatusOficio;
+
+    // Orquestación — solo el encargado: asigna o se lo queda.
+    if (esEncargado) {
+      if (estatus === 'RECIBIDO') {
+        acc.push({ label: 'Asignar a un analista', icono: '👤', onClick: () => { setSelected(o); setShowAssign(true); } });
+        acc.push({ label: 'Trabajarlo yo', icono: '✍️', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+      }
+      // Si lo mandaron a corregir y no hay analista, corrige el propio encargado.
+      if (estatus === 'EN_RECONSIDERACION' && !o.abogado_nombre) {
+        acc.push({ label: 'Subir la corrección', icono: '✍️', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+      }
+      if ((['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(estatus)) {
+        acc.push({ label: 'Reasignar a otro analista', icono: '🔁', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
+      }
+    }
+
+    // Aprobación — quien tiene la autoridad en esa área.
+    if (o.puede_vobo && (estatus === 'EN_REVISION' || estatus === 'EN_RECONSIDERACION')) {
+      acc.push({ label: 'Dar visto bueno', icono: '✓', tono: 'positivo', onClick: () => handleVobo(o) });
+      acc.push({ label: 'Mandar a corregir', icono: '↩', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+    }
+    // Ya aprobado pero aún sin firmar: todavía se puede regresar al jurídico.
+    if (o.puede_vobo && estatus === 'VOBO_APROBADO' && !o.en_pase_firma) {
+      acc.push({ label: 'Mandar a corregir', icono: '↩', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+    }
+
+    // Consultar el proyecto. Un oficio de conocimiento no tiene.
+    if (!o.de_conocimiento && (esEncargado || o.puede_vobo)
+        && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(estatus)) {
+      acc.push({ label: 'Ver el proyecto', icono: '📝', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/proyecto`) });
+    }
+
+    if (o.puede_finalizar && estatus === 'VOBO_APROBADO') {
+      acc.push({ label: 'Subir documento firmado', icono: '✍️', onClick: () => { setSelected(o); setShowUpload(true); } });
+    }
+    if (estatus === 'FINALIZADO' && !o.de_conocimiento) {
+      acc.push({ label: 'Ver documento firmado', icono: '✍️', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/firmado`) });
+    }
+
+    return acc;
+  };
+
   const fetchOficios = useCallback(async () => {
     setLoading(true);
     setListError(null);
     try {
       const res = await getOficios({
+        mi_bandeja: vista === 'mia' || undefined,
+        de_otras_areas: vista === 'otras_areas' || undefined,
+        orden:            orden?.columna,
+        dir:              orden?.sentido,
         page, limit: LIMIT,
         search:           filtros.search || undefined,
-        estatus:          filtros.estatus || undefined,
+        estatus:          vista === 'finalizados' ? 'FINALIZADO' : (filtros.estatus || undefined),
         termino:          filtros.termino || undefined,
         desde:            filtros.desde || undefined,
         hasta:            filtros.hasta || undefined,
         siqroo_pendiente: filtros.siqroo_pendiente || undefined,
         pendiente_firma:  filtros.pendiente_firma || undefined,
         dirigido_a_id:    filtros.area ? Number(filtros.area) : undefined,
+        en_bandeja_de:    filtros.en_bandeja_de ? Number(filtros.en_bandeja_de) : undefined,
+        situacion:        filtros.situacion || undefined,
       });
       setOficios(res.data);
       setTotal(res.meta.total);
       setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
+      setMiPendientes(Number((res.meta as any).mi_bandeja ?? 0));
+      setDeOtrasAreas(Number((res.meta as any).de_otras_areas ?? 0));
     } catch (err: any) {
       setListError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page, filtros]);
+  }, [page, filtros, vista, orden]);
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
@@ -317,15 +399,21 @@ export const Dashboard_Gestion: React.FC = () => {
     if (exporting) return;
     setExporting(true);
     try {
+      // El reporte sale de lo que la persona está viendo: la pestaña manda igual
+      // que los filtros de la barra. Si no, el Excel diría una cosa y la pantalla otra.
       const filtroBase = {
+        mi_bandeja:       vista === 'mia' || undefined,
+        de_otras_areas:   vista === 'otras_areas' || undefined,
         search:           filtros.search || undefined,
-        estatus:          filtros.estatus || undefined,
+        estatus:          vista === 'finalizados' ? 'FINALIZADO' : (filtros.estatus || undefined),
         termino:          filtros.termino || undefined,
         desde:            filtros.desde || undefined,
         hasta:            filtros.hasta || undefined,
         siqroo_pendiente: filtros.siqroo_pendiente || undefined,
         pendiente_firma:  filtros.pendiente_firma || undefined,
         dirigido_a_id:    filtros.area ? Number(filtros.area) : undefined,
+        en_bandeja_de:    filtros.en_bandeja_de ? Number(filtros.en_bandeja_de) : undefined,
+        situacion:        filtros.situacion || undefined,
       };
       // Traer TODOS los resultados filtrados (no solo la página visible)
       const todos: Oficio[] = [];
@@ -337,7 +425,7 @@ export const Dashboard_Gestion: React.FC = () => {
 
       const headers = [
         'N° OFICIO INTERNO', 'N° OFICIO ORIGEN', 'DIRECCIÓN O DEPENDENCIA', 'SUBUNIDAD',
-        'FECHA DEL OFICIO', 'FECHA ACUSE', 'TURNADO A', 'ASUNTO',
+        'FECHA DEL OFICIO', 'FECHA ACUSE', 'DIRIGIDO', 'EN BANDEJA DE', 'ASUNTO',
       ];
       const rows = todos.map((o) => [
         o.folio,
@@ -347,15 +435,24 @@ export const Dashboard_Gestion: React.FC = () => {
         o.fecha_oficio ? soloFecha(o.fecha_oficio) : '',
         new Date(o.fecha_registro).toLocaleDateString('es-MX'),
         o.dirigido_a_nombre ?? '',
+        // Quién lo tiene ahora: el mismo dato que muestra la bandeja en pantalla.
+        o.en_bandeja_de ?? '',
         o.descripcion_solicitud ?? '',
       ]);
 
       // Etiquetas legibles de los filtros para el encabezado del reporte.
       const terminoLabel: Record<string, string> = { con_termino: 'Con término', por_vencer: 'Por vencer (3 días)', vencidos: 'Vencidos' };
-      const estatusLabel = filtros.estatus ? (ESTATUS_META.find((m) => m.value === filtros.estatus)?.label ?? filtros.estatus) : 'Todos';
+      const estatusLabel = vista === 'finalizados'
+        ? 'Finalizado'
+        : (filtros.estatus ? (ESTATUS_META.find((m) => m.value === filtros.estatus)?.label ?? filtros.estatus) : 'Todos');
       const rangoFechas  = (filtros.desde || filtros.hasta) ? `${filtros.desde || 'inicio'} a ${filtros.hasta || 'hoy'}` : 'Todas';
       const areaNombre   = filtros.area ? (todos[0]?.delegacion_nombre ?? todos[0]?.dirigido_a_nombre ?? `ID ${filtros.area}`) : 'Todas';
+      const VISTA_LABEL: Record<string, string> = {
+        todo: 'Todo', mia: 'Mi bandeja', finalizados: 'Finalizados',
+        otras_areas: 'De otras áreas',
+      };
       const filtrosList: [string, string][] = [
+        ['Vista', VISTA_LABEL[vista] ?? 'Todo'],
         ['Búsqueda', filtros.search || '—'],
         ['Estatus', estatusLabel],
         ['Área (dirigido a)', areaNombre],
@@ -371,7 +468,7 @@ export const Dashboard_Gestion: React.FC = () => {
       const GRIS   = 'FF6B7280';
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('Reporte', { views: [{ showGridLines: false }] });
-      ws.columns = [{ width: 14 }, { width: 16 }, { width: 26 }, { width: 18 }, { width: 12 }, { width: 11 }, { width: 22 }, { width: 40 }];
+      ws.columns = [{ width: 14 }, { width: 16 }, { width: 26 }, { width: 18 }, { width: 12 }, { width: 11 }, { width: 22 }, { width: 22 }, { width: 40 }];
 
       // Título
       ws.mergeCells(1, 1, 1, headers.length);
@@ -453,23 +550,26 @@ export const Dashboard_Gestion: React.FC = () => {
       }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 24px 0', backgroundColor: theme.colors.surface, borderBottom: `1px solid ${theme.colors.border}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <h1 style={{ margin: 0, color: theme.colors.primary, fontSize: '1.4rem', fontWeight: 700 }}>
-              Gestión de Oficios
-            </h1>
-            <button onClick={exportCSV} disabled={exporting} style={{ ...btnSecondary, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'wait' : 'pointer' }} title="Exportar los oficios filtrados a Excel/CSV">
-              {exporting ? '⏳ Exportando…' : '⬇ Exportar Excel'}
-            </button>
-          </div>
-
-          {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
-            <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
-              <OficiosResumen conteos={conteos} estatus={filtros.estatus} />
-            </div>
-            <div style={{ flex: '3 1 420px', display: 'flex' }}>
-              <FiltrosOficios onChange={(f) => { setFiltros(f); setPage(1); }} />
+        <div style={{ padding: '10px 24px 0', backgroundColor: theme.colors.surface, borderBottom: `1px solid ${theme.colors.border}` }}>
+          {/* Filtros a todo lo ancho: el total que mostraba la tarjeta ya vive en
+              el número de la pestaña «Todo». */}
+          <div style={{ display: 'flex', marginBottom: '12px' }}>
+            <div style={{ flex: '1 1 100%', display: 'flex' }}>
+              <FiltrosOficios
+                onChange={(f) => { setFiltros(f); setPage(1); }}
+                accion={
+                  <button
+                    onClick={exportCSV}
+                    disabled={exporting}
+                    style={{ ...btnSecondary, padding: '7px 14px', fontSize: '0.78rem', whiteSpace: 'nowrap',
+                             opacity: exporting ? 0.45 : 1,
+                             cursor: exporting ? 'wait' : 'pointer' }}
+                    title="Genera un Excel con los oficios que estás viendo, con la pestaña y los filtros aplicados"
+                  >
+                    {exporting ? '⏳ Generando…' : '⬇ Generar reporte'}
+                  </button>
+                }
+              />
             </div>
           </div>
         </div>
@@ -487,25 +587,68 @@ export const Dashboard_Gestion: React.FC = () => {
 
         {listError && <div role="alert" style={{ ...alertStyle, margin: '12px 24px' }}>{listError}</div>}
 
-        <div style={{ padding: '0 24px' }}>
-          <BandejaDelegatorios onCambio={fetchOficios} />
+        {/* Las pestañas se apoyan en el recuadro de abajo: la activa rompe la
+            línea y se abre hacia él, así se lee como una sola pieza. */}
+        <PestanasBandeja
+          vista={vista}
+          onCambiar={(v) => { setVista(v); setPage(1); }}
+          totalTodo={totalDeConteos(conteos)}
+          totalMia={miPendientes}
+          totalFinalizados={conteos.FINALIZADO ?? 0}
+          totalOtrasAreas={deOtrasAreas + delegatoriosPend}
+        />
+
+        {/* Lo que otras áreas le pidieron a la mía. Se mantiene montada aunque no
+            esté al frente: es quien sabe cuántos delegatorios hay pendientes. */}
+        <div style={{
+          display: vista === 'otras_areas' ? 'block' : 'none',
+          margin: '0 24px', padding: '10px 14px 4px',
+          borderLeft: `1px solid ${theme.colors.border}`, borderRight: `1px solid ${theme.colors.border}`,
+          backgroundColor: theme.colors.surface,
+        }}>
+          <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} mostrarVacio />
         </div>
 
         {/* Table — scroll horizontal en móvil para no romper el layout */}
-        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '4px 24px 24px', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
+        {/* `0 1 auto` y no `flex: 1`: con pocos oficios el recuadro termina donde
+            acaban los renglones, en vez de estirarse con media pantalla en blanco.
+            Con muchos se encoge hasta el alto disponible y hace su propio scroll. */}
+        <div className="scroll-x" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto', margin: '0 24px 24px', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.surface }}>
-                {['', 'Folio', 'Delegación', 'Remitente', 'Ingreso', 'Término', 'Estatus', 'Sistemas', 'En bandeja de', 'Acciones'].map((h) => (
-                  <th key={h} style={thStyle}>{h}</th>
+                {([
+                  { texto: '' },
+                  { texto: 'Folio',         orden: 'folio' },
+                  { texto: 'N° de origen' },
+                  ...(variasAreas ? [{ texto: 'Delegación' }] : []),
+                  { texto: 'Remitente' },
+                  { texto: 'Ingreso',       orden: 'ingreso' },
+                  { texto: 'Término',       orden: 'termino' },
+                  { texto: 'Estatus',       orden: 'estatus' },
+                  ...(miBandeja ? [{ texto: 'Qué sigue' }] : []),
+                  { texto: 'Sistemas',      orden: 'sistemas' },
+                  { texto: 'En bandeja de', orden: 'bandeja' },
+                  { texto: 'Acciones' },
+                ] as { texto: string; orden?: string }[]).map((c) => (
+                  <th key={c.texto} style={thStyle}>
+                    {c.orden
+                      ? <OrdenColumna
+                          texto={c.texto}
+                          columna={c.orden}
+                          orden={orden}
+                          onOrden={(o) => { setOrden(o); setPage(1); }}
+                        />
+                      : c.texto}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
+                <tr><td colSpan={(miBandeja ? 12 : 11) - (variasAreas ? 0 : 1)} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Sin registros</td></tr>
+                <tr><td colSpan={(miBandeja ? 12 : 11) - (variasAreas ? 0 : 1)} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>{miBandeja ? 'No tienes nada pendiente por ahora.' : 'Sin registros'}</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -522,11 +665,19 @@ export const Dashboard_Gestion: React.FC = () => {
                       <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} />
                     </td>
                     <td style={tdStyle}><strong>{o.folio}</strong></td>
-                    <td style={{ ...tdStyle, fontSize: '0.78rem', color: theme.colors.textSecondary }}>{o.delegacion_nombre ?? '—'}</td>
+                    <td style={{ ...tdStyle, fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                      {o.numero_oficio_origen ?? '—'}
+                    </td>
+                    {variasAreas && (
+                      <td style={{ ...tdStyle, fontSize: '0.78rem', color: theme.colors.textSecondary }}>{o.delegacion_nombre ?? '—'}</td>
+                    )}
                     <td style={tdStyle}>{o.remitente}</td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
-                    <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
+                    <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} /></td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
+                    {miBandeja && (
+                      <td style={tdStyle}><PasoChip paso={o.mi_paso} /></td>
+                    )}
                     <td style={tdStyle}>
                       <SistemasChips oficio={o} />
                     </td>
@@ -540,76 +691,7 @@ export const Dashboard_Gestion: React.FC = () => {
                       )}
                     </td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                      {/* Orquestación — solo el ENCARGADO (asigna, delega el trabajo) */}
-                      {esEncargado && (
-                        <>
-                          {o.estatus === 'RECIBIDO' && (
-                            <>
-                              <button style={btnAction} onClick={() => { setSelected(o); setShowAssign(true); }}>
-                                Asignar
-                              </button>
-                              <button style={{ ...btnAction, backgroundColor: '#1E40AF' }} onClick={() => { setSelected(o); setShowTrabajar(true); }}>
-                                ✍️ Trabajar
-                              </button>
-                            </>
-                          )}
-                          {/* Trabajo directo del encargado: si lo reconsideran y no hay abogado
-                              asignado, el propio encargado sube la corrección. */}
-                          {o.estatus === 'EN_RECONSIDERACION' && !o.abogado_nombre && (
-                            <button style={{ ...btnAction, backgroundColor: '#1E40AF' }} onClick={() => { setSelected(o); setShowTrabajar(true); }}>
-                              ✍️ Corregir
-                            </button>
-                          )}
-                          {(['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
-                            <button style={{ ...btnAction, backgroundColor: theme.colors.gold }} onClick={() => { handleSelectOficio(o); setShowReassign(true); }}>
-                              Reasignar
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      {/* Aprobación — quien tiene la autoridad: en delegaciones el DELEGADO,
-                          en la Dirección General el encargado (backend: puede_vobo) */}
-                      {o.puede_vobo && (o.estatus === 'EN_REVISION' || o.estatus === 'EN_RECONSIDERACION') && (
-                        <>
-                          <button style={{ ...btnAction, backgroundColor: theme.colors.alert.green }} onClick={() => handleVobo(o)}>
-                            VoBo
-                          </button>
-                          <button style={{ ...btnAction, backgroundColor: theme.colors.alert.yellow, color: '#78350F' }} onClick={() => { handleSelectOficio(o); setShowRecon(true); }}>
-                            Reconsiderar
-                          </button>
-                        </>
-                      )}
-
-                      {/* Un oficio que la Dirección General regresó de firma ya trae el
-                          visto bueno dado, y aun así hay que poder devolvérselo al
-                          jurídico que lo redactó. Mientras espera firma, no. */}
-                      {o.puede_vobo && o.estatus === 'VOBO_APROBADO' && !o.en_pase_firma && (
-                        <button style={{ ...btnAction, backgroundColor: theme.colors.alert.yellow, color: '#78350F' }} onClick={() => { handleSelectOficio(o); setShowRecon(true); }}>
-                          Reconsiderar
-                        </button>
-                      )}
-
-                      {/* Ver el proyecto — el encargado o quien aprueba (para decidir el VoBo).
-                          Un oficio de conocimiento no tiene proyecto: se cerró sin contestación. */}
-                      {!o.de_conocimiento && (esEncargado || o.puede_vobo) && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(o.estatus as EstatusOficio) && (
-                        <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/proyecto`)} style={{ ...btnAction, backgroundColor: '#EFF6FF', color: '#1E40AF' }}>
-                          📝 Proyecto
-                        </button>
-                      )}
-
-                      {/* Subir firmado — VOBO_APROBADO: secretaría (DG) o encargado/delegado (delegación) */}
-                      {o.puede_finalizar && o.estatus === 'VOBO_APROBADO' && (
-                        <button style={btnAction} onClick={() => { setSelected(o); setShowUpload(true); }}>
-                          ✍️ Subir Firmado
-                        </button>
-                      )}
-                      {/* Ver documento firmado — al finalizar. Tampoco aplica si es de conocimiento. */}
-                      {o.estatus === 'FINALIZADO' && !o.de_conocimiento && (
-                        <button onClick={() => abrirArchivo(`/api/v1/files/${o.id}/firmado`)} style={{ ...btnAction, backgroundColor: '#D1FAE5', color: '#065F46' }}>
-                          ✍️ Firmado
-                        </button>
-                      )}
+                      <MenuAcciones acciones={accionesDe(o)} />
                     </td>
                   </tr>
                 ))

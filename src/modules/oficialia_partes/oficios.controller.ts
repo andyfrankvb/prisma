@@ -277,6 +277,26 @@ async function puedeMandarAPaseFirma(user: any, dirigidoAId: number | null): Pro
   return encargadoId === user.id;
 }
 
+/**
+ * ¿Puede esta persona marcar el oficio como de conocimiento?
+ *
+ * Nació como una facultad de la Dirección Jurídica, pero las delegaciones y las
+ * direcciones de área reciben los mismos oficios que solo informan.
+ *
+ * La tienen los tres que responden por el asunto en su área: el titular —delegado
+ * o director—, su encargado, y quien dé el visto bueno. Se nombra al titular
+ * aparte y no se deduce del visto bueno, porque en las áreas donde el visto bueno
+ * lo da el encargado el jefe se quedaría fuera de su propia área.
+ */
+async function puedeMarcarConocimientoEn(user: any, dirigidoAId: number | null): Promise<boolean> {
+  if (await esDeJuridica(user)) return true;
+  if (!dirigidoAId) return false;
+  if (user.id === dirigidoAId) return true;                 // el titular del área
+  if (await puedeAprobarOficio(user, dirigidoAId)) return true;
+  const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
+  return encargadoId === user.id;
+}
+
 /** La unidad de la Dirección General y su titular, para dirigir los avisos. */
 async function direccionGeneral(): Promise<{ unidad_id: number; titular_id: number | null } | null> {
   const unidad = await db('catalogo_unidades')
@@ -393,6 +413,8 @@ export async function listarOficios(
       )
       .leftJoin('usuarios as abogado_u', 'abogado_u.id', 'ultima_asignacion.abogado_id')
       .leftJoin('usuarios as dir_u', 'dir_u.id', 'oficios.dirigido_a_id')
+      // A quién iba dirigido el documento, aunque después se haya turnado.
+      .leftJoin('usuarios as dir_orig', 'dir_orig.id', 'oficios.dirigido_a_original_id')
       .leftJoin('catalogo_unidades as dir_cu', 'dir_cu.id', 'dir_u.unidad_id')
       // Encargado configurado para la unidad del "dirigido a" (para saber quién lo tiene si no está asignado)
       .leftJoin('configuracion_flujos as cf_enc', function () {
@@ -418,6 +440,7 @@ export async function listarOficios(
         'abogado_u.id as abogado_id',
         'dir_u.rol as dirigido_a_rol',
         'dir_u.nombre as dirigido_a_nombre',
+        'dir_orig.nombre as dirigido_a_original_nombre',
         'dir_u.unidad_id as dirigido_a_unidad_id',
         'dir_cu.tipo as dirigido_a_unidad_tipo',
         'dir_cu.nombre as delegacion_nombre',
@@ -430,7 +453,8 @@ export async function listarOficios(
         // ¿Llegó por un turno? Solo entonces se puede devolver a quien lo mandó.
         db.raw(`(SELECT count(*) FROM oficio_turnos t
                   WHERE t.oficio_id = oficios.id
-                    AND t.unidad_destino_id = dir_u.unidad_id)::int
+                    AND t.unidad_destino_id = dir_u.unidad_id
+                    AND t.tipo = 'COMPETENCIA')::int
                 AS turnos_recibidos`),
         // ¿El último movimiento que lo trajo fue una devolución? Cambia la etiqueta.
         // Marcado en SIGER sin delegatorio a una delegación: no puede cerrarse.
@@ -465,6 +489,12 @@ export async function listarOficios(
                 AS llego_por_devolucion`),
         // Esperando la firma de la Dirección General: no cambia de área, pero sí
         // cambia quién lo cierra y en qué bandeja se muestra.
+        // Llegó a esta área desde otra, por competencia o con información
+        // trabajada. Distinto de lo que capturó la propia oficialía.
+        db.raw(`EXISTS (SELECT 1 FROM oficio_turnos t2
+                         WHERE t2.oficio_id = oficios.id
+                           AND t2.unidad_destino_id = dir_u.unidad_id)
+                AS llego_de_otra_area`),
         db.raw(`EXISTS (SELECT 1 FROM oficio_pases_firma pf
                          WHERE pf.oficio_id = oficios.id
                            AND pf.cerrado_en IS NULL)
@@ -475,6 +505,9 @@ export async function listarOficios(
                     AND pf.resultado = 'CORREGIR'
                   ORDER BY pf.id DESC LIMIT 1)
                 AS pase_firma_devuelto_motivo`),
+        db.raw(`CASE WHEN oficios.tiene_termino AND oficios.vence_en IS NOT NULL
+                     THEN ceil(EXTRACT(EPOCH FROM (oficios.vence_en - now())) / 3600.0)
+                END::int AS horas_para_vencer`),
         'enc_u.nombre as encargado_nombre',
         'fin_aud.fecha_cambio as fecha_firmado',
         'oficial_u.nombre as ingresado_por_nombre',
@@ -483,6 +516,51 @@ export async function listarOficios(
     // Unidades de las que el usuario es ENCARGADO (routing por "dirigido a")
     const unidadesEncargado = await getUnidadesEncargado(user.id);
     const esEncargadoFlujo   = unidadesEncargado.length > 0;
+
+    // ── «Mi bandeja»: qué paso del flujo espera algo de MÍ en cada oficio ──────
+    //
+    // Ver todo lo del área y ver lo que a uno le toca son dos cosas distintas, y
+    // mezcladas en una sola lista lo pendiente se pierde entre el histórico.
+    //
+    // Se resuelve en SQL y no en el navegador a propósito: el número de la pestaña
+    // tiene que contar TODO lo pendiente, no solo la página cargada. Y se escribe
+    // una sola vez porque se usa en tres lugares —la columna, el conteo y el
+    // filtro—: si vivieran por separado, tarde o temprano dirían cosas distintas.
+    //
+    // Se apoya en «quién puede dar el siguiente paso» y no en la columna «en
+    // bandeja de», que en VoBo aprobado muestra al encargado: colgarse de ella
+    // dejaría al titular sin ver sus propias firmas pendientes.
+    const esSecretariaFlujo = await canActAsSecretaria(user);
+    // Enteros propios, no entrada del usuario: se interpolan para que `IN` reciba
+    // una lista literal. Sin unidades a cargo, `IN (NULL)` nunca es cierto.
+    const unidadesSql = unidadesEncargado.length
+      ? `(${unidadesEncargado.map(Number).join(',')})`
+      : '(NULL)';
+    const MI_PASO = `
+      CASE
+        WHEN oficios.estatus = 'FINALIZADO' OR oficios.de_conocimiento THEN NULL
+        WHEN oficios.estatus = 'RECIBIDO'
+             AND dir_u.unidad_id IN ${unidadesSql}                       THEN 'ASIGNAR'
+        WHEN oficios.estatus IN ('ASIGNADO', 'EN_RECONSIDERACION')
+             AND ultima_asignacion.abogado_id = ${Number(user.id)}       THEN 'REDACTAR'
+        WHEN oficios.estatus = 'EN_REVISION' AND (
+               CASE WHEN dir_u.rol = 'DIRECTOR'
+                         AND dir_cu.tipo IN ('DELEGACION', 'DIRECCION')
+                         AND dir_cu.vobo_por <> 'ENCARGADO'
+                    THEN oficios.dirigido_a_id = ${Number(user.id)}
+                    ELSE dir_u.unidad_id IN ${unidadesSql}
+               END)                                                      THEN 'VISTO_BUENO'
+        WHEN oficios.estatus = 'VOBO_APROBADO' AND (
+               CASE WHEN EXISTS (SELECT 1 FROM oficio_pases_firma pf
+                                  WHERE pf.oficio_id = oficios.id
+                                    AND pf.cerrado_en IS NULL)
+                    THEN ${esSecretariaFlujo ? 'TRUE' : 'FALSE'}
+                    ELSE (oficios.dirigido_a_id = ${Number(user.id)}
+                          OR dir_u.unidad_id IN ${unidadesSql})
+               END)                                                      THEN 'FIRMAR'
+        ELSE NULL
+      END`;
+    query = query.select(db.raw(`${MI_PASO} AS mi_paso`));
 
     // Restringe la query a oficios cuyo "dirigido a" pertenece a esas unidades
     // (reusa el leftJoin dir_u de arriba).
@@ -687,18 +765,77 @@ export async function listarOficios(
         query = query
           .andWhere('oficios.tiene_termino', true)
           .andWhereNot('oficios.estatus', 'FINALIZADO')
-          .andWhereRaw('oficios.fecha_vencimiento::date < CURRENT_DATE');
+          .andWhereRaw('oficios.vence_en < now()');
       } else if (t === 'por_vencer') {
         query = query
           .andWhere('oficios.tiene_termino', true)
           .andWhereNot('oficios.estatus', 'FINALIZADO')
-          .andWhereRaw(`oficios.fecha_vencimiento::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'`);
+          .andWhereRaw(`oficios.vence_en BETWEEN now() AND now() + INTERVAL '3 days'`);
       }
     }
 
     // Filtro por área / jefe de área: oficios dirigidos a un director o delegado.
     if (req.query.dirigido_a_id) {
       query = query.andWhere('oficios.dirigido_a_id', Number(req.query.dirigido_a_id));
+    }
+
+    // ── Filtro por quién lo tiene en bandeja ──────────────────────────────────
+    //
+    // Sirve para monitorear: ver todo lo que trae encima una encargada, un
+    // jurídico o una delegada. Repite en ids el mismo reparto que se muestra en
+    // la columna «En bandeja de», porque ese dato se calcula y no está guardado.
+    const BANDEJA_ID = `
+      CASE
+        WHEN oficios.estatus IN ('ASIGNADO', 'EN_RECONSIDERACION')
+          THEN COALESCE(ultima_asignacion.abogado_id, cf_enc.usuario_id)
+        WHEN oficios.estatus = 'EN_REVISION' THEN
+          CASE WHEN dir_u.rol = 'DIRECTOR'
+                    AND dir_cu.tipo IN ('DELEGACION', 'DIRECCION')
+                    AND dir_cu.vobo_por <> 'ENCARGADO'
+               THEN oficios.dirigido_a_id ELSE cf_enc.usuario_id END
+        WHEN oficios.estatus IN ('VOBO_APROBADO', 'FINALIZADO') THEN
+          CASE WHEN EXISTS (SELECT 1 FROM oficio_pases_firma pf2
+                             WHERE pf2.oficio_id = oficios.id AND pf2.cerrado_en IS NULL)
+               THEN (SELECT cf3.usuario_id FROM configuracion_flujos cf3
+                      WHERE cf3.modulo_clave = 'oficialia_partes'
+                        AND cf3.rol_flujo = 'SECRETARIA' LIMIT 1)
+               ELSE cf_enc.usuario_id END
+        ELSE cf_enc.usuario_id
+      END`;
+    if (req.query.en_bandeja_de) {
+      query = query.andWhereRaw(`(${BANDEJA_ID}) = ?`, [Number(req.query.en_bandeja_de)]);
+    }
+
+    // ── Filtro por situación ──────────────────────────────────────────────────
+    //
+    // Va aparte del estatus y no mezclado con él, porque son cosas distintas: un
+    // oficio puede estar «Recibido» y además haber llegado turnado. Meterlas en
+    // el mismo desplegable obligaría a elegir una y perder la otra.
+    const situacion = String(req.query.situacion ?? '');
+    if (situacion === 'turnado') {
+      query = query.andWhereRaw(`EXISTS (SELECT 1 FROM oficio_turnos t4
+                                          WHERE t4.oficio_id = oficios.id
+                                            AND t4.unidad_destino_id = dir_u.unidad_id
+                                            AND NOT t4.es_devolucion)`);
+    } else if (situacion === 'devuelto') {
+      query = query.andWhereRaw(`EXISTS (SELECT 1 FROM oficio_turnos t4
+                                          WHERE t4.oficio_id = oficios.id
+                                            AND t4.unidad_destino_id = dir_u.unidad_id
+                                            AND t4.es_devolucion)`);
+    } else if (situacion === 'informacion') {
+      query = query.andWhereRaw(`EXISTS (SELECT 1 FROM oficio_turnos t4
+                                          WHERE t4.oficio_id = oficios.id
+                                            AND t4.tipo = 'INFORMACION')`);
+    } else if (situacion === 'de_conocimiento') {
+      query = query.andWhere('oficios.de_conocimiento', true);
+    } else if (situacion === 'en_firma_dg') {
+      query = query.andWhereRaw(`EXISTS (SELECT 1 FROM oficio_pases_firma pf4
+                                          WHERE pf4.oficio_id = oficios.id
+                                            AND pf4.cerrado_en IS NULL)`);
+    } else if (situacion === 'delegatorios_pendientes') {
+      query = query.andWhereRaw(`EXISTS (SELECT 1 FROM oficio_delegatorios d4
+                                          WHERE d4.oficio_id = oficios.id
+                                            AND d4.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION'))`);
     }
 
     // Conteos por estatus (SIN el filtro de estatus, con el resto de filtros y el
@@ -710,6 +847,37 @@ export async function listarOficios(
     const conteos: Record<string, number> = {};
     for (const r of conteoRows as any[]) conteos[String(r.estatus)] = Number(r.count);
 
+    // Cuántos esperan algo de mí. Se cuenta sobre TODO lo que el usuario alcanza a
+    // ver —no sobre la página—, así el número de la pestaña es el de verdad.
+    //
+    // Va aparte de `conteos` a propósito: ese objeto guarda conteos por estatus y
+    // hay pantallas que suman sus valores para sacar el total. Meter aquí un
+    // número que no es un estatus lo haría contar de más.
+    const miBandejaRows = await query.clone().clearSelect()
+      .whereRaw(`${MI_PASO} IS NOT NULL`)
+      .countDistinct('oficios.id as count');
+    const miBandeja = Number((miBandejaRows[0] as any)?.count ?? 0);
+
+    // Y la pestaña, cuando está activa, filtra con la misma expresión.
+    if (String(req.query.mi_bandeja) === 'true') {
+      query = query.whereRaw(`${MI_PASO} IS NOT NULL`);
+    }
+
+    // Lo que llegó de otra área. El número cuenta exactamente lo que la pestaña
+    // muestra: si contara solo lo accionable, diría «0» sobre una lista con
+    // renglones, que es peor que no ponerlo.
+    const DE_OTRA_AREA = `EXISTS (SELECT 1 FROM oficio_turnos t3
+                                   WHERE t3.oficio_id = oficios.id
+                                     AND t3.unidad_destino_id = dir_u.unidad_id)`;
+    const otrasRows = await query.clone().clearSelect()
+      .whereRaw(DE_OTRA_AREA)
+      .countDistinct('oficios.id as count');
+    const deOtrasAreas = Number((otrasRows[0] as any)?.count ?? 0);
+
+    if (String(req.query.de_otras_areas) === 'true') {
+      query = query.whereRaw(DE_OTRA_AREA);
+    }
+
     // Ahora sí, aplica el filtro por estatus (para la lista y el total).
     if (req.query.estatus) {
       query = query.andWhere('oficios.estatus', req.query.estatus as string);
@@ -719,7 +887,66 @@ export async function listarOficios(
     // (1-a-muchos) puede duplicar filas del mismo oficio.
     const countRows = await query.clone().clearSelect().countDistinct('oficios.id as count');
     const total     = Number((countRows[0] as any)?.count ?? 0);
-    const rows      = await query.orderBy('oficios.fecha_registro', 'desc').limit(limit).offset(offset);
+    // ── Orden de la lista ─────────────────────────────────────────────────────
+    //
+    // Se ordena en la consulta y no en el navegador: la lista viene paginada, y
+    // ordenar solo lo cargado daría un orden falso — el primero de la pantalla no
+    // sería el primero de verdad.
+    //
+    // «En bandeja de» y «Sistemas» son columnas calculadas, así que su criterio se
+    // repite aquí en SQL. El de la bandeja sigue el mismo reparto que se muestra:
+    // recibido va con el encargado, asignado con el analista, y ya aprobado con la
+    // secretaría cuando está esperando la firma de la Dirección General.
+    const ORDEN_BANDEJA = `
+      CASE
+        WHEN oficios.estatus IN ('ASIGNADO', 'EN_RECONSIDERACION')
+          THEN COALESCE(abogado_u.nombre, enc_u.nombre)
+        WHEN oficios.estatus = 'EN_REVISION' THEN
+          CASE WHEN dir_u.rol = 'DIRECTOR'
+                    AND dir_cu.tipo IN ('DELEGACION', 'DIRECCION')
+                    AND dir_cu.vobo_por <> 'ENCARGADO'
+               THEN dir_u.nombre ELSE enc_u.nombre END
+        WHEN oficios.estatus IN ('VOBO_APROBADO', 'FINALIZADO') THEN
+          CASE WHEN EXISTS (SELECT 1 FROM oficio_pases_firma pf
+                             WHERE pf.oficio_id = oficios.id AND pf.cerrado_en IS NULL)
+               THEN (SELECT u2.nombre FROM configuracion_flujos cf2
+                       JOIN usuarios u2 ON u2.id = cf2.usuario_id
+                      WHERE cf2.modulo_clave = 'oficialia_partes'
+                        AND cf2.rol_flujo = 'SECRETARIA' LIMIT 1)
+               ELSE enc_u.nombre END
+        ELSE enc_u.nombre
+      END`;
+    // Primero los que sí están dados de alta en algún sistema, y entre ellos por NCI.
+    // Lleva la dirección en cada tramo: con una sola al final, el criterio principal
+    // se quedaba siempre ascendente y «descendente» acababa mostrando los vacíos.
+    const ORDEN_SISTEMAS =
+      '((CASE WHEN oficios.siqroo_aplica THEN 2 ELSE 0 END)'
+      + ' + (CASE WHEN oficios.siger_aplica THEN 1 ELSE 0 END)) %DIR%,'
+      + ' oficios.siqroo_control_interno %DIR% NULLS LAST';
+
+    // Cada criterio trae su cláusula completa, con %DIR% donde va la dirección.
+    // NULLS LAST siempre: un oficio sin término o sin NCI no debe encabezar la
+    // lista solo por estar vacío, se ordene como se ordene.
+    const ORDENES: Record<string, string> = {
+      folio:    'oficios.folio %DIR%',
+      ingreso:  'oficios.fecha_registro %DIR%',
+      termino:  'oficios.vence_en %DIR% NULLS LAST',
+      estatus:  'oficios.estatus %DIR%',      // el enum ya va en el orden del flujo
+      bandeja:  `(${ORDEN_BANDEJA}) %DIR% NULLS LAST`,
+      sistemas: ORDEN_SISTEMAS,
+    };
+    const clausula = ORDENES[String(req.query.orden ?? '')];
+    const sentido  = String(req.query.dir ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    if (clausula) {
+      // Desempate estable por id: sin él, dos oficios con el mismo valor pueden
+      // intercambiarse entre páginas y repetirse o perderse al hacer scroll.
+      query = query.orderByRaw(`${clausula.split('%DIR%').join(sentido)}, oficios.id DESC`);
+    } else {
+      query = query.orderBy('oficios.fecha_registro', 'desc');
+    }
+
+    const rows      = await query.limit(limit).offset(offset);
 
     // Nombre de la secretaría (para "en bandeja de" cuando ya tiene VoBo)
     const secretariaRow = await db('configuracion_flujos as cf')
@@ -740,8 +967,16 @@ export async function listarOficios(
     today.setHours(0, 0, 0, 0);
 
     const oficios = rows.map((o: any) => {
-      let dias_restantes: number | null = null;
-      if (o.tiene_termino && o.fecha_vencimiento) {
+      // Un término por fecha se cuenta en días; uno por horas, en horas. Medir en
+      // días un plazo de seis horas siempre daría «vence hoy», que no dice nada.
+      let dias_restantes:  number | null = null;
+      let horas_restantes: number | null = null;
+
+      if (o.tiene_termino && o.termino_tipo === 'HORAS' && o.horas_para_vencer !== null) {
+        horas_restantes = Number(o.horas_para_vencer);
+        // Para el semáforo, que razona en días: vencido si ya pasó, si no, hoy.
+        dias_restantes  = horas_restantes > 0 ? 0 : -1;
+      } else if (o.tiene_termino && o.fecha_vencimiento) {
         const vence = new Date(o.fecha_vencimiento);
         vence.setHours(0, 0, 0, 0);
         dias_restantes = Math.ceil((vence.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -785,9 +1020,13 @@ export async function listarOficios(
       const sigerPendiente = !!(o as any).siger_sin_delegatorio
         || !!(o as any).fre_sin_delegatorio
         || !!(o as any).testamento_sin_delegatorio;
-      const puede_vobo = delegatorios_pendientes === 0 && !sigerPendiente && (voboLoDaElEncargado
+      // La autoridad sobre el oficio, sin los frenos: quien aprueba en esa área.
+      // Se separa porque el visto bueno sí espera a los delegatorios, pero marcar
+      // de conocimiento no depende de ellos —y desmarcarlo, menos—.
+      const esElAprobador = voboLoDaElEncargado
         ? unidadesEncargado.includes(o.dirigido_a_unidad_id)   // el encargado de esa unidad
-        : o.dirigido_a_id === user.id);                         // el titular (dirigido a)
+        : o.dirigido_a_id === user.id;                         // el titular (dirigido a)
+      const puede_vobo = delegatorios_pendientes === 0 && !sigerPendiente && esElAprobador;
 
       // Responsable del visto bueno (nombre).
       const vobo_por_nombre = aprobadorNombre;
@@ -813,19 +1052,25 @@ export async function listarOficios(
       const puede_devolver_pase_firma = enPase && esSecretaria;
 
       // Turnar a otra área: lo hace el encargado del área que hoy tiene el oficio.
+      // Turna quien responde por el área: su titular o el encargado de oficios.
       const puede_turnar = o.estatus !== 'FINALIZADO'
-        && unidadesEncargado.includes(o.dirigido_a_unidad_id);
+        && (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id));
       // Y devolverlo, solo si llegó por un turno.
       const puede_devolver_turno = puede_turnar && Number((o as any).turnos_recibidos ?? 0) > 0;
 
-      // La casilla «de conocimiento» solo la ve Jurídica, y solo mientras el
+      // La casilla «de conocimiento»: la Dirección Jurídica en cualquier oficio, y
+      // en cada área quien da el visto bueno o su encargado. Solo mientras el
       // oficio no esté cerrado por firma.
-      const puede_de_conocimiento = puedeMarcarConocimiento
+      const puede_de_conocimiento = (puedeMarcarConocimiento
+          || o.dirigido_a_id === user.id                        // el titular del área
+          || esElAprobador
+          || unidadesEncargado.includes(o.dirigido_a_unidad_id))
         && (o.de_conocimiento || o.estatus !== 'FINALIZADO');
 
       return {
         ...o,
         dias_restantes,
+        horas_restantes,
         delegatorios_pendientes,
         puede_vobo,
         puede_finalizar,
@@ -842,7 +1087,7 @@ export async function listarOficios(
 
     res.json({
       data:  oficios,
-      meta:  { total, page, limit, conteos },
+      meta:  { total, page, limit, conteos, mi_bandeja: miBandeja, de_otras_areas: deOtrasAreas },
     });
   } catch (err) {
     next(err);
@@ -906,6 +1151,8 @@ export async function crearOficio(
       descripcion_solicitud,
       tiene_termino,
       fecha_vencimiento,
+      termino_tipo,
+      termino_horas,
       via_recepcion,
       correo_origen,
       correo_destino,
@@ -970,8 +1217,17 @@ export async function crearOficio(
     }
 
     // ── Validaciones ──────────────────────────────────────────
+    // Con término hay dos formas de capturarlo, y cada una pide lo suyo. Sin tipo
+    // se asume fecha, que es como se venía capturando hasta ahora.
+    const porHoras = String(termino_tipo ?? '').toUpperCase() === 'HORAS';
+    const horas    = Number(termino_horas);
+
     if (tiene_termino === true || tiene_termino === 'true') {
-      if (!fecha_vencimiento) {
+      if (porHoras) {
+        if (!Number.isInteger(horas) || horas < 1 || horas > 24) {
+          throw new AppError('Las horas del término deben ser un número de 1 a 24', 400);
+        }
+      } else if (!fecha_vencimiento) {
         throw new AppError(
           'fecha_vencimiento es requerida cuando tiene_termino es verdadero',
           400,
@@ -1047,6 +1303,13 @@ export async function crearOficio(
           fecha_registro:       new Date(),
           descripcion_solicitud: mayus(descripcion_solicitud),
           tiene_termino:        Boolean(tiene_termino),
+          // A quién va dirigido según el documento. No se vuelve a tocar: el
+          // turno mueve el trabajo, no reescribe el destinatario del oficio.
+          dirigido_a_original_id: dirigido_a_id ? Number(dirigido_a_id) : null,
+          // El instante de vencimiento no se guarda: la base lo calcula sola a
+          // partir de estos campos y de la fecha de ingreso.
+          termino_tipo:         tiene_termino ? (porHoras ? 'HORAS' : 'FECHA') : null,
+          termino_horas:        tiene_termino && porHoras ? horas : null,
           fecha_vencimiento:    fecha_vencimiento ?? null,
           pdf_original_path,
           // SIQROO y SIGER se marcan después, desde el detalle del oficio.
@@ -1274,8 +1537,10 @@ export async function marcarDeConocimiento(
     const user      = req.user!;
     const oficio_id = parseInt(req.params.id, 10);
 
-    if (!(await esDeJuridica(user))) {
-      throw new AppError('Solo la Dirección Jurídica puede marcar un oficio de conocimiento', 403);
+    const dirigido = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
+    if (!dirigido) throw new AppError('Oficio no encontrado', 404);
+    if (!(await puedeMarcarConocimientoEn(user, dirigido.dirigido_a_id))) {
+      throw new AppError('Solo quien da el visto bueno o el encargado del área pueden marcar un oficio de conocimiento', 403);
     }
 
     const marcar = req.body?.de_conocimiento !== false && req.body?.de_conocimiento !== 'false';
@@ -1314,6 +1579,11 @@ export async function marcarDeConocimiento(
           estatus:                     'FINALIZADO' as EstatusOficio,
         });
         await createAuditLog(trx, oficio_id, oficio.estatus, 'FINALIZADO', user.id);
+        // La auditoría solo dirá «FINALIZADO», que es lo mismo que se lee cuando
+        // un oficio se firma. Aquí queda dicho que se cerró por informativo.
+        await trx('oficio_conocimiento').insert({
+          oficio_id, marcado: true, usuario_id: user.id, creado_en: new Date(),
+        });
       } else {
         if (!oficio.de_conocimiento) {
           throw new AppError('Este oficio no está marcado de conocimiento', 422);
@@ -1329,6 +1599,10 @@ export async function marcarDeConocimiento(
           estatus:                     previo,
         });
         await createAuditLog(trx, oficio_id, oficio.estatus, previo, user.id);
+        await trx('oficio_conocimiento').insert({
+          oficio_id, marcado: false, estatus_restaurado: previo,
+          usuario_id: user.id, creado_en: new Date(),
+        });
       }
 
       return trx('oficios').where({ id: oficio_id }).first();
@@ -1525,8 +1799,20 @@ export async function turnarOficio(
 
     const destinoId = Number(req.body?.unidad_destino_id);
     const motivo    = String(req.body?.motivo ?? '').trim().toUpperCase();
+    // Dos razones opuestas y por eso se distinguen: o el asunto no le toca al
+    // área, o sí le tocaba, ya hizo su parte y manda lo trabajado para que otra
+    // continúe. Registrarlas igual dejaría el expediente contando lo contrario.
+    const tipo = String(req.body?.tipo ?? 'COMPETENCIA').toUpperCase() === 'INFORMACION'
+      ? 'INFORMACION' : 'COMPETENCIA';
+
     if (!destinoId) throw new AppError('Selecciona el área a la que se turna', 422);
-    if (!motivo)    throw new AppError('Indica por qué se turna a esa área', 422);
+    if (!motivo)    throw new AppError(
+      tipo === 'INFORMACION'
+        ? 'Explica qué información se envía y hasta dónde trabajó tu área'
+        : 'Indica por qué se turna a esa área', 422);
+    if (tipo === 'INFORMACION' && !req.file) {
+      throw new AppError('Adjunta el documento con lo que trabajó tu área', 422);
+    }
 
     // Unidad actual del oficio (la del destinatario) y quién la tiene a cargo.
     const actual = await db('oficios as o')
@@ -1543,7 +1829,9 @@ export async function turnarOficio(
       throw new AppError('El oficio ya está en esa área', 422);
     }
 
-    // Solo el encargado del área que hoy tiene el oficio puede turnarlo.
+    // Lo turna quien responde por el área: su titular —delegado o director— o el
+    // encargado de oficios. Antes solo el encargado, y como en la mayoría de las
+    // áreas el jefe no lo es, ninguna delegada podía turnar sus propios oficios.
     const esEncargado = await db('configuracion_flujos')
       .where({
         modulo_clave: 'oficialia_partes',
@@ -1552,8 +1840,9 @@ export async function turnarOficio(
         unidad_id:    actual.unidad_actual ?? -1,
       })
       .first();
-    if (!esEncargado) {
-      throw new AppError('Solo el encargado del área que tiene el oficio puede turnarlo', 403);
+    const esTitular = actual.dirigido_a_id === user.id;
+    if (!esEncargado && !esTitular) {
+      throw new AppError('Solo el titular del área o su encargado pueden turnar este oficio', 403);
     }
 
     // Con delegatorios abiertos el turno dejaría a otras áreas trabajando de más.
@@ -1573,6 +1862,12 @@ export async function turnarOficio(
       throw new AppError(`«${destino.nombre}» no tiene un titular activo al cual dirigir el oficio`, 422);
     }
 
+    // Fuera de la transacción, igual que en el resto del módulo: si el guardado
+    // del archivo falla, no se alcanzó a mover nada.
+    const documentoUrl = req.file
+      ? (await storage.saveWithInfo(req.file, 'oficios/turnos')).url
+      : null;
+
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
 
@@ -1584,6 +1879,8 @@ export async function turnarOficio(
         dirigido_nuevo_id:    titular.id,
         estatus_previo:       oficio.estatus,
         motivo,
+        tipo,
+        documento_url:        documentoUrl,
         turnado_por_id:       user.id,
         creado_en:            new Date(),
       });
@@ -2142,7 +2439,7 @@ export async function getHistorial(
       .leftJoin('catalogo_unidades as destino', 'destino.id', 't.unidad_destino_id')
       .where('t.oficio_id', oficio_id)
       .select(
-        't.id', 't.motivo', 't.estatus_previo', 't.creado_en', 't.es_devolucion',
+        't.id', 't.motivo', 't.estatus_previo', 't.creado_en', 't.es_devolucion', 't.tipo',
         'u.nombre as usuario_nombre',
         'origen.nombre as origen', 'destino.nombre as destino',
       )
@@ -2184,17 +2481,59 @@ export async function getHistorial(
       }];
     });
 
+    // A quién se le asignó el oficio y quién lo asignó. La auditoría solo dice
+    // que pasó a ASIGNADO, no en manos de quién quedó — que es justo lo que hace
+    // falta para seguirle la pista cuando el oficio se mueve entre áreas.
+    const asignaciones = await db('asignaciones_juridicas as a')
+      .join('usuarios as ab', 'ab.id', 'a.abogado_id')
+      .leftJoin('usuarios as por', 'por.id', 'a.asignado_por_id')
+      .where('a.oficio_id', oficio_id)
+      .select('a.id', 'a.fecha_asignacion', 'a.observaciones',
+              'ab.nombre as abogado', 'por.nombre as asignado_por')
+      .orderBy('a.id', 'asc');
+
+    // Cada vez que se marcó o se quitó la marca de conocimiento.
+    const conocimiento = await db('oficio_conocimiento as k')
+      .join('usuarios as u', 'u.id', 'k.usuario_id')
+      .where('k.oficio_id', oficio_id)
+      .select('k.id', 'k.marcado', 'k.estatus_restaurado', 'k.creado_en', 'u.nombre as usuario_nombre')
+      .orderBy('k.id', 'asc');
+
     const historial = [
       ...estados,
       ...eventosPase,
+      ...asignaciones.map((a: any) => ({
+        // Rango propio de ids negativos, para no chocar con las otras fuentes.
+        id:              -3000000 - a.id,
+        estado_anterior: null,
+        estado_nuevo:    'ASIGNACION',
+        fecha_cambio:    a.fecha_asignacion,
+        usuario_nombre:  a.asignado_por ?? '—',
+        detalle:         a.observaciones
+          ? `Asignado a ${a.abogado}: ${a.observaciones}`
+          : `Asignado a ${a.abogado}`,
+      })),
+      ...conocimiento.map((k: any) => ({
+        id:              -4000000 - k.id,
+        estado_anterior: null,
+        estado_nuevo:    k.marcado ? 'DE_CONOCIMIENTO' : 'CONOCIMIENTO_QUITADO',
+        fecha_cambio:    k.creado_en,
+        usuario_nombre:  k.usuario_nombre,
+        detalle:         k.marcado
+          ? 'Marcado de conocimiento: se cierra sin contestación ni firma'
+          : `Se quitó la marca de conocimiento; el oficio regresó a ${k.estatus_restaurado ?? 'su punto anterior'}`,
+      })),
       ...turnos.map((t: any) => ({
         // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
         id:              -1000000 - t.id,
         estado_anterior: t.estatus_previo,
-        estado_nuevo:    t.es_devolucion ? 'DEVUELTO' : 'TURNADO',
+        estado_nuevo:    t.es_devolucion ? 'DEVUELTO'
+                          : t.tipo === 'INFORMACION' ? 'INFORMACION_ENVIADA' : 'TURNADO',
         fecha_cambio:    t.creado_en,
         usuario_nombre:  t.usuario_nombre,
-        detalle:         `${t.origen ?? 'Sin área'} → ${t.destino}: ${t.motivo}`,
+        detalle:         t.tipo === 'INFORMACION'
+          ? `${t.origen ?? 'Sin área'} → ${t.destino}, envío de información: ${t.motivo}`
+          : `${t.origen ?? 'Sin área'} → ${t.destino}: ${t.motivo}`,
       })),
       ...delegatorios.map((c: any) => ({
         // Id negativo para no chocar con los de auditoría al usarlo como llave.
@@ -2502,6 +2841,44 @@ async function avisarCierreDePase(oficio_id: number): Promise<void> {
     dependencia_origen: oficio.dependencia_origen,
     area:               'Dirección General',
   });
+}
+
+// ─── GET /oficios/responsables ───────────────────────────────────────────────
+
+/**
+ * Quiénes pueden tener un oficio en su bandeja, para el filtro de monitoreo.
+ *
+ * No es la lista de usuarios del sistema: son los que participan en el flujo
+ * —encargados, analistas jurídicos, titulares de área y la secretaría—, que son
+ * los únicos nombres que llegan a aparecer en la columna «En bandeja de».
+ */
+export async function listarResponsables(
+  _req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const enFlujos = db('configuracion_flujos')
+      .where('modulo_clave', 'oficialia_partes')
+      .whereIn('rol_flujo', ['ENCARGADO', 'JURIDICO', 'SECRETARIA'])
+      .whereNotNull('usuario_id')
+      .select('usuario_id');
+
+    const filas = await db('usuarios as u')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('u.activo', true)
+      .andWhere((q) => {
+        q.whereIn('u.id', enFlujos)
+         // Los titulares de área: el oficio les cae a ellos aunque no estén
+         // configurados en flujos.
+         .orWhere((q2) => {
+           q2.where('u.rol', 'DIRECTOR').whereNotNull('u.unidad_id');
+         });
+      })
+      .select('u.id', 'u.nombre', 'u.cargo', 'cu.nombre as area')
+      .orderBy('cu.nombre', 'asc')
+      .orderBy('u.nombre', 'asc');
+
+    res.json({ data: filas });
+  } catch (err) { next(err); }
 }
 
 // ─── POST /oficios/:id/pase-firma ────────────────────────────────────────────

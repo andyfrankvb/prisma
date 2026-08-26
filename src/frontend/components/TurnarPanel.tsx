@@ -1,10 +1,15 @@
 /**
  * TurnarPanel — mandar el oficio completo a otra área.
  *
- * Pasa cuando lo solicitado no es competencia del área que lo recibió: el
- * encargado lo turna a la que sí corresponde y el oficio arranca su flujo ahí,
- * desde el principio. A diferencia del delegatorio, el oficio se va completo y
- * no regresa.
+ * Dos razones, opuestas entre sí, y por eso se eligen aparte:
+ *
+ *   · No es competencia del área — lo turna a la que sí corresponde y el oficio
+ *     arranca su flujo allá desde el principio.
+ *   · Envío de información — sí le tocaba, ya trabajó su parte y manda lo hecho
+ *     para que otra área continúe. Va con el documento trabajado.
+ *
+ * Registrarlas con el mismo motivo dejaba el expediente diciendo que el área se
+ * deslindó de un asunto que en realidad sacó adelante.
  *
  * El folio no cambia: es el que ya se entregó en el acuse.
  *
@@ -26,6 +31,8 @@ export const TurnarPanel: React.FC<{
   const [areas,   setAreas]   = useState<AreaTurno[]>([]);
   const [destino, setDestino] = useState<number | ''>('');
   const [motivo,  setMotivo]  = useState('');
+  const [tipo,    setTipo]    = useState<'COMPETENCIA' | 'INFORMACION'>('COMPETENCIA');
+  const [archivo, setArchivo] = useState<File | null>(null);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState<string | null>(null);
   const [devolviendo, setDevolviendo] = useState(false);
@@ -38,7 +45,7 @@ export const TurnarPanel: React.FC<{
   }, [abierto, areas.length]);
 
   // Al cambiar de oficio se cierra el formulario para no turnar el equivocado.
-  useEffect(() => { setAbierto(false); setDestino(''); setMotivo(''); setError(null); }, [oficio.id]);
+  useEffect(() => { setAbierto(false); setDestino(''); setMotivo(''); setTipo('COMPETENCIA'); setArchivo(null); setError(null); }, [oficio.id]);
 
   if (!oficio.puede_turnar) return null;
 
@@ -64,20 +71,25 @@ export const TurnarPanel: React.FC<{
     }
   };
 
+  const esInformacion = tipo === 'INFORMACION';
+
   const enviar = async () => {
     if (!destino || !motivo.trim()) return;
+    if (esInformacion && !archivo) { setError('Adjunta el documento con lo que trabajó tu área'); return; }
     const area = areas.find((a) => a.id === destino);
     const sigue = await dialogo.confirmar({
-      titulo:    'Turnar a otra área',
-      mensaje:   `El oficio ${oficio.folio} dejará tu área y pasará a «${area?.nombre}», donde iniciará su trámite.`,
-      confirmar: 'Turnar',
+      titulo:    esInformacion ? 'Enviar información a otra área' : 'Turnar a otra área',
+      mensaje:   esInformacion
+        ? `Se enviará lo que trabajó tu área sobre el oficio ${oficio.folio} a «${area?.nombre}», que continuará el seguimiento.`
+        : `El oficio ${oficio.folio} dejará tu área y pasará a «${area?.nombre}», donde iniciará su trámite.`,
+      confirmar: esInformacion ? 'Enviar' : 'Turnar',
     });
     if (!sigue) return;
 
     setSaving(true); setError(null);
     try {
-      await turnarOficio(oficio.id, Number(destino), motivo.trim());
-      setAbierto(false); setDestino(''); setMotivo('');
+      await turnarOficio(oficio.id, Number(destino), motivo.trim(), tipo, archivo);
+      setAbierto(false); setDestino(''); setMotivo(''); setTipo('COMPETENCIA'); setArchivo(null);
       onDone?.();
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo turnar el oficio');
@@ -94,7 +106,7 @@ export const TurnarPanel: React.FC<{
             Competencia
           </span>
           <span style={{ display: 'block', fontSize: '0.75rem', color: theme.colors.textSecondary, marginTop: '2px' }}>
-            Si lo solicitado no corresponde a tu área, túrnalo a la que sí.
+            Túrnalo a la que corresponde, o envíale lo que ya trabajaste para que continúe.
           </span>
         </div>
         {!abierto && (
@@ -121,6 +133,30 @@ export const TurnarPanel: React.FC<{
 
       {abierto && (
         <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+          {/* La razón se elige primero: cambia lo que se pide abajo. */}
+          <div style={{ display: 'grid', gap: '6px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.79rem', cursor: 'pointer' }}>
+              <input type="radio" name={`turno-${oficio.id}`} checked={tipo === 'COMPETENCIA'}
+                onChange={() => setTipo('COMPETENCIA')} style={{ marginTop: '3px' }} />
+              <span>
+                <strong>No es competencia de mi área</strong>
+                <span style={{ display: 'block', color: theme.colors.textSecondary, fontSize: '0.73rem' }}>
+                  El oficio se va completo y allá inicia su trámite.
+                </span>
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.79rem', cursor: 'pointer' }}>
+              <input type="radio" name={`turno-${oficio.id}`} checked={tipo === 'INFORMACION'}
+                onChange={() => setTipo('INFORMACION')} style={{ marginTop: '3px' }} />
+              <span>
+                <strong>Envío de información</strong>
+                <span style={{ display: 'block', color: theme.colors.textSecondary, fontSize: '0.73rem' }}>
+                  Mi área ya trabajó su parte y manda lo hecho para que continúen.
+                </span>
+              </span>
+            </label>
+          </div>
+
           <select
             value={destino === '' ? '' : String(destino)}
             onChange={(e) => setDestino(e.target.value ? Number(e.target.value) : '')}
@@ -136,9 +172,25 @@ export const TurnarPanel: React.FC<{
             value={motivo}
             onChange={(e) => setMotivo(e.target.value.toUpperCase())}
             rows={2}
-            placeholder="¿POR QUÉ CORRESPONDE A ESA ÁREA?"
+            placeholder={esInformacion
+              ? '¿QUÉ SE ENVÍA Y HASTA DÓNDE TRABAJÓ TU ÁREA?'
+              : '¿POR QUÉ CORRESPONDE A ESA ÁREA?'}
             style={{ ...input, resize: 'vertical', textTransform: 'uppercase' }}
           />
+
+          {esInformacion && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '4px' }}>
+                Documento con lo trabajado <span style={{ color: theme.colors.alert.red }}>*</span>
+              </label>
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+                style={{ ...input, padding: '6px 8px' }}
+              />
+            </div>
+          )}
 
           {error && <p style={{ margin: 0, fontSize: '0.72rem', color: theme.colors.alert.red }}>{error}</p>}
 
@@ -147,10 +199,10 @@ export const TurnarPanel: React.FC<{
             <button
               type="button"
               onClick={enviar}
-              disabled={saving || !destino || !motivo.trim()}
-              style={{ ...btnPri, opacity: (saving || !destino || !motivo.trim()) ? 0.5 : 1 }}
+              disabled={saving || !destino || !motivo.trim() || (esInformacion && !archivo)}
+              style={{ ...btnPri, opacity: (saving || !destino || !motivo.trim() || (esInformacion && !archivo)) ? 0.5 : 1 }}
             >
-              {saving ? 'Turnando…' : 'Turnar'}
+              {saving ? 'Enviando…' : esInformacion ? 'Enviar información' : 'Turnar'}
             </button>
           </div>
         </div>

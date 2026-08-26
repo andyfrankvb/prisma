@@ -206,7 +206,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
             </>
           )}
           <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} enPaseFirma={!!oficio.en_pase_firma} />} />
-          <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} />} />
+          <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes} />} />
         </div>
       </Seccion>
 

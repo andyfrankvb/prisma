@@ -27,6 +27,7 @@ import {
   marcarDeConocimiento,
   marcarTestamento,
   verificarDuplicado,
+  listarResponsables,
   mandarAPaseFirma,
   devolverPaseFirma,
   areasTurno,
@@ -178,8 +179,12 @@ router.get('/oficios/destinatarios', listarDestinatarios);
 /** GET /oficios/areas-turno — áreas a las que se puede turnar un oficio */
 router.get('/oficios/areas-turno', areasTurno);
 
+/** GET /oficios/responsables — quiénes pueden tener un oficio en bandeja. */
+router.get('/oficios/responsables', listarResponsables);
+
 /** PATCH /oficios/:id/turnar — el oficio cambia de área y reinicia su flujo ahí */
-router.patch('/oficios/:id/turnar', turnarOficio);
+// Multipart: el turno por envío de información lleva el documento trabajado.
+router.patch('/oficios/:id/turnar', uploadOficio.single('documento'), turnarOficio);
 
 /** PATCH /oficios/:id/turnar/devolver — regresarlo a quien lo turnó, por no competerle */
 router.patch('/oficios/:id/turnar/devolver', devolverTurno);

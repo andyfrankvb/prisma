@@ -29,7 +29,8 @@ import type { CatalogoItem, TipoCorreo, PosibleDuplicado } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
 import { FiltrosOficios } from '../components/FiltrosOficios';
-import { OficiosResumen } from '../components/OficiosResumen';
+import { PestanasBandeja, totalDeConteos } from '../components/PestanasBandeja';
+import type { VistaBandeja } from '../components/PestanasBandeja';
 import {
   thStyle, tdStyle, inputStyle, selectStyle, emptyCell,
   btnPrimary, btnSecondary, alertStyle, labelStyle,
@@ -63,6 +64,10 @@ export const Dashboard_Oficial: React.FC = () => {
   const dialogo = useDialogo();
   const [total,     setTotal]     = useState(0);
   const [conteos,   setConteos]   = useState<Record<string, number>>({});
+  const [miPendientes, setMiPendientes] = useState(0);
+  const [deOtrasAreas, setDeOtrasAreas] = useState(0);
+  // Pestaña activa: el histórico, lo que espera algo de mí, o el archivo.
+  const [vista, setVista] = useState<VistaBandeja>('todo');
   const [page,      setPage]      = useState(1);
   const [estatus,   setEstatus]   = useState('');
   const [loading,   setLoading]   = useState(false);
@@ -98,6 +103,9 @@ export const Dashboard_Oficial: React.FC = () => {
   const [descripcion,  setDescripcion]  = useState('');
   const [tieneTermino, setTieneTermino] = useState(false);
   const [fechaVence,   setFechaVence]   = useState('');
+  // El plazo se captura por fecha límite o por horas desde el ingreso.
+  const [terminoTipo, setTerminoTipo] = useState<'FECHA' | 'HORAS'>('FECHA');
+  const [terminoHoras, setTerminoHoras] = useState('4');
   const [pdfFile,      setPdfFile]      = useState<File | null>(null);
   // Documentos categorizados (opcionales): { anexos, identificacion, oficio, recibos, solicitud }
   const [docFiles,     setDocFiles]     = useState<Record<string, File | null>>({});
@@ -171,6 +179,8 @@ export const Dashboard_Oficial: React.FC = () => {
     setLoading(true); setListError(null);
     try {
       const res = await getOficios({
+        mi_bandeja: vista === 'mia' || undefined,
+        de_otras_areas: vista === 'otras_areas' || undefined,
         page, limit: LIMIT,
         estatus:          estatus  || undefined,
         search:           searchDeb || undefined,
@@ -183,9 +193,11 @@ export const Dashboard_Oficial: React.FC = () => {
       });
       setOficios(res.data); setTotal(res.meta.total);
       setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
+      setMiPendientes(Number((res.meta as any).mi_bandeja ?? 0));
+      setDeOtrasAreas(Number((res.meta as any).de_otras_areas ?? 0));
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
-  }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino, dirigidoAId]);
+  }, [page, estatus, searchDeb, desde, hasta, siqrooPend, firmaPend, termino, dirigidoAId, vista]);
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
   // Si el detalle está abierto, se mantiene al día cuando la lista se recarga:
@@ -359,6 +371,7 @@ export const Dashboard_Oficial: React.FC = () => {
     setPaso(1);
     setRemitente(''); setDependencia(''); setUnidadInterna(''); setDirigidoA('');
     setDescripcion(''); setTieneTermino(false); setFechaVence('');
+    setTerminoTipo('FECHA'); setTerminoHoras('4');
     setPdfFile(null); setDocFiles({}); setCreateError(null);
     setDepSel(''); setUniSel(''); setRemSel('');
     setAddDepMode(false); setAddUniMode(false); setAddRemMode(false);
@@ -372,11 +385,11 @@ export const Dashboard_Oficial: React.FC = () => {
     e.preventDefault();
     // Campos obligatorios para ingresar un oficio (documento Oficio + los marcados con *).
     const faltanObligatorios =
-      !docFiles['oficio'] || !dependencia.trim() || !unidadInterna.trim() || !remitente.trim() ||
+      !docFiles['oficio'] || !dependencia.trim() || !remitente.trim() ||
       !numOficioOrigen.trim() || !fechaOficio || !dirigidoA || !descripcion.trim();
     if (faltanObligatorios) { setCreateError('Completa los campos obligatorios (marcados con *).'); return; }
     // Si marcó "tiene término", pedimos la fecha de vencimiento.
-    if (tieneTermino && !fechaVence) { setCreateError('Ingresa la fecha de vencimiento'); return; }
+    if (tieneTermino && terminoTipo === 'FECHA' && !fechaVence) { setCreateError('Ingresa la fecha de vencimiento'); return; }
     // Si llegó por correo, los dos correos son la constancia de cómo entró.
     if (viaRecepcion === 'CORREO_ELECTRONICO') {
       const formato = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -397,8 +410,12 @@ export const Dashboard_Oficial: React.FC = () => {
       fd.append('fecha_oficio',          fechaOficio);
       fd.append('dirigido_a_id',         dirigidoA);
       fd.append('descripcion_solicitud', descripcion);
-      fd.append('tiene_termino',         String(tieneTermino));
-      if (tieneTermino) fd.append('fecha_vencimiento', fechaVence);
+      fd.append('tiene_termino', String(tieneTermino));
+      if (tieneTermino) {
+        fd.append('termino_tipo', terminoTipo);
+        if (terminoTipo === 'HORAS') fd.append('termino_horas', terminoHoras);
+        else                         fd.append('fecha_vencimiento', fechaVence);
+      }
       // Documentos categorizados opcionales (uno por tipo; "oficio" es el principal)
       DOCUMENTOS_OFICIO.forEach(({ key }) => {
         const f = docFiles[key];
@@ -440,12 +457,6 @@ export const Dashboard_Oficial: React.FC = () => {
         <div style={{ padding: '20px 24px 0', backgroundColor: theme.colors.surface, borderBottom: `1px solid ${theme.colors.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
             <div>
-              <h1 style={{ ...sectionTitleStyle, marginBottom: '4px' }}>
-                Mis Oficios
-              </h1>
-              <p style={{ margin: '2px 0 0', color: theme.colors.textSecondary, fontSize: '0.8rem' }}>
-                {total} registro{total !== 1 ? 's' : ''}
-              </p>
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {puedeCatalogos && (
@@ -479,10 +490,7 @@ export const Dashboard_Oficial: React.FC = () => {
 
           {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
-            <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
-              <OficiosResumen conteos={conteos} estatus={estatus} />
-            </div>
-            <div style={{ flex: '3 1 420px', display: 'flex' }}>
+            <div style={{ flex: '1 1 100%', display: 'flex' }}>
               <FiltrosOficios onChange={(f) => {
                 setSearchDeb(f.search);
                 setEstatus(f.estatus);
@@ -501,7 +509,17 @@ export const Dashboard_Oficial: React.FC = () => {
         {listError && <div role="alert" style={{ ...alertStyle, margin: '12px 24px' }}>{listError}</div>}
 
         {/* Table */}
-        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '4px 24px 24px', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
+        {/* Las pestañas se apoyan en el recuadro de abajo: la activa rompe la
+            línea y se abre hacia él, así se lee como una sola pieza. */}
+        <PestanasBandeja
+          vista={vista}
+          onCambiar={(v) => { setVista(v); setPage(1); }}
+          totalTodo={totalDeConteos(conteos)}
+          totalMia={miPendientes}
+          totalFinalizados={conteos.FINALIZADO ?? 0}
+        />
+
+        <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '0 24px 24px', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={tableHeaderStyle}>
@@ -538,7 +556,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     </td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                     <td style={tdStyle}>
-                      <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} />
+                      <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} />
                     </td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
@@ -766,8 +784,9 @@ export const Dashboard_Oficial: React.FC = () => {
               )}
             </Field>
 
-            {/* Unidad administrativa — cuelga de la dependencia (obligatoria) */}
-            <Field label="Unidad administrativa / Dirección / Departamento" required>
+            {/* Unidad administrativa — cuelga de la dependencia. Opcional: hay
+                dependencias que no se subdividen, o el oficio no dice de cuál área sale. */}
+            <Field label="Unidad administrativa / Dirección / Departamento">
               {!depSel ? (
                 <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>
                   Selecciona primero la dependencia.
@@ -964,10 +983,41 @@ export const Dashboard_Oficial: React.FC = () => {
 
                 {tieneTermino && (
                   <div style={{ marginTop: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
-                      Fecha de vencimiento <span style={{ color: theme.colors.alert.red }}>*</span>
-                    </label>
-                    <input style={inputStyle} type="date" value={fechaVence} onChange={(e) => setFechaVence(e.target.value)} required />
+                    {/* Hay asuntos que se piden para dentro de unas horas, no para
+                        una fecha. Se elige cómo se mide el plazo. */}
+                    <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                        <input type="radio" name="termino_tipo" checked={terminoTipo === 'FECHA'}
+                          onChange={() => setTerminoTipo('FECHA')} /> Por fecha
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                        <input type="radio" name="termino_tipo" checked={terminoTipo === 'HORAS'}
+                          onChange={() => setTerminoTipo('HORAS')} /> Por horas
+                      </label>
+                    </div>
+
+                    {terminoTipo === 'FECHA' ? (
+                      <>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                          Fecha de vencimiento <span style={{ color: theme.colors.alert.red }}>*</span>
+                        </label>
+                        <input style={inputStyle} type="date" value={fechaVence} onChange={(e) => setFechaVence(e.target.value)} required />
+                      </>
+                    ) : (
+                      <>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                          Horas para contestar <span style={{ color: theme.colors.alert.red }}>*</span>
+                        </label>
+                        <select style={inputStyle} value={terminoHoras} onChange={(e) => setTerminoHoras(e.target.value)} required>
+                          {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                            <option key={h} value={String(h)}>{h} hora{h !== 1 ? 's' : ''}</option>
+                          ))}
+                        </select>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                          Se cuentan desde que se registra el oficio.
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

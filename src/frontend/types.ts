@@ -44,6 +44,12 @@ export interface Oficio {
   descripcion_solicitud: string;
   tiene_termino:         boolean;
   fecha_vencimiento:     string | null;
+  /** Cómo se capturó el plazo: por fecha límite, o por horas desde el ingreso. */
+  termino_tipo?:         'FECHA' | 'HORAS' | null;
+  /** Cuántas horas dura el plazo, de 1 a 24, cuando va por horas. */
+  termino_horas?:        number | null;
+  /** Instante exacto en que se agota el plazo. Lo calcula la base. */
+  vence_en?:             string | null;
   pdf_original_path:     string | null;
   estatus:               EstatusOficio;
   // SIQROO
@@ -61,6 +67,8 @@ export interface Oficio {
   puede_turnar?:            boolean;
   /** Llegó por un turno, así que se puede regresar a quien lo mandó. */
   puede_devolver_turno?:    boolean;
+  /** Llegó a esta área desde otra, no lo capturó su propia oficialía. */
+  llego_de_otra_area?:      boolean;
   /** Cuántos turnos trajeron este oficio al área que lo tiene hoy. */
   turnos_recibidos?:        number;
   /** Delegatorios de este oficio que ninguna área ha contestado todavía. */
@@ -83,12 +91,19 @@ export interface Oficio {
   testamento_sin_delegatorio?:    boolean;
   // computed by API
   dias_restantes?:       number | null;
+  /** Horas que faltan, solo cuando el término se capturó en horas. */
+  horas_restantes?:      number | null;
   /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */
   puede_vobo?:           boolean;
   /** true si el usuario actual puede subir el firmado y finalizar este oficio */
   puede_finalizar?:      boolean;
   /** el oficio está esperando la firma de la Dirección General */
   en_pase_firma?:        boolean;
+  /**
+   * Qué paso del flujo espera una acción del usuario actual en este oficio.
+   * Vacío si ahora mismo le toca a alguien más, o si ya está cerrado.
+   */
+  mi_paso?:              'ASIGNAR' | 'REDACTAR' | 'VISTO_BUENO' | 'FIRMAR' | null;
   /** true si el usuario actual puede mandarlo a firma de la Dirección General */
   puede_mandar_firma?:   boolean;
   /** true si el usuario actual puede regresarlo al área sin firmarlo */
@@ -101,6 +116,8 @@ export interface Oficio {
   en_bandeja_de?:        string | null;
   // ── Usuarios del oficio (para el panel de detalle) ──
   dirigido_a_nombre?:    string | null;
+  /** A quién iba dirigido el documento, aunque después se haya turnado. */
+  dirigido_a_original_nombre?: string | null;
   dirigido_a_rol?:       RolUsuario | null;
   abogado_nombre?:       string | null;
   encargado_nombre?:     string | null;

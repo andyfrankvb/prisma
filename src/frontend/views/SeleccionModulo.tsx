@@ -64,6 +64,9 @@ function getRutaModulo(
     case 'tramites_seguimiento':
       return '/dashboard/tramites';
 
+    case 'catalogos':
+      return '/catalogos';
+
     case 'tablero_direccion':
       // Módulo de monitoreo: Panel de Dirección con métricas, supervisión y bandeja
       return '/dashboard/director';
@@ -80,6 +83,7 @@ const MODULO_CFG: Record<string, { icon: string; color: string; desc: string }> 
   supervision_eventos:  { icon: '📅', color: '#1E40AF', desc: 'Gestión de eventos operativos y tareas por área' },
   tramites_seguimiento: { icon: '🎫', color: '#065F46', desc: 'Seguimiento de resoluciones entre delegaciones y Dirección Jurídica' },
   tablero_direccion:    { icon: '📊', color: '#7C3AED', desc: 'Métricas, supervisión y monitoreo general de Dirección' },
+  catalogos:            { icon: '📇', color: '#B68400', desc: 'Depurar dependencias, sub-unidades, remitentes y correos' },
 };
 
 function getModuloCfg(clave: string) {

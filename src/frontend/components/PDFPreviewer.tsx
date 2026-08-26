@@ -2,9 +2,14 @@
  * Component: PDFPreviewer
  * - Si el archivo es PDF: lo descarga con JWT y lo muestra en iframe.
  * - Si el archivo es Word: muestra el texto extraído y botón de descarga.
+ *
+ * El visor se puede agrandar de dos formas, porque leer un oficio en un recuadro
+ * chico es incómodo: estirándolo desde su borde inferior, o abriéndolo a pantalla
+ * completa. El zoom del documento lo pone el visor del navegador, que ya trae su
+ * propia barra dentro del marco.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { theme } from '../theme';
 
 interface Props {
@@ -20,7 +25,7 @@ interface Props {
 export const PDFPreviewer: React.FC<Props> = ({
   url,
   title  = 'Documento',
-  height = 600,
+  height = '72vh',
   textoProyecto,
   hideExtractedText = false,
 }) => {
@@ -30,6 +35,16 @@ export const PDFPreviewer: React.FC<Props> = ({
   const [isWord,    setIsWord]    = useState(false);
   const [textoWord, setTextoWord] = useState<string | null>(textoProyecto ?? null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  const marcoRef = useRef<HTMLDivElement>(null);
+
+  // Salir con Escape: es lo que la gente intenta primero.
+  useEffect(() => {
+    if (!pantallaCompleta) return;
+    const salir = (e: KeyboardEvent) => { if (e.key === 'Escape') setPantallaCompleta(false); };
+    window.addEventListener('keydown', salir);
+    return () => window.removeEventListener('keydown', salir);
+  }, [pantallaCompleta]);
 
   useEffect(() => {
     let objectUrl: string | null = null;
@@ -94,12 +109,24 @@ export const PDFPreviewer: React.FC<Props> = ({
   }, [url]);
 
   return (
-    <div style={{
-      border:       `1px solid ${theme.colors.border}`,
-      borderRadius: '8px',
-      overflow:     'hidden',
-      background:   theme.colors.surface,
-    }}>
+    <div
+      ref={marcoRef}
+      style={pantallaCompleta ? {
+        // A pantalla completa dentro de la aplicación: no usa la pantalla completa
+        // del navegador porque el visor suele abrirse dentro de una ventana modal,
+        // y ahí esa función se comporta distinto según el navegador.
+        // Por encima del panel del visor (1100) y de las ventanas modales (1000),
+        // que son los contenedores donde este componente se abre.
+        position: 'fixed', inset: 0, zIndex: 1200,
+        border: 'none', borderRadius: 0, background: theme.colors.surface,
+        display: 'flex', flexDirection: 'column',
+      } : {
+        border:       `1px solid ${theme.colors.border}`,
+        borderRadius: '8px',
+        overflow:     'hidden',
+        background:   theme.colors.surface,
+      }}
+    >
       {/* Header */}
       <div style={{
         display:         'flex',
@@ -112,15 +139,30 @@ export const PDFPreviewer: React.FC<Props> = ({
         fontWeight:      600,
       }}>
         <span>{isWord ? '📝' : '📄'} {title}</span>
-        {(blobUrl || downloadUrl) && (
-          <a
-            href={blobUrl ?? downloadUrl ?? '#'}
-            download={title}
-            style={{ color: theme.colors.white, fontSize: '0.8rem', textDecoration: 'underline' }}
-          >
-            ⬇ Descargar
-          </a>
-        )}
+        <span style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          {blobUrl && !isWord && (
+            <button
+              type="button"
+              onClick={() => setPantallaCompleta((v) => !v)}
+              title={pantallaCompleta ? 'Volver al tamaño normal (Esc)' : 'Ver a pantalla completa'}
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                color: theme.colors.white, fontSize: '0.8rem', fontFamily: 'inherit', fontWeight: 600,
+              }}
+            >
+              {pantallaCompleta ? '⤡ Reducir' : '⤢ Ampliar'}
+            </button>
+          )}
+          {(blobUrl || downloadUrl) && (
+            <a
+              href={blobUrl ?? downloadUrl ?? '#'}
+              download={title}
+              style={{ color: theme.colors.white, fontSize: '0.8rem', textDecoration: 'underline' }}
+            >
+              ⬇ Descargar
+            </a>
+          )}
+        </span>
       </div>
 
       {/* Loading */}
@@ -242,14 +284,29 @@ export const PDFPreviewer: React.FC<Props> = ({
 
       {/* ── Vista PDF ──────────────────────────────────────── */}
       {!loading && blobUrl && !isWord && (
-        <iframe
-          src={blobUrl}
-          title={title}
-          width="100%"
-          height={height}
-          style={{ border: 'none', display: 'block' }}
-          aria-label={title}
-        />
+        <div
+          style={pantallaCompleta ? { flex: 1, minHeight: 0 } : {
+            // `resize` no funciona sobre un iframe, sí sobre quien lo envuelve.
+            // El agarradero queda en la esquina inferior derecha del marco.
+            height, minHeight: '240px', resize: 'vertical', overflow: 'auto',
+          }}
+        >
+          <iframe
+            src={blobUrl}
+            title={title}
+            style={{ border: 'none', display: 'block', width: '100%', height: '100%' }}
+            aria-label={title}
+          />
+        </div>
+      )}
+
+      {!loading && blobUrl && !isWord && !pantallaCompleta && (
+        <div style={{
+          padding: '4px 12px', borderTop: `1px solid ${theme.colors.border}`,
+          fontSize: '0.68rem', color: theme.colors.textSecondary, textAlign: 'right',
+        }}>
+          Arrastra la esquina inferior derecha para estirarlo
+        </div>
       )}
     </div>
   );

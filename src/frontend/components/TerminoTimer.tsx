@@ -14,6 +14,15 @@ import { theme } from '../theme';
 interface Props {
   tiene_termino:     boolean;
   fecha_vencimiento: string | null;
+  /** Plazo capturado en horas: se muestra y se cuenta en horas, no en días. */
+  termino_tipo?:     'FECHA' | 'HORAS' | null;
+  vence_en?:         string | null;
+  /**
+   * Horas que faltan, calculadas por el servidor. No se calculan aquí: el
+   * vencimiento se guarda sin zona horaria, y restarlo contra el reloj del
+   * navegador desfasa el resultado tantas horas como diferencia haya.
+   */
+  horas_restantes?:  number | null;
 }
 
 function calcDiasRestantes(fecha: string | null): number | null {
@@ -40,10 +49,17 @@ const SEMAFORO_COLOR: Record<Semaforo, string> = {
   GREEN:  theme.colors.alert.green,
 };
 
-export const TerminoTimer: React.FC<Props> = ({ tiene_termino, fecha_vencimiento }) => {
+export const TerminoTimer: React.FC<Props> = ({
+  tiene_termino, fecha_vencimiento, termino_tipo, vence_en, horas_restantes,
+}) => {
+  const porHoras  = termino_tipo === 'HORAS';
+  const horas     = porHoras ? (horas_restantes ?? null) : null;
   const dias      = useMemo(() => calcDiasRestantes(fecha_vencimiento), [fecha_vencimiento]);
-  const semaforo  = getSemaforo(tiene_termino, dias);
-  const color     = SEMAFORO_COLOR[semaforo];
+  // Un plazo en horas nunca es «verde»: se vence el mismo día en que entró.
+  const semaforo  = porHoras
+    ? (horas === null ? 'GREEN' : horas <= 0 ? 'RED' : horas <= 3 ? 'RED' : 'YELLOW')
+    : getSemaforo(tiene_termino, dias);
+  const color     = SEMAFORO_COLOR[semaforo as Semaforo];
 
   if (!tiene_termino) {
     return (
@@ -53,8 +69,13 @@ export const TerminoTimer: React.FC<Props> = ({ tiene_termino, fecha_vencimiento
     );
   }
 
-  const label =
-    dias === null
+  const label = porHoras
+    ? (horas === null
+        ? '—'
+        : horas <= 0
+        ? `Vencido (${Math.abs(horas)}h)`
+        : `${horas}h restante${horas !== 1 ? 's' : ''}`)
+    : dias === null
       ? '—'
       : dias < 0
       ? `Vencido (${Math.abs(dias)}d)`
@@ -72,7 +93,7 @@ export const TerminoTimer: React.FC<Props> = ({ tiene_termino, fecha_vencimiento
         fontWeight:   600,
         color,
       }}
-      title={fecha_vencimiento ?? undefined}
+      title={vence_en ?? fecha_vencimiento ?? undefined}
     >
       {/* Traffic-light dot */}
       <span

@@ -20,7 +20,13 @@ import { useDialogo }  from '../context/DialogoContext';
 
 type Item = Awaited<ReturnType<typeof getBandejaDelegatorios>>['data'][number];
 
-export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCambio }) => {
+export const BandejaDelegatorios: React.FC<{
+  onCambio?: () => void;
+  /** Cuántos hay sin contestar, para el número de la pestaña que la contiene. */
+  onConteo?: (n: number) => void;
+  /** Con la bandeja como pestaña, hay que decirlo cuando no hay ninguno. */
+  mostrarVacio?: boolean;
+}> = ({ onCambio, onConteo, mostrarVacio = false }) => {
   const [items,   setItems]   = useState<Item[]>([]);
   const [error,   setError]   = useState<string | null>(null);
   const [aviso,   setAviso]   = useState<string | null>(null);
@@ -35,6 +41,8 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
     getBandejaDelegatorios().then((r) => setItems(r.data)).catch((e) => setError(e.message));
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
+  // El número vive aquí, que es quien tiene la lista; la pestaña solo lo muestra.
+  useEffect(() => { onConteo?.(items.length); }, [items.length, onConteo]);
   useEffect(() => {
     if (items.length && gente.length === 0) {
       getCandidatosAsignacion().then(setGente).catch(() => {});
@@ -83,7 +91,14 @@ export const BandejaDelegatorios: React.FC<{ onCambio?: () => void }> = ({ onCam
     try { const r = await devolverDelegatorio(id, c); notificar(r.message); } catch (e) { fallar(e); }
   };
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    if (!mostrarVacio) return null;
+    return (
+      <p style={{ padding: '28px', textAlign: 'center', color: theme.colors.textSecondary, fontSize: '0.85rem' }}>
+        No hay delegatorios pendientes de contestar.
+      </p>
+    );
+  }
 
   return (
     <div style={caja}>

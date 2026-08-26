@@ -21,20 +21,20 @@ export const OficiosResumen: React.FC<{ conteos: Record<string, number>; estatus
 
   return (
     <div style={{
-      borderRadius: '14px', padding: '14px 18px',
+      borderRadius: '12px', padding: '10px 14px',
       width: '100%', height: '100%', boxSizing: 'border-box',
       background: color, color: '#fff',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
       boxShadow: theme.shadow.sm, fontFamily: theme.font.family,
     }}>
       <div>
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.92 }}>{label}</div>
-        <div style={{ fontSize: '2.1rem', fontWeight: 900, lineHeight: 1.05 }}>{count}</div>
-        <div style={{ fontSize: '0.7rem', opacity: 0.88 }}>
+        <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.92 }}>{label}</div>
+        <div style={{ fontSize: '1.65rem', fontWeight: 900, lineHeight: 1.05 }}>{count}</div>
+        <div style={{ fontSize: '0.64rem', opacity: 0.88 }}>
           {meta ? 'con este estatus' : 'en total'}
         </div>
       </div>
-      <span style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', flexShrink: 0 }}>{icon}</span>
+      <span style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.15rem', flexShrink: 0 }}>{icon}</span>
     </div>
   );
 };

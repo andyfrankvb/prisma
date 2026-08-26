@@ -23,6 +23,12 @@ const ESTATUS_LABEL: Record<string, string> = {
   DELEGATORIO:        'Delegatorio',
   TURNADO:            'Turnado a otra área',
   DEVUELTO:           'Devuelto por competencia',
+  INFORMACION_ENVIADA:  'Información enviada a otra área',
+  PASE_FIRMA:           'A firma de la Dirección General',
+  PASE_FIRMA_DEVUELTO:  'Regresado sin firmar',
+  ASIGNACION:           'Asignado a un analista',
+  DE_CONOCIMIENTO:      'Marcado de conocimiento',
+  CONOCIMIENTO_QUITADO: 'Se quitó la marca de conocimiento',
 };
 
 const ETAPA: Record<string, string> = {
@@ -35,6 +41,12 @@ const ETAPA: Record<string, string> = {
   DELEGATORIO:        'Delegatorio',
   TURNADO:            'Cambio de área',
   DEVUELTO:           'Cambio de área',
+  INFORMACION_ENVIADA:  'Cambio de área',
+  PASE_FIRMA:           'Firma',
+  PASE_FIRMA_DEVUELTO:  'Firma',
+  ASIGNACION:           'Gestión jurídica',
+  DE_CONOCIMIENTO:      'Cierre',
+  CONOCIMIENTO_QUITADO: 'Reapertura',
 };
 
 const EVENTOS: Record<string, string> = {

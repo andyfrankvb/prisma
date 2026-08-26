@@ -8,7 +8,8 @@ import React, { useEffect, useState } from 'react';
 import { theme } from '../theme';
 import { inputStyle, selectStyle, btnSecondary } from '../styles';
 import { ESTATUS_META } from './oficiosEstatus';
-import { getUsuarios } from '../api';
+import { getUsuarios, getResponsables } from '../api';
+import type { Responsable } from '../api';
 import type { Abogado } from '../types';
 
 export interface OficiosFiltros {
@@ -20,9 +21,19 @@ export interface OficiosFiltros {
   siqroo_pendiente:  boolean;
   pendiente_firma:   boolean;
   area:              string;   // id del jefe de área (dirigido a)
+  en_bandeja_de:     string;   // id de quien lo tiene ahora
+  situacion:         string;   // turnado, devuelto, de conocimiento…
 }
 
-export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }> = ({ onChange }) => {
+export const FiltrosOficios: React.FC<{
+  onChange: (f: OficiosFiltros) => void;
+  /**
+   * Acción propia de cada bandeja —generar el reporte, por ejemplo— que se
+   * acomoda al final de los filtros. Vive aquí y no en su propio renglón
+   * porque un botón solo se comía una franja entera de la pantalla.
+   */
+  accion?: React.ReactNode;
+}> = ({ onChange, accion }) => {
   const [search,     setSearch]     = useState('');
   const [searchDeb,  setSearchDeb]  = useState('');
   const [estatus,    setEstatus]    = useState('');
@@ -32,6 +43,9 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
   const [siqrooPend, setSiqrooPend] = useState(false);
   const [firmaPend,  setFirmaPend]  = useState(false);
   const [area,       setArea]       = useState('');
+  const [bandeja,    setBandeja]    = useState('');
+  const [situacion,  setSituacion]  = useState('');
+  const [gente,      setGente]      = useState<Responsable[]>([]);
   const [areas,      setAreas]      = useState<Abogado[]>([]);
 
   // Jefes de área a los que se puede dirigir un oficio: directores y delegados.
@@ -40,6 +54,8 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
       .then(([dirs, encs]) => setAreas([...dirs, ...encs].sort((a, b) =>
         (a.oficina_nombre ?? a.nombre).localeCompare(b.oficina_nombre ?? b.nombre))))
       .catch(() => {});
+    // Quiénes pueden tener un oficio en bandeja, para el filtro de monitoreo.
+    getResponsables().then((r) => setGente(r.data)).catch(() => {});
   }, []);
 
   // Debounce del buscador
@@ -50,17 +66,17 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
 
   // Avisar al padre cuando cambia cualquier filtro
   useEffect(() => {
-    onChange({ search: searchDeb, estatus, termino, desde, hasta, siqroo_pendiente: siqrooPend, pendiente_firma: firmaPend, area });
+    onChange({ search: searchDeb, estatus, termino, desde, hasta, siqroo_pendiente: siqrooPend, pendiente_firma: firmaPend, area, en_bandeja_de: bandeja, situacion });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDeb, estatus, termino, desde, hasta, siqrooPend, firmaPend, area]);
+  }, [searchDeb, estatus, termino, desde, hasta, siqrooPend, firmaPend, area, bandeja, situacion]);
 
-  const hayFiltros = search || estatus || desde || hasta || siqrooPend || firmaPend || termino || area;
+  const hayFiltros = search || estatus || desde || hasta || siqrooPend || firmaPend || termino || area || bandeja || situacion;
 
   return (
-    <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '14px 16px', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+    <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '10px 12px', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
 
       {/* Búsqueda */}
-      <div style={{ flex: '1 1 260px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '10px', padding: '9px 14px' }}>
+      <div style={{ flex: '1 1 260px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '9px', padding: '7px 12px' }}>
         <span style={{ color: theme.colors.textSecondary }}>🔍</span>
         <input
           type="text"
@@ -82,6 +98,27 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
       <select value={area} onChange={(e) => setArea(e.target.value)} style={selectStyle} aria-label="Filtrar por área">
         <option value="">Todas las áreas</option>
         {areas.map((u) => <option key={u.id} value={String(u.id)}>{u.oficina_nombre ?? u.nombre}</option>)}
+      </select>
+
+      {/* En bandeja de — para monitorear la carga de una persona */}
+      <select value={bandeja} onChange={(e) => setBandeja(e.target.value)} style={selectStyle} aria-label="Filtrar por quién lo tiene">
+        <option value="">En bandeja de: todos</option>
+        {gente.map((u) => (
+          <option key={u.id} value={String(u.id)}>
+            {u.nombre}{u.area ? ` · ${u.area}` : ''}
+          </option>
+        ))}
+      </select>
+
+      {/* Situación — aparte del estatus, porque no son excluyentes */}
+      <select value={situacion} onChange={(e) => setSituacion(e.target.value)} style={selectStyle} aria-label="Filtrar por situación">
+        <option value="">Situación: todas</option>
+        <option value="turnado">Llegó turnado</option>
+        <option value="devuelto">Devuelto por competencia</option>
+        <option value="informacion">Con información de otra área</option>
+        <option value="de_conocimiento">De conocimiento</option>
+        <option value="en_firma_dg">En firma de la Dirección General</option>
+        <option value="delegatorios_pendientes">Con delegatorios pendientes</option>
       </select>
 
       {/* Término */}
@@ -115,12 +152,14 @@ export const FiltrosOficios: React.FC<{ onChange: (f: OficiosFiltros) => void }>
       {hayFiltros && (
         <button
           type="button"
-          onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); setArea(''); }}
+          onClick={() => { setSearch(''); setSearchDeb(''); setEstatus(''); setDesde(''); setHasta(''); setSiqrooPend(false); setFirmaPend(false); setTermino(''); setArea(''); setBandeja(''); setSituacion(''); }}
           style={{ ...btnSecondary, padding: '7px 12px', fontSize: '0.78rem' }}
         >
           Limpiar
         </button>
       )}
+
+      {accion && <span style={{ marginLeft: 'auto' }}>{accion}</span>}
     </div>
   );
 };

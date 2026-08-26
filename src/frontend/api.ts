@@ -60,6 +60,17 @@ export async function getOficios(params?: {
   pendiente_firma?:  boolean;
   termino?: string;
   dirigido_a_id?: number;
+  /** Solo los oficios que esperan una acción del usuario. */
+  mi_bandeja?: boolean;
+  /** Solo los que llegaron a esta área desde otra, por turno. */
+  de_otras_areas?: boolean;
+  /** Id de la persona que lo tiene en bandeja ahora. */
+  en_bandeja_de?: number;
+  /** Situación del oficio, aparte del estatus: turnado, de conocimiento, etc. */
+  situacion?: string;
+  /** Columna por la que ordena la lista, y en qué sentido. */
+  orden?: string;
+  dir?:   'asc' | 'desc';
 }): Promise<PaginatedResponse<Oficio>> {
   const qs = new URLSearchParams();
   if (params?.page)    qs.set('page',    String(params.page));
@@ -72,6 +83,11 @@ export async function getOficios(params?: {
   if (params?.pendiente_firma)  qs.set('pendiente_firma', 'true');
   if (params?.termino) qs.set('termino', params.termino);
   if (params?.dirigido_a_id) qs.set('dirigido_a_id', String(params.dirigido_a_id));
+  if (params?.mi_bandeja)    qs.set('mi_bandeja', 'true');
+  if (params?.de_otras_areas) qs.set('de_otras_areas', 'true');
+  if (params?.en_bandeja_de) qs.set('en_bandeja_de', String(params.en_bandeja_de));
+  if (params?.situacion)     qs.set('situacion', params.situacion);
+  if (params?.orden)         { qs.set('orden', params.orden); qs.set('dir', params.dir ?? 'desc'); }
 
   const res = await fetch(`${BASE}/oficios?${qs}`, {
     headers: authHeaders(),
@@ -415,6 +431,19 @@ export async function verificarDuplicado(params: {
   return handleResponse<{ data: { bloqueantes: PosibleDuplicado[]; advertencias: PosibleDuplicado[] } }>(res);
 }
 
+/** Quién puede tener un oficio en bandeja, para el filtro de monitoreo. */
+export interface Responsable {
+  id:     number;
+  nombre: string;
+  cargo?: string | null;
+  area?:  string | null;
+}
+
+export async function getResponsables() {
+  const res = await fetch(`${BASE}/oficios/responsables`, { headers: authHeaders() });
+  return handleResponse<{ data: Responsable[] }>(res);
+}
+
 /** Área a la que se puede turnar un oficio. */
 export interface AreaTurno {
   id:      number;
@@ -452,11 +481,29 @@ export async function devolverPaseFirma(id: number, motivo: string) {
   return handleResponse<{ message: string }>(res);
 }
 
-export async function turnarOficio(id: number, unidad_destino_id: number, motivo: string) {
+/**
+ * Turna el oficio a otra área. Dos razones opuestas:
+ *   · COMPETENCIA — el asunto no le toca a esta área.
+ *   · INFORMACION — sí le tocaba, ya hizo su parte y manda lo trabajado.
+ * El envío de información va con el documento, por eso el formulario multipart.
+ */
+export async function turnarOficio(
+  id: number,
+  unidad_destino_id: number,
+  motivo: string,
+  tipo: 'COMPETENCIA' | 'INFORMACION' = 'COMPETENCIA',
+  documento?: File | null,
+) {
+  const fd = new FormData();
+  fd.append('unidad_destino_id', String(unidad_destino_id));
+  fd.append('motivo', motivo);
+  fd.append('tipo', tipo);
+  if (documento) fd.append('documento', documento);
+
   const res = await fetch(`${BASE}/oficios/${id}/turnar`, {
     method:  'PATCH',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ unidad_destino_id, motivo }),
+    headers: authHeaders(),
+    body:    fd,
   });
   return handleResponse<{ message: string }>(res);
 }

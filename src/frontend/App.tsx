@@ -13,6 +13,7 @@ import { SeleccionModulo }    from './views/SeleccionModulo';
 import { Dashboard_Oficial }  from './views/Dashboard_Oficial';
 import { Dashboard_Gestion }  from './views/Dashboard_Gestion';
 import { Dashboard_Juridico } from './views/Dashboard_Juridico';
+import { SeccionCatalogos }  from './views/SeccionCatalogos';
 import { Dashboard_Director } from './views/Dashboard_Director';
 import { Dashboard_SuperAdmin } from './views/Dashboard_SuperAdmin';
 import { Dashboard_DirectorArea } from './views/Dashboard_DirectorArea';
@@ -81,6 +82,18 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><Dashboard_Gestion /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Catálogos para quien tenga el módulo. Es la misma pantalla que usa
+              el SuperAdmin y las mismas tablas: aquí solo cambia por dónde se
+              entra, no qué se ve ni de dónde sale. */}
+          <Route
+            path="/catalogos"
+            element={
+              <ProtectedRoute>
+                <AppShell><SeccionCatalogos /></AppShell>
               </ProtectedRoute>
             }
           />

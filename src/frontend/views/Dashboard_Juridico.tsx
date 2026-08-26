@@ -14,8 +14,9 @@ import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
 import { FiltrosOficios } from '../components/FiltrosOficios';
+import { PestanasBandeja, totalDeConteos } from '../components/PestanasBandeja';
+import type { VistaBandeja } from '../components/PestanasBandeja';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
-import { OficiosResumen } from '../components/OficiosResumen';
 import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
@@ -44,6 +45,11 @@ export const Dashboard_Juridico: React.FC = () => {
 
   const [oficios,    setOficios]    = useState<Oficio[]>([]);
   const [conteos,    setConteos]    = useState<Record<string, number>>({});
+  const [miPendientes, setMiPendientes] = useState(0);
+  const [deOtrasAreas, setDeOtrasAreas] = useState(0);
+  const [delegatoriosPend, setDelegatoriosPend] = useState(0);
+  // Pestaña activa: el histórico, lo que espera algo de mí, o el archivo.
+  const [vista, setVista] = useState<VistaBandeja>('todo');
   const [loading,    setLoading]    = useState(false);
   const [listError,  setListError]  = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -60,15 +66,17 @@ export const Dashboard_Juridico: React.FC = () => {
   const [comentarios,    setComentarios]    = useState<ComentarioReconsideracion[]>([]);
   const [loadingComents, setLoadingComents] = useState(false);
 
-  const [filtros, setFiltros] = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '' });
+  const [filtros, setFiltros] = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '', en_bandeja_de: '', situacion: '' });
 
   const fetchOficios = useCallback(async () => {
     setLoading(true); setListError(null);
     try {
       const res = await getOficios({
+        mi_bandeja: vista === 'mia' || undefined,
+        de_otras_areas: vista === 'otras_areas' || undefined,
         limit: 200,
         search:           filtros.search || undefined,
-        estatus:          filtros.estatus || undefined,
+        estatus:          vista === 'finalizados' ? 'FINALIZADO' : (filtros.estatus || undefined),
         termino:          filtros.termino || undefined,
         desde:            filtros.desde || undefined,
         hasta:            filtros.hasta || undefined,
@@ -78,9 +86,11 @@ export const Dashboard_Juridico: React.FC = () => {
       });
       setOficios(res.data);
       setConteos(((res.meta as any).conteos ?? {}) as Record<string, number>);
+      setMiPendientes(Number((res.meta as any).mi_bandeja ?? 0));
+      setDeOtrasAreas(Number((res.meta as any).de_otras_areas ?? 0));
     } catch (err: any) { setListError(err.message); }
     finally { setLoading(false); }
-  }, [filtros]);
+  }, [filtros, vista]);
 
   useEffect(() => { fetchOficios(); }, [fetchOficios]);
 
@@ -147,10 +157,7 @@ export const Dashboard_Juridico: React.FC = () => {
     <div style={{ padding: isMobile ? '16px 12px' : '24px', backgroundColor: theme.colors.background, height: 'calc(100vh - 58px)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', fontFamily: theme.font.family }}>
 
       {/* Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ margin: 0, color: theme.colors.primaryDark, fontSize: '1.2rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-          Mis Asignaciones
-        </h1>
+      <div style={{ marginBottom: '14px' }}>
         <p style={{ margin: '4px 0 0', color: theme.colors.textSecondary, fontSize: '0.875rem' }}>
           {user?.nombre} · Área Jurídica
         </p>
@@ -166,21 +173,38 @@ export const Dashboard_Juridico: React.FC = () => {
 
       {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
-        <div style={{ flex: '1 1 220px', maxWidth: '300px', display: 'flex' }}>
-          <OficiosResumen conteos={conteos} estatus={filtros.estatus} />
-        </div>
-        <div style={{ flex: '3 1 420px', display: 'flex' }}>
+        <div style={{ flex: '1 1 100%', display: 'flex' }}>
           <FiltrosOficios onChange={setFiltros} />
         </div>
       </div>
 
-      <BandejaDelegatorios onCambio={fetchOficios} />
+      {/* Las pestañas se apoyan en el recuadro de abajo: la activa rompe la
+          línea y se abre hacia él, así se lee como una sola pieza. */}
+      <PestanasBandeja
+        vista={vista}
+        onCambiar={setVista}
+        totalTodo={totalDeConteos(conteos)}
+        totalMia={miPendientes}
+        totalFinalizados={conteos.FINALIZADO ?? 0}
+        totalOtrasAreas={deOtrasAreas + delegatoriosPend}
+      />
+
+      {/* Se mantiene montada aunque no esté al frente: es quien sabe cuántos
+          delegatorios hay, y el número de la pestaña debe estar desde el inicio. */}
+      <div style={{
+        display: vista === 'otras_areas' ? 'block' : 'none',
+        flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 14px 14px',
+        border: `1px solid ${theme.colors.border}`, borderTop: 'none',
+        borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm,
+      }}>
+        <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} mostrarVacio />
+      </div>
 
       {/* Lista — único scroll vertical de la vista */}
-      {loading ? (
+      {vista === 'otras_areas' ? null : loading ? (
         <p style={{ color: theme.colors.textSecondary }}>Cargando…</p>
       ) : (
-        <div className="scroll-x" style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
+        <div className="scroll-x" style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
           <table style={{ width: '100%', minWidth: '820px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.surface }}>
@@ -204,7 +228,7 @@ export const Dashboard_Juridico: React.FC = () => {
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary }}>{o.remitente}</td>
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', textTransform: 'uppercase' }}>{o.dependencia_origen}</td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
-                      <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} /></td>
+                      <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} /></td>
                       <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     </tr>
                 ))
@@ -448,7 +472,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
         {new Date(oficio.fecha_registro).toLocaleDateString('es-MX')}
       </p>
 
-      <TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} />
+      <TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes} />
 
       {/* Botones */}
       <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
