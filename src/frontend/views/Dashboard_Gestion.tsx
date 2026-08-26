@@ -101,6 +101,28 @@ export const Dashboard_Gestion: React.FC = () => {
   const variasAreas = new Set(
     oficios.map((o) => o.delegacion_nombre).filter(Boolean),
   ).size > 1;
+  /**
+   * Columnas visibles. Se arma aquí y no dentro del `<thead>` para que el
+   * `colSpan` de los renglones vacíos salga de la misma lista: cuando estaban
+   * por separado, cada columna que se escondía dejaba la tabla descuadrada.
+   */
+  const columnas: { texto: string; orden?: string }[] = [
+    { texto: '' },
+    { texto: 'Folio',         orden: 'folio' },
+    { texto: 'N° de origen' },
+    ...(variasAreas ? [{ texto: 'Delegación' }] : []),
+    { texto: 'Remitente' },
+    { texto: 'Ingreso',       orden: 'ingreso' },
+    { texto: 'Término',       orden: 'termino' },
+    { texto: 'Estatus',       orden: 'estatus' },
+    ...(miBandeja ? [{ texto: 'Qué sigue' }] : []),
+    { texto: 'Sistemas',      orden: 'sistemas' },
+    // En «Mi bandeja» esta columna repetiría el nombre del propio usuario en
+    // todos los renglones.
+    ...(miBandeja ? [] : [{ texto: 'En bandeja de', orden: 'bandeja' }]),
+    { texto: 'Acciones' },
+  ];
+
   const [page,      setPage]      = useState(1);
   const [filtros,   setFiltros]   = useState<OficiosFiltros>({ search: '', estatus: '', termino: '', desde: '', hasta: '', siqroo_pendiente: false, pendiente_firma: false, area: '', en_bandeja_de: '', situacion: '' });
   const [loading,   setLoading]   = useState(false);
@@ -161,39 +183,49 @@ export const Dashboard_Gestion: React.FC = () => {
     // Orquestación — solo el encargado: asigna o se lo queda.
     if (esEncargado) {
       if (estatus === 'RECIBIDO') {
-        acc.push({ label: 'Asignar a un analista', icono: '👤', onClick: () => { setSelected(o); setShowAssign(true); } });
-        acc.push({ label: 'Trabajarlo yo', icono: '✍️', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+        acc.push({ label: 'Asignar', onClick: () => { setSelected(o); setShowAssign(true); } });
+        acc.push({ label: 'Trabajar', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
       // Si lo mandaron a corregir y no hay analista, corrige el propio encargado.
       if (estatus === 'EN_RECONSIDERACION' && !o.abogado_nombre) {
-        acc.push({ label: 'Subir la corrección', icono: '✍️', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+        acc.push({ label: 'Corregir', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
       if ((['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(estatus)) {
-        acc.push({ label: 'Reasignar a otro analista', icono: '🔁', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
+        acc.push({ label: 'Reasignar', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
       }
     }
 
-    // Aprobación — quien tiene la autoridad en esa área.
-    if (o.puede_vobo && (estatus === 'EN_REVISION' || estatus === 'EN_RECONSIDERACION')) {
-      acc.push({ label: 'Dar visto bueno', icono: '✓', tono: 'positivo', onClick: () => handleVobo(o) });
-      acc.push({ label: 'Mandar a corregir', icono: '↩', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+    // Aprobación — quien tiene la autoridad en esa área. Si algo la frena, la
+    // acción se muestra apagada con el motivo, en vez de desaparecer: si no, la
+    // persona lee «te toca el visto bueno» y no encuentra dónde darlo.
+    if (o.es_aprobador && (estatus === 'EN_REVISION' || estatus === 'EN_RECONSIDERACION')) {
+      acc.push({
+        label: 'Aprobar', tono: 'positivo',
+        bloqueada: o.puede_vobo ? null : o.bloqueo,
+        onClick: () => handleVobo(o),
+      });
+      acc.push({ label: 'Reconsiderar', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
     }
     // Ya aprobado pero aún sin firmar: todavía se puede regresar al jurídico.
     if (o.puede_vobo && estatus === 'VOBO_APROBADO' && !o.en_pase_firma) {
-      acc.push({ label: 'Mandar a corregir', icono: '↩', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+      acc.push({ label: 'Reconsiderar', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
     }
 
     // Consultar el proyecto. Un oficio de conocimiento no tiene.
     if (!o.de_conocimiento && (esEncargado || o.puede_vobo)
         && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(estatus)) {
-      acc.push({ label: 'Ver el proyecto', icono: '📝', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/proyecto`) });
+      acc.push({ label: 'Ver proyecto', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/proyecto`) });
     }
 
-    if (o.puede_finalizar && estatus === 'VOBO_APROBADO') {
-      acc.push({ label: 'Subir documento firmado', icono: '✍️', onClick: () => { setSelected(o); setShowUpload(true); } });
+    if (estatus === 'VOBO_APROBADO' && (o.puede_finalizar || (o.es_aprobador && o.bloqueo))) {
+      acc.push({
+        label: 'Subir firmado',
+        bloqueada: o.puede_finalizar ? null : o.bloqueo,
+        onClick: () => { setSelected(o); setShowUpload(true); },
+      });
     }
     if (estatus === 'FINALIZADO' && !o.de_conocimiento) {
-      acc.push({ label: 'Ver documento firmado', icono: '✍️', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/firmado`) });
+      acc.push({ label: 'Ver firmado', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/firmado`) });
     }
 
     return acc;
@@ -617,20 +649,7 @@ export const Dashboard_Gestion: React.FC = () => {
           <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.surface }}>
-                {([
-                  { texto: '' },
-                  { texto: 'Folio',         orden: 'folio' },
-                  { texto: 'N° de origen' },
-                  ...(variasAreas ? [{ texto: 'Delegación' }] : []),
-                  { texto: 'Remitente' },
-                  { texto: 'Ingreso',       orden: 'ingreso' },
-                  { texto: 'Término',       orden: 'termino' },
-                  { texto: 'Estatus',       orden: 'estatus' },
-                  ...(miBandeja ? [{ texto: 'Qué sigue' }] : []),
-                  { texto: 'Sistemas',      orden: 'sistemas' },
-                  { texto: 'En bandeja de', orden: 'bandeja' },
-                  { texto: 'Acciones' },
-                ] as { texto: string; orden?: string }[]).map((c) => (
+                {columnas.map((c) => (
                   <th key={c.texto} style={thStyle}>
                     {c.orden
                       ? <OrdenColumna
@@ -646,9 +665,9 @@ export const Dashboard_Gestion: React.FC = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={(miBandeja ? 12 : 11) - (variasAreas ? 0 : 1)} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
+                <tr><td colSpan={columnas.length} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>Cargando…</td></tr>
               ) : oficios.length === 0 ? (
-                <tr><td colSpan={(miBandeja ? 12 : 11) - (variasAreas ? 0 : 1)} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>{miBandeja ? 'No tienes nada pendiente por ahora.' : 'Sin registros'}</td></tr>
+                <tr><td colSpan={columnas.length} style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>{miBandeja ? 'No tienes nada pendiente por ahora.' : 'Sin registros'}</td></tr>
               ) : (
                 oficios.map((o, i) => (
                   <tr
@@ -681,15 +700,17 @@ export const Dashboard_Gestion: React.FC = () => {
                     <td style={tdStyle}>
                       <SistemasChips oficio={o} />
                     </td>
-                    <td style={tdStyle}>
-                      {o.en_bandeja_de ? (
-                        <span style={{ fontSize: '0.78rem', color: theme.colors.textPrimary, fontWeight: 600 }}>
-                          👤 {o.en_bandeja_de}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>—</span>
-                      )}
-                    </td>
+                    {!miBandeja && (
+                      <td style={tdStyle}>
+                        {o.en_bandeja_de ? (
+                          <span style={{ fontSize: '0.78rem', color: theme.colors.textPrimary, fontWeight: 600 }}>
+                            👤 {o.en_bandeja_de}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>—</span>
+                        )}
+                      </td>
+                    )}
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       <MenuAcciones acciones={accionesDe(o)} />
                     </td>

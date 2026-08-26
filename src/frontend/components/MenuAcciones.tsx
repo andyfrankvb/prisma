@@ -18,16 +18,24 @@ import { theme } from '../theme';
 export interface AccionMenu {
   label:    string;
   onClick:  () => void;
-  icono?:   string;
   /** Tiñe la acción según lo que hace: aprobar, devolver, o solo consultar. */
   tono?:    'normal' | 'positivo' | 'atencion' | 'neutro';
+  /**
+   * Por qué no se puede hacer ahora. La acción se muestra igual, apagada y con
+   * el motivo debajo: esconderla dejaba a la persona sin saber qué le falta.
+   */
+  bloqueada?: string | null;
 }
 
+/**
+ * Paleta institucional, sin colores ajenos: el carbón para lo ordinario, el
+ * guinda para la acción que cierra el paso y el dorado para lo que devuelve.
+ */
 const TONO: Record<string, string> = {
-  normal:   theme.colors.textPrimary,
-  positivo: '#065F46',
-  atencion: '#92400E',
-  neutro:   '#1E40AF',
+  normal:   theme.colors.charcoal,
+  positivo: theme.colors.primary,
+  atencion: theme.colors.gold,
+  neutro:   theme.colors.charcoal,
 };
 
 export const MenuAcciones: React.FC<{ acciones: AccionMenu[] }> = ({ acciones }) => {
@@ -59,12 +67,12 @@ export const MenuAcciones: React.FC<{ acciones: AccionMenu[] }> = ({ acciones })
   const abrir = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
-    const alto = acciones.length * 34 + 12;
+    const alto = acciones.length * 32 + 12;
     // Si no cabe abajo, se despliega hacia arriba en vez de salirse de pantalla.
     const haciaArriba = r.bottom + alto > window.innerHeight - 8;
     setPos({
       top:  haciaArriba ? r.top - alto - 4 : r.bottom + 4,
-      left: Math.max(8, Math.min(r.right - 210, window.innerWidth - 218)),
+      left: Math.max(8, Math.min(r.right - 196, window.innerWidth - 204)),
     });
     setAbierto(true);
   };
@@ -106,19 +114,29 @@ export const MenuAcciones: React.FC<{ acciones: AccionMenu[] }> = ({ acciones })
               key={a.label}
               type="button"
               role="menuitem"
-              onClick={(e) => { e.stopPropagation(); setAbierto(false); a.onClick(); }}
+              disabled={!!a.bloqueada}
+              title={a.bloqueada ?? undefined}
+              onClick={(e) => { e.stopPropagation(); if (a.bloqueada) return; setAbierto(false); a.onClick(); }}
               style={{
-                display: 'flex', alignItems: 'center', gap: '9px', width: '100%',
-                padding: '7px 10px', borderRadius: '7px', cursor: 'pointer',
+                display: 'block', width: '100%',
+                padding: '7px 10px', borderRadius: '6px',
+                cursor: a.bloqueada ? 'not-allowed' : 'pointer',
                 border: 'none', background: 'transparent', textAlign: 'left',
-                fontFamily: theme.font.family, fontSize: '0.79rem', fontWeight: 600,
-                color: TONO[a.tono ?? 'normal'],
+                fontFamily: theme.font.family, fontSize: '0.8rem', fontWeight: 600,
+                color: a.bloqueada ? theme.colors.textSecondary : TONO[a.tono ?? 'normal'],
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = theme.colors.background; }}
+              onMouseEnter={(e) => { if (!a.bloqueada) e.currentTarget.style.backgroundColor = theme.colors.background; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             >
-              {a.icono && <span style={{ width: '16px', flexShrink: 0 }}>{a.icono}</span>}
               {a.label}
+              {a.bloqueada && (
+                <span style={{
+                  display: 'block', fontSize: '0.68rem', fontWeight: 400,
+                  marginTop: '2px', lineHeight: 1.35,
+                }}>
+                  {a.bloqueada}
+                </span>
+              )}
             </button>
           ))}
         </div>,

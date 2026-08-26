@@ -1028,6 +1028,22 @@ export async function listarOficios(
         : o.dirigido_a_id === user.id;                         // el titular (dirigido a)
       const puede_vobo = delegatorios_pendientes === 0 && !sigerPendiente && esElAprobador;
 
+      // Por qué NO se puede cerrar todavía, dicho con palabras. Sin esto la
+      // acción simplemente desaparecía del menú y la persona se quedaba viendo
+      // «te toca dar el visto bueno» sin manera de hacerlo ni razón a la vista.
+      const bloqueo: string | null =
+          delegatorios_pendientes > 0
+            ? (delegatorios_pendientes === 1
+                ? 'Falta que un área conteste su delegatorio'
+                : `Faltan ${delegatorios_pendientes} áreas por contestar su delegatorio`)
+        : (o as any).siger_sin_delegatorio
+            ? 'Está marcado en SIGER y no se ha delegado a ninguna delegación'
+        : (o as any).fre_sin_delegatorio
+            ? 'Tiene FRE marcado y no se ha delegado a la Dirección de Informática'
+        : (o as any).testamento_sin_delegatorio
+            ? 'Está marcado como testamento y no se ha delegado a ninguna delegación'
+        : null;
+
       // Responsable del visto bueno (nombre).
       const vobo_por_nombre = aprobadorNombre;
 
@@ -1080,6 +1096,10 @@ export async function listarOficios(
         delegatorios_pendientes,
         puede_vobo,
         puede_finalizar,
+        // Quién es, sin los frenos: para poder ofrecer la acción deshabilitada
+        // con su motivo en vez de esconderla.
+        es_aprobador: esElAprobador,
+        bloqueo,
         puede_de_conocimiento,
         puede_turnar,
         puede_devolver_turno,

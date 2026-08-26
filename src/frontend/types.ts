@@ -102,6 +102,10 @@ export interface Oficio {
   puede_vobo?:           boolean;
   /** true si el usuario actual puede subir el firmado y finalizar este oficio */
   puede_finalizar?:      boolean;
+  /** Es quien da el visto bueno en su área, aunque ahora esté bloqueado. */
+  es_aprobador?:         boolean;
+  /** Por qué no se puede cerrar todavía, dicho con palabras. Vacío si no hay freno. */
+  bloqueo?:              string | null;
   /** el oficio está esperando la firma de la Dirección General */
   en_pase_firma?:        boolean;
   /**
