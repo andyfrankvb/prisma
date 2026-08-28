@@ -57,12 +57,54 @@ export function totalDeConteos(conteos: Record<string, number>): number {
 }
 
 /**
- * Las tres formas de mirar la misma bandeja:
+ * La pestaña fijada como vista de inicio, recordada entre sesiones.
+ *
+ * Se guarda por usuario y no a secas: en la oficina se comparten computadoras, y
+ * un ajuste suelto haría que quien entrara después arrancara en la pestaña de
+ * alguien más. Vive en el navegador, así que sobrevive a cerrar sesión y a
+ * apagar el equipo; si la persona entra desde otra máquina, ahí elige la suya.
+ *
+ * Todo lo que toca el almacenamiento va con `try`: en ventanas privadas o con
+ * las cookies bloqueadas, leerlo o escribirlo lanza excepción, y el módulo no
+ * puede dejar de abrir por eso.
+ */
+const CLAVE_FIJADA = 'prisma.oficios.vistaFijada';
+
+export function leerVistaFijada(usuarioId?: number | null): VistaBandeja | null {
+  if (!usuarioId) return null;
+  try {
+    const v = localStorage.getItem(`${CLAVE_FIJADA}.${usuarioId}`);
+    return (['todo', 'mia', 'finalizados', 'otras_areas'] as const).includes(v as any)
+      ? (v as VistaBandeja)
+      : null;
+  } catch { return null; }
+}
+
+/** Fija una pestaña; volver a pulsar la misma la suelta. Devuelve cómo quedó. */
+export function alternarVistaFijada(
+  usuarioId: number | null | undefined, vista: VistaBandeja, actual: VistaBandeja | null,
+): VistaBandeja | null {
+  const nueva = actual === vista ? null : vista;
+  if (!usuarioId) return nueva;
+  try {
+    const clave = `${CLAVE_FIJADA}.${usuarioId}`;
+    if (nueva) localStorage.setItem(clave, nueva);
+    else       localStorage.removeItem(clave);
+  } catch { /* sin almacenamiento, la elección dura lo que la sesión */ }
+  return nueva;
+}
+
+/**
+ * Las cuatro formas de mirar la misma bandeja:
  *   · todo         — el histórico completo del área, sin filtrar.
  *   · mia          — solo lo que espera una acción del usuario.
  *   · finalizados  — el archivo: lo ya firmado y cerrado.
  *   · otras_areas  — lo que llegó de otra área: los delegatorios que le pidieron
  *                    a la mía, y los oficios que le turnaron.
+ *
+ * Los identificadores no cambian aunque cambien los rótulos: van en la URL y en
+ * la consulta, así que renombrarlos rompería los enlaces guardados sin ganar
+ * nada. El nombre visible se decide abajo.
  */
 export type VistaBandeja = 'todo' | 'mia' | 'finalizados' | 'otras_areas';
 
@@ -74,7 +116,11 @@ export const PestanasBandeja: React.FC<{
   totalFinalizados: number;
   /** Se omite la pestaña cuando la vista no recibe trabajo de otras áreas. */
   totalOtrasAreas?: number | null;
-}> = ({ vista, onCambiar, totalTodo, totalMia, totalFinalizados, totalOtrasAreas }) => (
+  /** Cuál queda fijada como vista de inicio. Nula si ninguna. */
+  fijada?: VistaBandeja | null;
+  /** Fijar o soltar. Sin esto no se dibujan los alfileres. */
+  onFijar?: (vista: VistaBandeja) => void;
+}> = ({ vista, onCambiar, totalTodo, totalMia, totalFinalizados, totalOtrasAreas, fijada, onFijar }) => (
   // La línea del contenedor es la que la pestaña activa rompe para «abrirse»
   // hacia el contenido: por eso vive aquí y no en cada pestaña.
   <div
@@ -85,25 +131,69 @@ export const PestanasBandeja: React.FC<{
     }}
   >
     <Pestana activa={vista === 'todo'} onClick={() => onCambiar('todo')}
-             texto="Todo" cuenta={totalTodo} />
+             texto="Recepción" cuenta={totalTodo}
+             fijada={fijada === 'todo'} onFijar={onFijar && (() => onFijar('todo'))} />
     <Pestana activa={vista === 'mia'} onClick={() => onCambiar('mia')}
-             texto="Mi bandeja" cuenta={totalMia} destacar />
+             texto="Mi bandeja" cuenta={totalMia} destacar
+             fijada={fijada === 'mia'} onFijar={onFijar && (() => onFijar('mia'))} />
     <Pestana activa={vista === 'finalizados'} onClick={() => onCambiar('finalizados')}
-             texto="Finalizados" cuenta={totalFinalizados} />
+             texto="Finalizados" cuenta={totalFinalizados}
+             fijada={fijada === 'finalizados'} onFijar={onFijar && (() => onFijar('finalizados'))} />
     {totalOtrasAreas !== null && totalOtrasAreas !== undefined && (
+      // «Turnados» y no «Asignados»: asignar es lo que hace el encargado con su
+      // propio equipo, y usar la misma palabra aquí haría creer que son oficios
+      // repartidos dentro del área. Estos llegaron de fuera, no venían dirigidos
+      // a nadie de aquí, y turnar es la palabra con la que se mandan.
       <Pestana activa={vista === 'otras_areas'} onClick={() => onCambiar('otras_areas')}
-               texto="De otras áreas" cuenta={totalOtrasAreas} destacar />
+               texto="Turnados" cuenta={totalOtrasAreas} destacar
+               fijada={fijada === 'otras_areas'} onFijar={onFijar && (() => onFijar('otras_areas'))} />
     )}
   </div>
 );
 
-const Pestana: React.FC<{
-  activa: boolean; onClick: () => void; texto: string; cuenta: number; destacar?: boolean;
-}> = ({ activa, onClick, texto, cuenta, destacar }) => (
+/**
+ * El alfiler que fija una pestaña como la de arranque.
+ *
+ * Dibujado y no un emoji: los emojis cambian de forma según el sistema y aquí
+ * tiene que leerse igual en todas las máquinas de la oficina. Se muestra tenue
+ * mientras no esté fijada, para que se note que se puede usar sin competir con
+ * el nombre de la pestaña.
+ */
+const Alfiler: React.FC<{ fijada: boolean; onClick: (e: React.MouseEvent) => void }> = ({ fijada, onClick }) => (
   <button
     type="button"
     onClick={onClick}
+    title={fijada ? 'Quitar como vista de inicio' : 'Fijar como vista de inicio'}
+    aria-label={fijada ? 'Quitar como vista de inicio' : 'Fijar como vista de inicio'}
+    aria-pressed={fijada}
+    style={{
+      display: 'inline-flex', alignItems: 'center', padding: '2px', margin: '0 -2px 0 1px',
+      border: 'none', background: 'transparent', cursor: 'pointer', lineHeight: 0,
+      color: fijada ? theme.colors.primary : theme.colors.textSecondary,
+      opacity: fijada ? 1 : 0.35,
+    }}
+  >
+    <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"
+         fill={fijada ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.2"
+         strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M9 10.8V4h6v6.8l2.5 3.2H6.5L9 10.8Z" />
+    </svg>
+  </button>
+);
+
+const Pestana: React.FC<{
+  activa: boolean; onClick: () => void; texto: string; cuenta: number; destacar?: boolean;
+  fijada?: boolean;
+  onFijar?: () => void;
+}> = ({ activa, onClick, texto, cuenta, destacar, fijada = false, onFijar }) => (
+  // Contenedor y no <button>: dentro va el alfiler, que también se puede pulsar,
+  // y un botón no puede contener otro botón.
+  <div
+    onClick={onClick}
+    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
     role="tab"
+    tabIndex={0}
     aria-selected={activa}
     style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
@@ -123,6 +213,7 @@ const Pestana: React.FC<{
       borderLeftWidth: '1px',
       marginLeft: '-1px',
       borderRadius: '7px 7px 0 0',
+      userSelect: 'none',
     }}
   >
     {texto}
@@ -135,5 +226,10 @@ const Pestana: React.FC<{
     }}>
       {cuenta}
     </span>
-  </button>
+    {onFijar && (
+      // `stopPropagation` para que fijar no cambie además de pestaña: son dos
+      // intenciones distintas y la persona puede querer fijar una sin abrirla.
+      <Alfiler fijada={fijada} onClick={(e) => { e.stopPropagation(); onFijar(); }} />
+    )}
+  </div>
 );

@@ -34,9 +34,15 @@ export const COMPATIBILITY_RULES = {
       rolSistema:  'ENCARGADO' as const,
       descripcion: 'Usuario con rol Encargado',
     },
+    // El nombre guardado sigue siendo SECRETARIA: cambiarlo obligaría a migrar la
+    // tabla y a tocar cada lugar que lo consulta, sin ganar nada. En pantalla se
+    // llama por lo que hace. «Secretaria» nombraba un puesto, no una función, y
+    // no decía que quien lo tiene es quien sube el oficio firmado, lo cierra y
+    // puede regresarlo a corregir si algo no está bien.
     SECRETARIA: {
       rolSistema:  'SECRETARIA' as const,
-      descripcion: 'Usuario con rol Secretaria',
+      nombreVisible: 'Carga del firmado',
+      descripcion: 'Sube el oficio firmado, lo cierra y puede regresarlo a corregir',
     },
     OFICIAL: {
       rolSistema:  'OFICIAL' as const,
@@ -131,18 +137,24 @@ const ROLES_GLOBALES: Record<string, string[]> = {
 };
 
 /**
- * Roles que admiten VARIOS actores en la misma unidad.
+ * Roles que admiten VARIOS actores.
  *
- * Solo el OFICIAL de partes: una delegación puede tener varias personas
- * recibiendo oficios, y cada una ve únicamente los que registró (el alcance sale
- * del rol de su cuenta, no de esta tabla).
+ * El OFICIAL de partes: una delegación puede tener varias personas recibiendo
+ * oficios, y cada una ve únicamente los que registró (el alcance sale del rol de
+ * su cuenta, no de esta tabla).
  *
- * Los demás roles se quedan únicos a propósito: ENCARGADO, SECRETARIA y JURIDICO
- * SÍ se resuelven desde aquí para decidir a quién le cae cada oficio, así que dos
- * actores en la misma unidad volverían impredecible esa resolución.
+ * La carga del firmado (SECRETARIA): es una facultad, no un puesto. Quien la
+ * tiene sube el oficio firmado y puede regresarlo a corregir, y no hay razón para
+ * que dependa de una sola persona —si se enferma o sale de vacaciones, nada se
+ * cierra—. Tener varias no vuelve nada ambiguo: no se resuelve «a quién le toca»
+ * desde aquí, sino «quién puede», y el primero que suba el documento cierra.
+ *
+ * El ENCARGADO sigue único a propósito, y el JURIDICO también: de ellos SÍ se
+ * deduce a quién le cae cada oficio, así que dos actores en la misma unidad
+ * volverían impredecible esa resolución.
  */
 const ROLES_MULTIPLES: Record<string, string[]> = {
-  oficialia_partes: ['OFICIAL'],
+  oficialia_partes: ['OFICIAL', 'SECRETARIA'],
 };
 
 export function esRolPorUnidad(moduloClave: string, rolFlujo: string): boolean {

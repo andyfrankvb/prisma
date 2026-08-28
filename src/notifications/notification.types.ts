@@ -33,6 +33,8 @@ export type NotificationEventType =
   | 'DELEGATORIO_EN_REVISION'
   | 'DELEGATORIO_CONTESTADO'
   | 'DELEGATORIO_DEVUELTO'
+  // La solicitud lleva días parada y está frenando el oficio de quien la pidió
+  | 'DELEGATORIO_DEMORADO'
   // El oficio completo cambia de área por no ser de la competencia de la actual
   | 'OFICIO_TURNADO'
   // El área lo trabajó y aprobó, pero la firma le toca a la Directora General

@@ -12,7 +12,6 @@ import {
   getDependencias, crearDependencia, editarDependencia, eliminarDependencia,
   getUnidadesInternas, crearUnidadInterna, editarUnidadInterna, eliminarUnidadInterna,
   getRemitentes, crearRemitente, editarRemitente, eliminarRemitente,
-  getCorreos, crearCorreo, editarCorreo, eliminarCorreo,
   buscarEnCatalogos,
   dependenciaASubunidad, subunidadADependencia, moverSubunidad,
 } from '../api';
@@ -150,8 +149,6 @@ export const SeccionCatalogos: React.FC = () => {
   const [deps,   setDeps]   = useState<CatalogoItem[]>([]);
   const [unis,   setUnis]   = useState<CatalogoItem[]>([]);
   const [rems,   setRems]   = useState<CatalogoItem[]>([]);
-  const [corOri, setCorOri] = useState<CatalogoItem[]>([]);
-  const [corDes, setCorDes] = useState<CatalogoItem[]>([]);
 
   // Buscador global: la razón de ser de esta pantalla para el oficial de partes.
   // Antes de dar algo de alta, saber si ya existe y en qué catálogo está.
@@ -219,15 +216,7 @@ export const SeccionCatalogos: React.FC = () => {
   const cargarRems = useCallback(() => {
     getRemitentes().then((r) => setRems(r.data)).catch((e) => setError(e.message));
   }, []);
-  const cargarCorOri = useCallback(() => {
-    getCorreos('origen').then((r) => setCorOri(r.data)).catch((e) => setError(e.message));
-  }, []);
-  const cargarCorDes = useCallback(() => {
-    getCorreos('destino').then((r) => setCorDes(r.data)).catch((e) => setError(e.message));
-  }, []);
-
-  useEffect(() => { cargarDeps(); cargarRems(); cargarCorOri(); cargarCorDes(); },
-    [cargarDeps, cargarRems, cargarCorOri, cargarCorDes]);
+  useEffect(() => { cargarDeps(); cargarRems(); }, [cargarDeps, cargarRems]);
   useEffect(() => { if (selDep) cargarUnis(selDep.id); else setUnis([]); }, [selDep, cargarUnis]);
 
   return (
@@ -324,39 +313,9 @@ export const SeccionCatalogos: React.FC = () => {
         />
       </div>
 
-      {/* Correos: otro tema y otra pareja de listas, en su propia fila para que
-          las columnas de arriba no se aprieten. */}
-      <h3 style={{ margin: '22px 0 4px', fontSize: '0.95rem', fontWeight: 800, color: theme.colors.primaryDark }}>
-        Correos para recepción por correo electrónico
-      </h3>
-      <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: theme.colors.textSecondary }}>
-        Dos listas independientes: una no depende de la otra. Se usan al registrar un oficio que llegó por correo.
-      </p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'start' }}>
-        <Columna
-          titulo="Correos de quien envía"
-          subtitulo="Cuentas desde las que las autoridades mandan el oficio"
-          items={corOri}
-          crear={(n) => crearCorreo('origen', n)}
-          editar={(id, n) => editarCorreo('origen', id, n)}
-          eliminar={(id) => eliminarCorreo('origen', id)}
-          reload={cargarCorOri} onError={setError}
-          placeholder="correo@dependencia.gob.mx" emptyMsg="Sin correos registrados."
-          activo mayusculas={false}
-        />
-        <Columna
-          titulo="Correos que reciben"
-          subtitulo="Cuentas institucionales donde se recibe el oficio"
-          items={corDes}
-          crear={(n) => crearCorreo('destino', n)}
-          editar={(id, n) => editarCorreo('destino', id, n)}
-          eliminar={(id) => eliminarCorreo('destino', id)}
-          reload={cargarCorDes} onError={setError}
-          placeholder="cuenta@rppc.qroo.gob.mx" emptyMsg="Sin correos registrados."
-          activo mayusculas={false}
-        />
-      </div>
+      {/* Los correos ya no viven aquí: son de cada persona —cada quien usa los
+          suyos— y estas listas son de la institución, iguales para todos.
+          Tienen su propia pantalla, «Mis correos de ingreso». */}
 
       {/* ── Modal: reorganizar jerarquía ─────────────────────── */}
       <Modal

@@ -294,7 +294,8 @@ export async function notifyTramite(payload: {
  */
 export async function notifyDelegatorio(payload: {
   event: 'DELEGATORIO_NUEVO' | 'DELEGATORIO_ASIGNADO' | 'DELEGATORIO_EN_REVISION'
-       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO' | 'OFICIO_TURNADO'
+       | 'DELEGATORIO_CONTESTADO' | 'DELEGATORIO_DEVUELTO' | 'DELEGATORIO_DEMORADO'
+       | 'OFICIO_TURNADO'
        | 'PASE_FIRMA_ENVIADO' | 'PASE_FIRMA_FIRMADO' | 'PASE_FIRMA_DEVUELTO';
   usuarioIds: number[];
   oficio_id:  number;

@@ -51,6 +51,14 @@ interface Props {
   acciones?: React.ReactNode;
   /** Contenido extra al final (p.ej. línea de tiempo). */
   children?: React.ReactNode;
+  /** Se atendió una solicitud desde aquí: la vista recarga su lista. */
+  onCambio?: () => void;
+  /**
+   * Las mismas acciones de la columna de la lista, al final del expediente.
+   * Van aquí abajo y no arriba: se toman después de haber leído el oficio, los
+   * documentos y quién lo tiene, que es lo que la persona necesita para decidir.
+   */
+  accionesFinales?: React.ReactNode;
 }
 
 // ── Sub-componentes de presentación ─────────────────────────────
@@ -90,7 +98,7 @@ const gridCampos: React.CSSProperties = {
   gap:                 '14px 20px',
 };
 
-export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) => {
+export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onCambio, accionesFinales }) => {
   const isMobile = useIsMobile();
   const [documentos, setDocumentos] = useState<OficioDocumento[]>([]);
   const [preview,    setPreview]    = useState<PreviewSel | null>(null);
@@ -114,8 +122,11 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
 
   // Un oficio «de conocimiento» queda FINALIZADO sin haber pasado por el flujo:
   // no tiene proyecto ni documento firmado, así que no se listan.
-  const tieneProyecto = !oficio.de_conocimiento
-    && ['EN_REVISION', 'VOBO_APROBADO', 'FINALIZADO'].includes(oficio.estatus);
+  // Se pregunta por el archivo y no por el estatus: un oficio turnado vuelve a
+  // RECIBIDO y aun así puede traer el borrador que redactó la otra área, que
+  // antes quedaba escondido. Al firmar el proyecto se borra y esto pasa a falso
+  // solo, sin tener que enumerar estatus.
+  const tieneProyecto = !oficio.de_conocimiento && !!oficio.tiene_proyecto;
   const tieneFirmado  = !oficio.de_conocimiento && oficio.estatus === 'FINALIZADO';
 
   useEffect(() => {
@@ -197,7 +208,9 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
           <Campo label="Remitente"    value={oficio.remitente} />
           <Campo label="Dependencia"  value={oficio.dependencia_origen?.toUpperCase()} />
           <Campo label="Unidad interna" value={oficio.unidad_interna || '—'} />
-          <Campo label="Dirigido a"   value={oficio.dirigido_a_nombre?.toUpperCase()} />
+          {/* A quién va dirigido el oficio según el documento. No cambia aunque
+              después se turne: el turno mueve el trabajo, no reescribe el acuse. */}
+          <Campo label="Dirigido a"   value={(oficio.dirigido_a_original_nombre ?? oficio.dirigido_a_nombre)?.toUpperCase()} />
           <Campo label="Recepción"    value={oficio.via_recepcion === 'CORREO_ELECTRONICO' ? 'Correo electrónico' : 'Ventanilla'} />
           {oficio.via_recepcion === 'CORREO_ELECTRONICO' && (
             <>
@@ -393,6 +406,10 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children }) =
           <Campo label="En bandeja de"  value={oficio.en_bandeja_de} />
         </div>
       </Seccion>
+
+      {/* Trae sus propios encabezados —marcas, estado y acciones—, así que va sin
+          envolver: una sección dentro de otra duplicaría el título. */}
+      {accionesFinales && <div style={{ marginTop: '22px' }}>{accionesFinales}</div>}
 
       {/* ── Contenido extra (línea de tiempo) ───────── */}
       {children}

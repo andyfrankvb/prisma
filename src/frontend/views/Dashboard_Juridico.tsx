@@ -14,7 +14,7 @@ import { useAuth }      from '../context/AuthContext';
 import { useIsMobile }  from '../hooks/useIsMobile';
 import { getOficios, subirProyecto, getComentarios } from '../api';
 import { FiltrosOficios } from '../components/FiltrosOficios';
-import { PestanasBandeja, totalDeConteos } from '../components/PestanasBandeja';
+import { PestanasBandeja, totalDeConteos, leerVistaFijada, alternarVistaFijada } from '../components/PestanasBandeja';
 import type { VistaBandeja } from '../components/PestanasBandeja';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
@@ -49,7 +49,9 @@ export const Dashboard_Juridico: React.FC = () => {
   const [deOtrasAreas, setDeOtrasAreas] = useState(0);
   const [delegatoriosPend, setDelegatoriosPend] = useState(0);
   // Pestaña activa: el histórico, lo que espera algo de mí, o el archivo.
-  const [vista, setVista] = useState<VistaBandeja>('todo');
+  // Arranca en la pestaña que la persona haya fijado, si fijó alguna.
+  const [vistaFijada, setVistaFijada] = useState<VistaBandeja | null>(() => leerVistaFijada(user?.id));
+  const [vista, setVista] = useState<VistaBandeja>(() => leerVistaFijada(user?.id) ?? 'todo');
   const [loading,    setLoading]    = useState(false);
   const [listError,  setListError]  = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -186,22 +188,24 @@ export const Dashboard_Juridico: React.FC = () => {
         totalTodo={totalDeConteos(conteos)}
         totalMia={miPendientes}
         totalFinalizados={conteos.FINALIZADO ?? 0}
-        totalOtrasAreas={deOtrasAreas + delegatoriosPend}
+        /* Solo lo que la lista puede mostrar. Sumarle aparte las solicitudes
+           dejaba la pestaña con un número que no correspondía a ningún renglón:
+           el servidor ya las cuenta dentro de «de otras áreas». */
+        totalOtrasAreas={deOtrasAreas}
+        fijada={vistaFijada}
+        onFijar={(v) => setVistaFijada(alternarVistaFijada(user?.id, v, vistaFijada))}
       />
 
-      {/* Se mantiene montada aunque no esté al frente: es quien sabe cuántos
-          delegatorios hay, y el número de la pestaña debe estar desde el inicio. */}
-      <div style={{
-        display: vista === 'otras_areas' ? 'block' : 'none',
-        flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 14px 14px',
-        border: `1px solid ${theme.colors.border}`, borderTop: 'none',
-        borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm,
-      }}>
-        <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} mostrarVacio />
-      </div>
+      {/* Lo que el analista tiene que atender de una solicitud. Va encima de la
+          lista y solo se dibuja cuando hay algo suyo pendiente. */}
+      {vista === 'otras_areas' && (
+        <div style={{ padding: '4px 0' }}>
+          <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} />
+        </div>
+      )}
 
       {/* Lista — único scroll vertical de la vista */}
-      {vista === 'otras_areas' ? null : loading ? (
+      {loading ? (
         <p style={{ color: theme.colors.textSecondary }}>Cargando…</p>
       ) : (
         <div className="scroll-x" style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
@@ -248,12 +252,12 @@ export const Dashboard_Juridico: React.FC = () => {
         {detalleOficio && (
           <div>
             {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
-            <OficioDetalle oficio={detalleOficio} />
+            <OficioDetalle oficio={detalleOficio} onCambio={fetchOficios} />
 
             <AccionesOficio
               oficio={detalleOficio}
               conDelegatorios
-              puedeDelegar={(detalleOficio as any).dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
+              puedeDelegar={!!detalleOficio.puede_solicitar}
               onActualizar={(o) => { setDetalleOficio((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
               onSalio={() => { setDetalleOficio(null); fetchOficios(); }}
                   onRefrescar={() => fetchOficios()}

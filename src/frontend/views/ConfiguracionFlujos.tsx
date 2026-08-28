@@ -8,6 +8,7 @@ import { theme } from '../theme';
 import type { UsuarioDisponible } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useDialogo } from '../context/DialogoContext';
+import { MatrizDestinos } from './MatrizDestinos';
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? '/api/v1';
 
@@ -44,7 +45,11 @@ interface ConfigEntry {
 
 interface RolFlujo {
   rol_flujo:              string;
+  /** Cómo se llama en pantalla. El identificador guardado no cambia. */
+  nombre_visible?:        string;
   por_unidad:             boolean;
+  /** Admite varias personas. Sin `por_unidad`, se agregan sin elegir área. */
+  admite_varios?:         boolean;
   configuraciones:        ConfigEntry[];
   usuario_id:             number | null;
   usuario_nombre:         string | null;
@@ -88,6 +93,8 @@ interface AddState {
   loadingUsers: boolean;
   saving:       boolean;
   error:        string | null;
+  /** El rol admite varias personas pero no se reparte por área: no pide oficina. */
+  sinOficina?:  boolean;
 }
 
 // ── Componente principal ──────────────────────────────────────
@@ -185,8 +192,13 @@ export const ConfiguracionFlujos: React.FC = () => {
   }, []);
 
   // Abrir formulario de agregar nueva entrada por unidad
-  const abrirAgregar = useCallback(async (moduloClave: string, rolFlujo: string) => {
-    setAddState({ moduloClave, rolFlujo, unidadId: '', usuarioId: '', usuarios: [], loadingUsers: true, saving: false, error: null });
+  /**
+   * `sinOficina` para los roles que admiten varias personas pero no se reparten
+   * por área —hoy, la carga del firmado—: ahí no hay oficina que elegir y pedirla
+   * dejaba el formulario trabado, con el botón de guardar siempre apagado.
+   */
+  const abrirAgregar = useCallback(async (moduloClave: string, rolFlujo: string, sinOficina = false) => {
+    setAddState({ moduloClave, rolFlujo, unidadId: '', usuarioId: '', usuarios: [], loadingUsers: true, saving: false, error: null, sinOficina });
     try {
       const usuarios = await cargarUsuarios(moduloClave, rolFlujo);
       setAddState(prev => prev ? { ...prev, usuarios, loadingUsers: false } : null);
@@ -208,14 +220,17 @@ export const ConfiguracionFlujos: React.FC = () => {
 
   // Guardar nueva entrada
   const guardarNueva = useCallback(async () => {
-    if (!addState || addState.usuarioId === '' || addState.unidadId === '') return;
+    if (!addState || addState.usuarioId === '') return;
+    if (!addState.sinOficina && addState.unidadId === '') return;
     setAddState(prev => prev ? { ...prev, saving: true, error: null } : null);
     try {
       await apiFetch(`${BASE}/admin/flujos/${addState.moduloClave}/${addState.rolFlujo}`, {
         method: 'PUT',
+        // Sin oficina se manda sin `unidad_id`: el servidor rechaza recibirla
+        // para los roles que no se reparten por área.
         body: JSON.stringify({
           usuario_id: addState.usuarioId,
-          unidad_id:  Number(addState.unidadId),
+          ...(addState.sinOficina ? {} : { unidad_id: Number(addState.unidadId) }),
         }),
       });
       setAddState(null);
@@ -289,6 +304,8 @@ export const ConfiguracionFlujos: React.FC = () => {
         </p>
       </div>
 
+      <MatrizDestinos />
+
       {modulos.map((modulo) => (
         <div key={modulo.modulo_clave} style={{ background: theme.colors.surface, border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.md, marginBottom: '20px', overflow: 'hidden', boxShadow: theme.shadow.sm }}>
           {/* Header módulo */}
@@ -304,28 +321,63 @@ export const ConfiguracionFlujos: React.FC = () => {
             // nuevas (antes solo OFICIAL y JURIDICO tenían el botón, así que no había
             // forma de dar de alta al ENCARGADO de un área sin configurar).
             const esMultiple = rol.por_unidad;
+            /**
+             * Admite varias personas pero no se reparte por área: la carga del
+             * firmado. Necesita su propio botón porque el de «Agregar por
+             * oficina» pide una oficina que aquí no existe.
+             */
+            const sinArea = !!rol.admite_varios && !rol.por_unidad;
+
+            /**
+             * Áreas que no tienen a nadie en este rol.
+             *
+             * La pantalla solo mostraba lo que sí está configurado, así que un
+             * área faltante era invisible por definición: no había renglón que
+             * mirar. Cuando la que falta es el ENCARGADO, los oficios dirigidos
+             * a esa unidad no caen en la bandeja de nadie y se quedan en RECIBIDO
+             * indefinidamente, sin que nada lo delate.
+             */
+            const sinConfigurar = esMultiple
+              ? modulo.unidades.filter(
+                  (u) => !rol.configuraciones.some((c) => c.unidad_id === u.id),
+                )
+              : [];
 
             return (
               <div key={rol.rol_flujo} style={{ borderBottom: isLast ? 'none' : `1px solid ${theme.colors.border}` }}>
                 {/* Cabecera del rol */}
                 <div style={{ padding: '12px 20px', backgroundColor: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                   <div>
-                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: theme.colors.textPrimary }}>{rol.rol_flujo}</span>
+                    <span style={{ fontWeight: 700, fontSize: '0.88rem', color: theme.colors.textPrimary }}>
+                      {rol.nombre_visible ?? rol.rol_flujo}
+                    </span>
                     <span style={{ marginLeft: '8px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>{rol.regla_compatibilidad?.descripcion}</span>
                   </div>
-                  {esMultiple && (
+                  {(esMultiple || sinArea) && (
                     <button
-                      onClick={() => abrirAgregar(modulo.modulo_clave, rol.rol_flujo)}
+                      onClick={() => abrirAgregar(modulo.modulo_clave, rol.rol_flujo, sinArea)}
                       style={{ padding: '5px 12px', background: theme.colors.primary, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
                     >
-                      + Agregar por oficina
+                      {sinArea ? '+ Agregar persona' : '+ Agregar por oficina'}
                     </button>
                   )}
                 </div>
 
+                {sinConfigurar.length > 0 && (
+                  <div style={{ padding: '9px 20px', backgroundColor: '#FEF3C7', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.76rem', color: '#92400E' }}>
+                    <strong>Sin asignar:</strong> {sinConfigurar.map((u) => u.nombre).join(' · ')}
+                    {rol.rol_flujo === 'ENCARGADO' && (
+                      <span style={{ display: 'block', marginTop: '3px', fontSize: '0.72rem' }}>
+                        Los oficios dirigidos a estas áreas no le caen a nadie y no se pueden asignar.
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Formulario agregar nueva entrada */}
                 {addState?.moduloClave === modulo.modulo_clave && addState?.rolFlujo === rol.rol_flujo && (
                   <div style={{ padding: '12px 20px', backgroundColor: '#EFF6FF', borderTop: `1px solid ${theme.colors.border}`, display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    {!addState.sinOficina && (
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: theme.colors.charcoal, marginBottom: '4px' }}>Oficina</label>
                       <select
@@ -350,6 +402,7 @@ export const ConfiguracionFlujos: React.FC = () => {
                         ))}
                       </select>
                     </div>
+                    )}
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: theme.colors.charcoal, marginBottom: '4px' }}>Usuario</label>
                       {addState.loadingUsers ? (
@@ -358,12 +411,14 @@ export const ConfiguracionFlujos: React.FC = () => {
                         <select
                           value={addState.usuarioId}
                           onChange={e => setAddState(prev => prev ? { ...prev, usuarioId: Number(e.target.value) || '' } : null)}
-                          disabled={!addState.unidadId}
-                          style={{ padding: '6px 8px', border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.sm, fontSize: '0.78rem', minWidth: '220px', opacity: !addState.unidadId ? 0.5 : 1 }}
+                          disabled={!addState.sinOficina && !addState.unidadId}
+                          style={{ padding: '6px 8px', border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.sm, fontSize: '0.78rem', minWidth: '220px', opacity: (!addState.sinOficina && !addState.unidadId) ? 0.5 : 1 }}
                         >
-                          <option value="">{!addState.unidadId ? '— Selecciona una oficina primero —' : addState.usuarios.length === 0 ? 'Sin usuarios disponibles' : '— Seleccionar usuario —'}</option>
+                          <option value="">{(!addState.sinOficina && !addState.unidadId) ? '— Selecciona una oficina primero —' : addState.usuarios.length === 0 ? 'Sin usuarios disponibles' : '— Seleccionar usuario —'}</option>
                           {addState.usuarios.map(u => (
-                            <option key={u.id} value={u.id}>{u.nombre}</option>
+                            <option key={u.id} value={u.id}>
+                              {u.nombre}{addState.sinOficina && u.unidad_nombre ? ` · ${u.unidad_nombre}` : ''}
+                            </option>
                           ))}
                         </select>
                       )}
@@ -371,7 +426,8 @@ export const ConfiguracionFlujos: React.FC = () => {
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button
                         onClick={guardarNueva}
-                        disabled={addState.saving || addState.usuarioId === '' || addState.unidadId === ''}
+                        disabled={addState.saving || addState.usuarioId === ''
+                          || (!addState.sinOficina && addState.unidadId === '')}
                         style={{ padding: '6px 14px', background: theme.colors.alert.green, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
                       >
                         {addState.saving ? 'Guardando…' : '✓ Guardar'}
@@ -529,9 +585,17 @@ export const ConfiguracionFlujos: React.FC = () => {
                     onChange={(e) => cambiarDestinos(d.id, e.target.checked)}
                     style={{ width: '15px', height: '15px', cursor: 'pointer' }}
                   />
-                  También puede dirigir oficios a las direcciones de área
+                  {/* El «al registrar» es lo que la distingue de «Destinos entre
+                      áreas». Aquella dice a quién se le puede turnar el oficio ya
+                      adentro del trámite; ésta, qué correspondencia alcanza a
+                      capturar esta ventanilla, que depende de qué le llega
+                      físicamente —Chetumal comparte sede con las direcciones y
+                      recibe también lo de ellas—. Sin decir el momento, las dos
+                      se leen como la misma regla. */}
+                  Al registrar, también puede dirigir oficios a las direcciones de área
                   <span style={{ color: theme.colors.grayMid }}>
-                    (sin esto: solo a su delegado y a la Dirección General)
+                    (sin esto: solo a su delegado y a la Dirección General. No afecta a quién
+                    se le puede turnar después: eso se define en «Destinos entre áreas»)
                   </span>
                 </label>
               )}

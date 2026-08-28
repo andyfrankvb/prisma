@@ -29,6 +29,8 @@ import {
   listarUsuariosDisponibles,
   listarDelegacionesVobo,
   actualizarDelegacionVobo,
+  listarDestinos,
+  actualizarDestino,
 } from './admin.controller';
 
 const router = Router();
@@ -69,5 +71,9 @@ router.get('/flujos/:modulo/:rol/usuarios-disponibles',        listarUsuariosDis
 // ── VoBo por delegación ───────────────────────────────────────
 router.get('/delegaciones-vobo',                               listarDelegacionesVobo);
 router.patch('/delegaciones-vobo/:unidadId',                   actualizarDelegacionVobo);
+
+// ── Destinos: qué área puede dirigirse a qué área ─────────────
+router.get('/destinos',                                        listarDestinos);
+router.put('/destinos/:origenId/:destinoId',                   actualizarDestino);
 
 export default router;

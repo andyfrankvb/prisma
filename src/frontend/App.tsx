@@ -14,6 +14,7 @@ import { Dashboard_Oficial }  from './views/Dashboard_Oficial';
 import { Dashboard_Gestion }  from './views/Dashboard_Gestion';
 import { Dashboard_Juridico } from './views/Dashboard_Juridico';
 import { SeccionCatalogos }  from './views/SeccionCatalogos';
+import { SeccionCorreos }    from './views/SeccionCorreos';
 import { Dashboard_Director } from './views/Dashboard_Director';
 import { Dashboard_SuperAdmin } from './views/Dashboard_SuperAdmin';
 import { Dashboard_DirectorArea } from './views/Dashboard_DirectorArea';
@@ -94,6 +95,18 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><SeccionCatalogos /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Los correos son de cada persona, no de la institución: pantalla
+              aparte y sin permiso de catálogos, porque quien registra oficios
+              necesita los suyos aunque no administre nada más. */}
+          <Route
+            path="/mis-correos"
+            element={
+              <ProtectedRoute>
+                <AppShell><SeccionCorreos /></AppShell>
               </ProtectedRoute>
             }
           />

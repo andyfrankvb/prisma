@@ -23,6 +23,8 @@ import { logger }       from '../../utils/logger';
 import { RolUsuario, EstatusOficio } from './oficios.types';
 import { tieneDelegatoriosPendientes } from './delegatorios.controller';
 import { buscarDuplicados, hashArchivo } from './duplicados';
+import { unidadDelOficio } from './destinos';
+import { recordarCorreo } from './catalogos.controller';
 import { sumarDiasHabiles, aFechaSql } from '../../utils/dias-habiles';
 import { notifyDelegatorio } from '../../notifications/notification.dispatcher';
 
@@ -159,6 +161,26 @@ function tieneFlujoPropio(rol?: string | null, tipo?: string | null): boolean {
 }
 
 /**
+ * ¿Quién aprueba se elige en esta área?
+ *
+ * En delegaciones y direcciones de área sí: puede darlo el titular o el
+ * encargado, según `catalogo_unidades.vobo_por`.
+ *
+ * La Dirección General queda fuera **a propósito**. Ahí el visto bueno del flujo
+ * es siempre del encargado, sobre el trabajo de su propio equipo; la Directora
+ * General no interviene en ese paso. Lo suyo es la firma: aprueba o regresa lo
+ * que el encargado le manda ya terminado.
+ *
+ * No es una omisión que convenga «arreglar»: el renglón de la Dirección General
+ * trae guardado `DELEGADO` de un valor por omisión que nunca se usó, así que
+ * incluirla aquí le pasaría el visto bueno a la Directora sin que nadie lo pida.
+ */
+const TIPOS_CON_VOBO_CONFIGURABLE = TIPOS_CON_FLUJO_PROPIO;
+function voboEsConfigurable(rol?: string | null, tipo?: string | null): boolean {
+  return rol === 'DIRECTOR' && TIPOS_CON_VOBO_CONFIGURABLE.includes(tipo ?? '');
+}
+
+/**
  * ¿Este usuario pertenece a la Dirección Jurídica?
  *
  * Vale tanto para su gente operativa (su unidad ES la Dirección Jurídica) como
@@ -202,17 +224,19 @@ async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promis
       .where('u.id', dirigidoAId)
       .select('u.rol', 'cu.tipo', 'cu.vobo_por')
       .first();
-    if (tieneFlujoPropio(dirigido?.rol, dirigido?.tipo)) {
+    if (voboEsConfigurable(dirigido?.rol, dirigido?.tipo)) {
       // Configurable por unidad: el VoBo lo da el ENCARGADO o el titular
-      // (delegado en una delegación, director en una dirección de área).
-      if (dirigido.vobo_por === 'ENCARGADO') {
+      // (delegado en una delegación, director o directora general en las demás).
+      // Sin configurar, la columna trae 'ENCARGADO' por omisión, que es como
+      // venía funcionando la Dirección General antes de poder elegir.
+      if ((dirigido.vobo_por ?? 'ENCARGADO') === 'ENCARGADO') {
         const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
         return encargadoId === user.id;
       }
       return user.id === dirigidoAId;
     }
   }
-  return canActAsEncargado(user);   // DG u otro: el encargado
+  return canActAsEncargado(user);
 }
 
 /**
@@ -237,10 +261,12 @@ async function enPaseFirma(oficio_id: number, trx: any = db): Promise<boolean> {
  * General, sin importar de qué área venga. Si no, en delegaciones y direcciones de
  * área lo puede hacer TANTO el titular como el ENCARGADO de esa unidad (el primero
  * que lo suba finaliza; el otro ya no puede porque el oficio deja de estar en
- * VOBO_APROBADO). En la Dirección General lo hace la SECRETARIA.
+ * VOBO_APROBADO). En la Dirección General lo suben su encargado, su titular o
+ * quien tenga la carga del firmado —ninguno en lugar del otro: cualquiera de los
+ * tres, y el primero que lo suba cierra.
  */
 async function puedeSubirFirmado(user: any, dirigidoAId: number | null, oficio_id?: number): Promise<boolean> {
-  if (oficio_id && await enPaseFirma(oficio_id)) return canActAsSecretaria(user);
+  if (oficio_id && await enPaseFirma(oficio_id)) return puedeCerrarPaseFirma(user);
 
   if (dirigidoAId) {
     const dirigido = await db('usuarios as u')
@@ -253,13 +279,74 @@ async function puedeSubirFirmado(user: any, dirigidoAId: number | null, oficio_i
       const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
       return encargadoId === user.id;                           // el encargado de esa unidad
     }
-    // Dirección General: firma su encargado, que es quien dio el visto bueno. Antes
-    // el oficio pasaba solo a la secretaría al aprobarse; ahora se queda con él, que
-    // decide si lo firma o lo manda a firma de la Directora General.
+    // Dirección General: su encargado —que es quien dio el visto bueno— y también
+    // la propia Directora General, que hasta ahora dependía de que alguien más le
+    // subiera su firma. La carga del firmado sigue valiendo, más abajo: se suman,
+    // no se sustituyen.
+    if (user.id === dirigidoAId) return true;
     const encargadoId = await resolverEncargadoDeOficio(dirigidoAId);
     if (encargadoId === user.id) return true;
   }
-  return canActAsSecretaria(user);   // sin encargado resuelto: la secretaría, como antes
+  return canActAsSecretaria(user);
+}
+
+/**
+ * ¿Es este usuario la titular de la Dirección General?
+ *
+ * Se resuelve contra la base y no contra el token: el token trae lo que era
+ * cierto al iniciar sesión, y un cambio de adscripción tardaría en notarse.
+ *
+ * Hace falta porque un oficio en pase de firma **sigue dirigido al área que lo
+ * trabajó** —el destinatario es un dato del documento y no se reescribe—, así
+ * que la Directora no aparece por ninguna de las reglas normales, aunque sea
+ * ella quien lo tiene enfrente para firmarlo.
+ */
+async function esTitularDireccionGeneral(user: any): Promise<boolean> {
+  if (!user?.id) return false;
+  const row = await db('usuarios as u')
+    .join('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+    .where('u.id', user.id)
+    .andWhere('u.rol', 'DIRECTOR')
+    .andWhere('u.activo', true)
+    .andWhere('cu.tipo', 'DIRECCION_GENERAL')
+    .first();
+  return !!row;
+}
+
+/**
+ * Quién cierra un oficio que está esperando la firma de la Dirección General:
+ * la propia Directora, o cualquiera de las personas con la carga del firmado.
+ * Se suman, no se turnan: el primero que lo suba lo cierra.
+ */
+async function puedeCerrarPaseFirma(user: any): Promise<boolean> {
+  return (await canActAsSecretaria(user)) || esTitularDireccionGeneral(user);
+}
+
+/**
+ * ¿Puede este usuario regresar el oficio a corregir?
+ *
+ * Aprobar y regresar no alcanzan a la misma gente. Aprobar es del aprobador del
+ * área y de nadie más: el visto bueno del flujo lo da quien esté configurado,
+ * sobre el trabajo de su equipo.
+ *
+ * Regresar alcanza además a quienes reciben el oficio **ya terminado, para
+ * firma**: la Directora General y quienes tienen la carga del firmado. Si al ir a
+ * firmarlo advierten que algo está mal, tienen que poder devolverlo con su
+ * observación, en vez de firmarlo así o salir a buscar a quien sí pueda.
+ *
+ * Es solo sobre lo que está a firma. En el paso anterior —el visto bueno interno
+ * del área— no intervienen: ahí manda el aprobador.
+ */
+async function puedeReconsiderarOficio(
+  user: any, dirigidoAId: number | null, oficio_id?: number,
+): Promise<boolean> {
+  if (await puedeAprobarOficio(user, dirigidoAId)) return true;
+  // Y quien lo cierra: si el sistema te deja firmar un oficio, te deja negarte.
+  // Cubre a la Directora General en lo suyo y en lo que le mandan a firma, y a
+  // quien tiene la carga del firmado. Es la misma regla que usa la pantalla para
+  // ofrecer el botón; tenerlas distintas dejaba la acción a la vista y el
+  // servidor rechazándola.
+  return puedeSubirFirmado(user, dirigidoAId, oficio_id);
 }
 
 /**
@@ -438,6 +525,10 @@ export async function listarOficios(
         'oficios.*',
         'abogado_u.nombre as abogado_nombre',
         'abogado_u.id as abogado_id',
+        // Para saber si la asignación sigue siendo del área donde vive el oficio:
+        // al turnarlo, la asignación anterior no se borra y quedaría dando
+        // permisos —y bandeja— a alguien de un área que ya lo soltó.
+        'abogado_u.unidad_id as abogado_unidad_id',
         'dir_u.rol as dirigido_a_rol',
         'dir_u.nombre as dirigido_a_nombre',
         'dir_orig.nombre as dirigido_a_original_nombre',
@@ -456,6 +547,15 @@ export async function listarOficios(
                     AND t.unidad_destino_id = dir_u.unidad_id
                     AND t.tipo = 'COMPETENCIA')::int
                 AS turnos_recibidos`),
+        // ¿Y sigue sin aceptarse? Recibir es un acto explícito: hasta que el
+        // área lo acepta puede regresarlo, y después ya no. Antes la opción de
+        // devolver no caducaba nunca, ni con el visto bueno dado.
+        db.raw(`EXISTS (SELECT 1 FROM oficio_turnos t
+                         WHERE t.oficio_id = oficios.id
+                           AND t.unidad_destino_id = dir_u.unidad_id
+                           AND t.aceptado_en IS NULL
+                           AND NOT t.es_devolucion)
+                AS turno_por_aceptar`),
         // ¿El último movimiento que lo trajo fue una devolución? Cambia la etiqueta.
         // Marcado en SIGER sin delegatorio a una delegación: no puede cerrarse.
         db.raw(`(oficios.siger_aplica AND NOT EXISTS (
@@ -511,6 +611,19 @@ export async function listarOficios(
         'enc_u.nombre as encargado_nombre',
         'fin_aud.fecha_cambio as fecha_firmado',
         'oficial_u.nombre as ingresado_por_nombre',
+        /**
+         * ¿Hay un proyecto de contestación guardado?
+         *
+         * La pantalla lo deducía del estatus —solo en revisión o aprobado—, y por
+         * eso un oficio turnado a otra área, que vuelve a RECIBIDO o ASIGNADO,
+         * escondía el borrador que ya existía. Se pregunta por el archivo, que es
+         * lo que de verdad determina si hay algo que abrir: al firmar se borra y
+         * la respuesta pasa a ser no, sin depender de ningún estatus.
+         */
+        db.raw(`EXISTS (SELECT 1 FROM gestiones_contestacion g
+                         WHERE g.oficio_id = oficios.id
+                           AND g.proyecto_url IS NOT NULL)
+                AS tiene_proyecto`),
       );
 
     // Unidades de las que el usuario es ENCARGADO (routing por "dirigido a")
@@ -541,8 +654,16 @@ export async function listarOficios(
         WHEN oficios.estatus = 'FINALIZADO' OR oficios.de_conocimiento THEN NULL
         WHEN oficios.estatus = 'RECIBIDO'
              AND dir_u.unidad_id IN ${unidadesSql}                       THEN 'ASIGNAR'
-        WHEN oficios.estatus IN ('ASIGNADO', 'EN_RECONSIDERACION')
+        WHEN oficios.estatus = 'ASIGNADO'
              AND ultima_asignacion.abogado_id = ${Number(user.id)}       THEN 'REDACTAR'
+        -- Regresado por el propio aprobador: le toca al analista. Regresado desde
+        -- arriba: le toca al encargado, que fue quien lo aprobó y lo mandó.
+        WHEN oficios.estatus = 'EN_RECONSIDERACION'
+             AND NOT oficios.reconsideracion_al_encargado
+             AND ultima_asignacion.abogado_id = ${Number(user.id)}       THEN 'REDACTAR'
+        WHEN oficios.estatus = 'EN_RECONSIDERACION'
+             AND oficios.reconsideracion_al_encargado
+             AND dir_u.unidad_id IN ${unidadesSql}                       THEN 'REDACTAR'
         WHEN oficios.estatus = 'EN_REVISION' AND (
                CASE WHEN dir_u.rol = 'DIRECTOR'
                          AND dir_cu.tipo IN ('DELEGACION', 'DIRECCION')
@@ -562,10 +683,48 @@ export async function listarOficios(
       END`;
     query = query.select(db.raw(`${MI_PASO} AS mi_paso`));
 
-    // Restringe la query a oficios cuyo "dirigido a" pertenece a esas unidades
-    // (reusa el leftJoin dir_u de arriba).
+    /**
+     * Lo que un área alcanza a ver: lo dirigido a ella, y además lo que ella misma
+     * mandó a otra área con su trabajo hecho.
+     *
+     * Lo turnado **por competencia** queda fuera a propósito: si el área se
+     * deslindó del asunto, dejó de ser suyo y seguirlo viendo solo estorba. En
+     * cambio, cuando mandó lo que ya había trabajado —una resolución, un envío de
+     * información— sigue queriendo saber en qué acabó, y hasta ahora el oficio
+     * simplemente desaparecía de su vista sin dejar rastro.
+     *
+     * Lo enviado se ve pero no se puede tocar: los permisos se resuelven contra
+     * el área que lo tiene hoy, así que ninguna acción se habilita.
+     */
+    const ENVIADO_POR = (unidades: number[]) => {
+      const lista = unidades.length ? unidades.map(Number).join(',') : 'NULL';
+      return `EXISTS (SELECT 1 FROM oficio_turnos ts
+                       WHERE ts.oficio_id = oficios.id
+                         AND ts.unidad_origen_id IN (${lista})
+                         AND ts.tipo <> 'COMPETENCIA')`;
+    };
+
+    /**
+     * Oficios sobre los que otra área le pidió información a la mía.
+     *
+     * El oficio no cambia de dueño —sigue siendo de quien lo pidió—, así que sin
+     * esto no aparecía en ninguna lista del área destino: la única forma de
+     * atenderlo era un cuadro suelto arriba de la bandeja. Al quitar ese cuadro,
+     * quien recibía una solicitud se quedaba sin manera de llegar a ella.
+     */
+    const CON_SOLICITUD = (unidades: number[]) => {
+      const lista = unidades.length ? unidades.map(Number).join(',') : 'NULL';
+      return `EXISTS (SELECT 1 FROM oficio_delegatorios ds
+                       WHERE ds.oficio_id = oficios.id
+                         AND ds.unidad_destino_id IN (${lista}))`;
+    };
+
     const scopeEncargado = (q: any) =>
-      q.whereIn('dir_u.unidad_id', unidadesEncargado);
+      q.where((sub: any) => {
+        sub.whereIn('dir_u.unidad_id', unidadesEncargado)
+           .orWhereRaw(ENVIADO_POR(unidadesEncargado))
+           .orWhereRaw(CON_SOLICITUD(unidadesEncargado));
+      });
 
     // Ser ENCARGADO (configurado por unidad) tiene PRIORIDAD sobre el rol de sistema:
     // ve los oficios dirigidos a su(s) delegación(es) aunque su rol sea OPERATIVO,
@@ -597,13 +756,21 @@ export async function listarOficios(
           query = query
             .join(
               db.raw(`(
-                SELECT oficio_id
+                SELECT ua.oficio_id
                 FROM (
                   SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id
                   FROM asignaciones_juridicas
                   ORDER BY oficio_id, id DESC
-                ) AS ultima_asignacion_global
-                WHERE abogado_id = ?
+                ) AS ua
+                JOIN oficios   o_a ON o_a.id = ua.oficio_id
+                JOIN usuarios  u_a ON u_a.id = ua.abogado_id
+                JOIN usuarios  d_a ON d_a.id = o_a.dirigido_a_id
+                WHERE ua.abogado_id = ?
+                  -- Solo mientras el oficio siga en el area del analista. Al
+                  -- turnarlo, la asignacion anterior no se borra, y sin esta
+                  -- condicion el oficio se quedaba en su bandeja para siempre
+                  -- aunque viviera ya en otra area.
+                  AND u_a.unidad_id = d_a.unidad_id
               ) AS mis_asignaciones`, [user.id]),
               'mis_asignaciones.oficio_id',
               'oficios.id',
@@ -639,7 +806,10 @@ export async function listarOficios(
         // heredada que le mostraba TODOS los oficios aprobados y finalizados del
         // sistema, incluidos los de otras áreas. Se acota a lo suyo: si falta
         // configuración, el peor caso es ver de menos, nunca de más.
-        query = query.where('oficios.dirigido_a_id', user.id);
+        query = query.where((sub: any) => {
+          sub.where('oficios.dirigido_a_id', user.id)
+             .orWhereRaw(ENVIADO_POR(user.unidad_id ? [Number(user.unidad_id)] : []));
+        });
         break;
 
       case 'JURIDICO':
@@ -675,13 +845,21 @@ export async function listarOficios(
           query = query
             .join(
               db.raw(`(
-                SELECT oficio_id
+                SELECT ua.oficio_id
                 FROM (
                   SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id
                   FROM asignaciones_juridicas
                   ORDER BY oficio_id, id DESC
-                ) AS ultima_asignacion_global
-                WHERE abogado_id = ?
+                ) AS ua
+                JOIN oficios   o_a ON o_a.id = ua.oficio_id
+                JOIN usuarios  u_a ON u_a.id = ua.abogado_id
+                JOIN usuarios  d_a ON d_a.id = o_a.dirigido_a_id
+                WHERE ua.abogado_id = ?
+                  -- Solo mientras el oficio siga en el area del analista. Al
+                  -- turnarlo, la asignacion anterior no se borra, y sin esta
+                  -- condicion el oficio se quedaba en su bandeja para siempre
+                  -- aunque viviera ya en otra area.
+                  AND u_a.unidad_id = d_a.unidad_id
               ) AS mis_asignaciones`, [user.id]),
               'mis_asignaciones.oficio_id',
               'oficios.id',
@@ -866,9 +1044,30 @@ export async function listarOficios(
     // Lo que llegó de otra área. El número cuenta exactamente lo que la pestaña
     // muestra: si contara solo lo accionable, diría «0» sobre una lista con
     // renglones, que es peor que no ponerlo.
-    const DE_OTRA_AREA = `EXISTS (SELECT 1 FROM oficio_turnos t3
-                                   WHERE t3.oficio_id = oficios.id
-                                     AND t3.unidad_destino_id = dir_u.unidad_id)`;
+    /**
+     * Lo que llegó de otra área y **todavía espera algo**: los oficios turnados
+     * que el área aún no acepta, y las solicitudes que otra le hizo y sigue sin
+     * contestar.
+     *
+     * Es una bandeja de pendientes, no un histórico. Antes listaba todo lo que
+     * alguna vez había llegado de fuera, así que un oficio aceptado hace semanas
+     * seguía ahí para siempre y la pestaña crecía sin que nada de eso reclamara
+     * atención. Una vez aceptado, el oficio es del área como cualquier otro y
+     * vive en Recepción y en Mi bandeja.
+     *
+     * Las devoluciones no cuentan: un oficio que regresa vuelve a ser tuyo, no
+     * es algo que tengas que aceptar.
+     */
+    const lista = unidadesEncargado.length ? unidadesEncargado.map(Number).join(',') : 'NULL';
+    const DE_OTRA_AREA = `(EXISTS (SELECT 1 FROM oficio_turnos t3
+                                    WHERE t3.oficio_id = oficios.id
+                                      AND t3.unidad_destino_id = dir_u.unidad_id
+                                      AND t3.aceptado_en IS NULL
+                                      AND NOT t3.es_devolucion)
+                           OR EXISTS (SELECT 1 FROM oficio_delegatorios dp
+                                       WHERE dp.oficio_id = oficios.id
+                                         AND dp.unidad_destino_id IN (${lista})
+                                         AND dp.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION')))`;
     const otrasRows = await query.clone().clearSelect()
       .whereRaw(DE_OTRA_AREA)
       .countDistinct('oficios.id as count');
@@ -948,16 +1147,25 @@ export async function listarOficios(
 
     const rows      = await query.limit(limit).offset(offset);
 
-    // Nombre de la secretaría (para "en bandeja de" cuando ya tiene VoBo)
-    const secretariaRow = await db('configuracion_flujos as cf')
+    // Quiénes tienen la carga del firmado, para «en bandeja de» cuando el oficio
+    // ya está a firma. Ahora pueden ser varias personas, así que se nombran
+    // todas: quedarse con la primera decía que el oficio está con alguien que
+    // quizá no sea quien lo va a cerrar.
+    const cargaFirmado = await db('configuracion_flujos as cf')
       .join('usuarios as u', 'u.id', 'cf.usuario_id')
       .where({ 'cf.modulo_clave': 'oficialia_partes', 'cf.rol_flujo': 'SECRETARIA' })
-      .select('u.nombre')
-      .first();
-    const secretariaNombre: string | null = secretariaRow?.nombre ?? null;
+      .andWhere('u.activo', true)
+      .orderBy('u.nombre', 'asc')
+      .pluck('u.nombre');
+    const secretariaNombre: string | null = cargaFirmado.length
+      ? cargaFirmado.join(' · ')
+      : null;
 
     // ¿El usuario actual es la SECRETARIA? (rol nativo o designada en configuracion_flujos)
     const esSecretaria = await canActAsSecretaria(user);
+    // Quien cierra lo que está a firma: la Directora General o la carga del
+    // firmado. Se resuelve una sola vez por consulta, no por renglón.
+    const cierraPaseFirma = esSecretaria || await esTitularDireccionGeneral(user);
 
     // Solo la Dirección Jurídica marca oficios «de conocimiento».
     const puedeMarcarConocimiento = await esDeJuridica(user);
@@ -985,21 +1193,44 @@ export async function listarOficios(
       // ¿Quién tiene el oficio en su bandeja ahora? (según el estatus del flujo)
       // Delegaciones y direcciones de área resuelven su propio VoBo y su propia firma.
       const esFlujoPropio = tieneFlujoPropio(o.dirigido_a_rol, o.dirigido_a_unidad_tipo);
-      // En esas unidades el VoBo lo da quien se haya configurado (catalogo_unidades.vobo_por):
-      // el titular (delegado/director) o el encargado. En la Dirección General, el encargado.
-      const voboLoDaElEncargado = esFlujoPropio
-        ? o.vobo_por_unidad === 'ENCARGADO'
-        : true;
+      // Quién da el VoBo se configura por unidad (catalogo_unidades.vobo_por): el
+      // titular —delegado, director o directora general— o el encargado. La
+      // Dirección General ya entra en esa configuración; mientras nadie la haya
+      // tocado, la columna vale 'ENCARGADO' y se comporta como antes.
+      const voboLoDaElEncargado =
+        voboEsConfigurable(o.dirigido_a_rol, o.dirigido_a_unidad_tipo)
+          ? (o.vobo_por_unidad ?? 'ENCARGADO') === 'ENCARGADO'
+          : true;
       // Nombre de quien aprueba (para bandeja EN_REVISION y "vobo_por_nombre").
       const aprobadorNombre = voboLoDaElEncargado ? o.encargado_nombre : o.dirigido_a_nombre;
+
+      /**
+       * ¿Responde el usuario por el área donde vive hoy el oficio?
+       *
+       * Ser encargado se sabía de forma global —«¿soy encargado de alguna
+       * unidad?»— y con eso se ofrecían acciones en cualquier renglón. Desde que
+       * un área conserva la vista de lo que mandó a otra, eso alcanza para
+       * ofrecerle «Asignar» sobre un oficio que ya no es suyo: el clic falla en
+       * el servidor, pero no debió llegar a mostrarse.
+       */
+      const es_de_mi_area = o.dirigido_a_id === user.id
+        || unidadesEncargado.includes(o.dirigido_a_unidad_id);
 
       let en_bandeja_de: string | null;
       switch (o.estatus) {
         case 'RECIBIDO':                              // sin reasignar → el encargado
           en_bandeja_de = o.encargado_nombre; break;
         case 'ASIGNADO':
-        case 'EN_RECONSIDERACION':                    // reasignado → el jurídico
           en_bandeja_de = o.abogado_nombre ?? o.encargado_nombre; break;
+        case 'EN_RECONSIDERACION':
+          // Normalmente baja al jurídico que lo redactó. Pero si quien lo regresó
+          // fue alguien de arriba —la Directora General, la carga del firmado—,
+          // el oficio venía ya aprobado y a quien le toca responder es el
+          // encargado que lo aprobó, no el analista.
+          en_bandeja_de = (o as any).reconsideracion_al_encargado
+            ? aprobadorNombre
+            : (o.abogado_nombre ?? o.encargado_nombre);
+          break;
         case 'EN_REVISION':                           // esperando VoBo → quien aprueba
           en_bandeja_de = aprobadorNombre; break;
         case 'VOBO_APROBADO':                         // listo para firma
@@ -1012,6 +1243,13 @@ export async function listarOficios(
         default:
           en_bandeja_de = o.encargado_nombre;
       }
+
+      // Un área sin encargado configurado no es lo mismo que «no aplica», pero
+      // se veía igual: un guion. Los oficios dirigidos a esa unidad no caen con
+      // nadie, nadie puede asignarlos y se quedan en RECIBIDO para siempre, sin
+      // que nada en la pantalla lo delate. Decirlo es la única forma de que
+      // alguien vaya a Configuración de Flujos a arreglarlo.
+      if (!en_bandeja_de) en_bandeja_de = 'Sin encargado configurado';
 
       // Delegatorios sin contestar: bloquean VoBo y firma, y la interfaz lo explica.
       const delegatorios_pendientes = Number((o as any).delegatorios_pendientes ?? 0);
@@ -1053,7 +1291,7 @@ export async function listarOficios(
       // la Dirección General: su encargado se queda con el oficio al aprobarlo.
       const enPase = !!(o as any).en_pase_firma;
       const puede_finalizar = delegatorios_pendientes === 0 && !sigerPendiente && (enPase
-        ? esSecretaria
+        ? cierraPaseFirma
         : (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id)));
 
       // Mandarlo a firma de la Dirección General: quien dio el visto bueno y el
@@ -1064,22 +1302,90 @@ export async function listarOficios(
         && !sigerPendiente
         && (puede_vobo || unidadesEncargado.includes(o.dirigido_a_unidad_id));
 
-      // Y regresarlo al área sin firmarlo: solo la secretaría, mientras esté a firma.
-      const puede_devolver_pase_firma = enPase && esSecretaria;
+      // Y regresarlo al área sin firmarlo, mientras esté a firma: la Directora
+      // General o la carga del firmado. Quien puede firmarlo tiene que poder
+      // negarse; antes solo la secretaría, y la Directora dependía de pedírselo.
+      const puede_devolver_pase_firma = enPase && cierraPaseFirma;
+
+      /**
+       * Quién lo cierra, sin mirar si algo lo frena ahora mismo.
+       *
+       * Va aparte de `puede_finalizar` porque esa lleva incorporados los frenos
+       * —delegatorios sin contestar, SIGER sin delegar—, y para regresar un oficio
+       * los frenos no vienen al caso: si está trabado es cuando más falta hace
+       * poder devolverlo.
+       */
+      const cierraElOficio = enPase
+        ? cierraPaseFirma
+        : (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id));
+
+      /**
+       * Regresar el oficio a corregir: el aprobador del área, y quien lo cierra.
+       *
+       * La regla es «quien puede firmarlo tiene que poder negarse». La Directora
+       * General recibe oficios ya aprobados para firmarlos, y sin esto no tenía
+       * cómo detener uno que no le pareciera: el visto bueno de la Dirección
+       * General lo da su encargado, así que ella no contaba como aprobadora y se
+       * quedaba solo con «Subir firmado».
+       */
+      const puede_reconsiderar = esElAprobador || cierraElOficio;
 
       // Turnar a otra área: lo hace el encargado del área que hoy tiene el oficio.
       // Turna quien responde por el área: su titular o el encargado de oficios.
-      const puede_turnar = o.estatus !== 'FINALIZADO'
+      //
+      // Con el visto bueno ya dado, el oficio deja de poder soltarse: el área lo
+      // trabajó y lo aprobó, así que mandarlo por no competencia contradiría el
+      // expediente y tiraría el proyecto. Lo que queda es firmarlo, mandarlo a
+      // firma o regresarlo a corregir. Pedirle información a otra área sí sigue
+      // valiendo, y eso lo resuelve `puede_solicitar`.
+      const cerrado = o.estatus === 'VOBO_APROBADO' || o.estatus === 'FINALIZADO' || enPase;
+      const puede_turnar = !cerrado
         && (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id));
+
+      // Y devolverlo, solo si llegó por un turno.
+      /**
+       * Recibir un oficio turnado, y su contrario.
+       *
+       * Mientras el turno no se acepte, el área puede tomarlo o regresarlo. Una
+       * vez aceptado —o en cuanto se asigna, que ya es tomarlo— la opción de
+       * regresarlo desaparece: devolver deja el oficio en RECIBIDO en el área de
+       * origen, y hacerlo con el trabajo hecho dejaba huérfanos el proyecto y el
+       * visto bueno. A partir de ahí la salida es turnarlo por no competencia,
+       * que queda escrito como un movimiento nuevo y no como si el turno nunca
+       * hubiera pasado.
+       */
+      const turnoPorAceptar    = !!(o as any).turno_por_aceptar;
+      const puede_aceptar_turno = puede_turnar && turnoPorAceptar;
+      // Las mismas dos salidas de la misma disyuntiva: si se puede aceptar, se
+      // puede regresar. Antes esto exigía además que el turno fuera por
+      // competencia, así que un envío de información se podía aceptar pero no
+      // rechazar —quedaba solo el botón de aceptar, sin alternativa—.
+      const puede_devolver_turno = puede_aceptar_turno;
+
+      // Solicitar información a otra área es más abierto que turnar, por dos
+      // motivos. Uno: el analista que trabaja el oficio también puede pedirla,
+      // porque es quien descubre que le falta. Dos: pedir no suelta el oficio, así
+      // que sigue valiendo con el visto bueno ya dado —puede faltar un dato para
+      // poder firmar—, mientras que soltarlo a esas alturas ya no.
+      //
+      // Antes esto se resolvía en la pantalla preguntando si el oficio era de la
+      // Dirección General. Era el mismo candado que tenía el servidor, escrito
+      // por segunda vez, y las dos copias tenían que quitarse a la vez.
+      //
+      // Y no antes de recibirlo: pedirle información a otras áreas sobre un
+      // oficio que uno todavía no acepta pone el trámite de cabeza —había áreas
+      // trabajando para alguien que aún podía devolverlo—.
+      const puede_solicitar = o.estatus !== 'FINALIZADO'
+        && !turnoPorAceptar
+        && (o.dirigido_a_id === user.id
+            || unidadesEncargado.includes(o.dirigido_a_unidad_id)
+            || (o.abogado_id === user.id && o.abogado_unidad_id === o.dirigido_a_unidad_id));
 
       // La casilla «Resolución» manda el asunto a la Dirección General. No aplica
       // a lo que ya está allá, ni a lo que ya se mandó.
       const puede_marcar_resolucion = puede_turnar
         && !o.resolucion
         && o.dirigido_a_unidad_tipo !== 'DIRECCION_GENERAL';
-      // Y devolverlo, solo si llegó por un turno.
-      const puede_devolver_turno = puede_turnar && Number((o as any).turnos_recibidos ?? 0) > 0;
-
       // La casilla «de conocimiento»: la Dirección Jurídica en cualquier oficio, y
       // en cada área quien da el visto bueno o su encargado. Solo mientras el
       // oficio no esté cerrado por firma.
@@ -1099,9 +1405,13 @@ export async function listarOficios(
         // Quién es, sin los frenos: para poder ofrecer la acción deshabilitada
         // con su motivo en vez de esconderla.
         es_aprobador: esElAprobador,
+        puede_reconsiderar,
         bloqueo,
         puede_de_conocimiento,
+        es_de_mi_area,
         puede_turnar,
+        puede_solicitar,
+        puede_aceptar_turno,
         puede_devolver_turno,
         puede_mandar_firma,
         puede_devolver_pase_firma,
@@ -1399,6 +1709,17 @@ export async function crearOficio(
       processOcr(oficio.id, oficio.pdf_original_path).catch((err) =>
         logger.error({ err, oficio_id: oficio.id }, 'OCR background task failed'),
       );
+    }
+
+    // Los correos usados quedan en la lista de quien registró, para que la
+    // próxima vez los encuentre en vez de volver a teclearlos. Se guardan aquí y
+    // no en un alta aparte porque este es el único momento en que se sabe cuáles
+    // usa de verdad. Si falla, el oficio ya quedó guardado y no se revierte.
+    if (esCorreo) {
+      await Promise.all([
+        recordarCorreo('ORIGEN',  cOrigen,  user.id),
+        recordarCorreo('DESTINO', cDestino, user.id),
+      ]);
     }
 
     res.status(201).json({ data: oficio, compresion: guardado ? compresionInfo(guardado) : null });
@@ -1961,6 +2282,117 @@ export async function turnarOficio(
  * al destinatario anterior y arranca de nuevo allá, con la justificación en la
  * línea de tiempo.
  */
+/**
+ * El turno que trajo el oficio al área donde está hoy, si sigue sin aceptarse.
+ *
+ * Recibir es un acto explícito: mientras esto devuelva algo, el área todavía
+ * puede regresar el oficio a quien se lo mandó. Aceptado, la única salida es
+ * turnarlo de nuevo por no competencia, que queda escrito como un movimiento
+ * nuevo en vez de deshacer el que ya ocurrió.
+ */
+async function turnoPorAceptar(oficioId: number, unidadActual: number | null, trx: any = db) {
+  if (!unidadActual) return null;
+  return trx('oficio_turnos')
+    .where({ oficio_id: oficioId, unidad_destino_id: unidadActual })
+    .whereNull('aceptado_en')
+    .andWhere('es_devolucion', false)
+    .orderBy('id', 'desc')
+    .first();
+}
+
+/**
+ * Marca como aceptado el turno abierto del área, si lo hay.
+ *
+ * Se llama también desde asignar: repartir el oficio entre su gente ya es
+ * tomarlo, y obligar a pulsar «Aceptar» antes sería un paso de más para decir lo
+ * que la acción anterior ya dijo.
+ */
+async function aceptarTurnoSiAbierto(
+  oficioId: number, unidadActual: number | null, userId: number, trx: any = db,
+): Promise<boolean> {
+  const turno = await turnoPorAceptar(oficioId, unidadActual, trx);
+  if (!turno) return false;
+  await trx('oficio_turnos').where({ id: turno.id })
+    .update({ aceptado_en: new Date(), aceptado_por_id: userId });
+
+  /**
+   * Aceptado un cambio de competencia, el proyecto de la otra área se borra.
+   *
+   * El área anterior dijo «esto nunca fue mío»; su borrador y su visto bueno
+   * dejaron de significar algo, y arrastrarlos hacía que la nueva heredara un
+   * proyecto ajeno como si fuera propio —con el riesgo de firmar un documento
+   * que su área no redactó—.
+   *
+   * Se borra **al aceptar** y no al turnar, a propósito: si el destino lo
+   * regresara con «Reconsiderar petición», el oficio vuelve al origen y su
+   * trabajo tiene que seguir ahí. La aceptación es el punto sin retorno.
+   *
+   * En «Envío de información» no se toca: ahí mandar lo trabajado es justamente
+   * el objeto del envío.
+   */
+  if (turno.tipo === 'COMPETENCIA' && !turno.es_devolucion) {
+    const gestion = await trx('gestiones_contestacion').where({ oficio_id: oficioId }).first();
+    if (gestion?.proyecto_url) {
+      await trx('gestiones_contestacion').where({ oficio_id: oficioId }).update({
+        proyecto_url:   null,
+        texto_proyecto: null,
+        vobo_encargado: false,
+        fecha_vobo:     null,
+        // El área nueva empieza a contar desde su primera versión, no desde la
+        // que dejó la anterior.
+        version_proyecto: 0,
+      });
+      try { storage.delete(gestion.proyecto_url); }
+      catch (err) { logger.error({ err, oficio_id: oficioId }, 'No se pudo borrar el proyecto al aceptar el cambio de competencia'); }
+    }
+  }
+
+  return true;
+}
+
+/**
+ * PATCH /oficios/:id/turnar/aceptar
+ *
+ * El área recibe formalmente un oficio que le turnaron. No mueve el flujo —el
+ * oficio sigue en RECIBIDO, esperando que lo asignen—; lo que hace es cerrar la
+ * posibilidad de regresarlo, y dejar constancia de quién lo tomó y cuándo.
+ */
+export async function aceptarTurno(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const actual = await db('oficios as o')
+      .leftJoin('usuarios as u', 'u.id', 'o.dirigido_a_id')
+      .where('o.id', oficio_id)
+      .select('o.id', 'o.dirigido_a_id', 'u.unidad_id as unidad_actual')
+      .first();
+    if (!actual) throw new AppError('Oficio no encontrado', 404);
+
+    // Acepta quien responde por el área: su titular o su encargado. Recibir
+    // compromete al área entera, no solo a quien lo vaya a trabajar.
+    const esEncargado = await db('configuracion_flujos')
+      .where({
+        modulo_clave: 'oficialia_partes',
+        rol_flujo:    'ENCARGADO',
+        usuario_id:   user.id,
+        unidad_id:    actual.unidad_actual ?? -1,
+      })
+      .first();
+    if (!esEncargado && actual.dirigido_a_id !== user.id) {
+      throw new AppError('Solo el titular del área o su encargado pueden aceptar el oficio', 403);
+    }
+
+    const aceptado = await db.transaction(async (trx) =>
+      aceptarTurnoSiAbierto(oficio_id, actual.unidad_actual, user.id, trx));
+    if (!aceptado) throw new AppError('Este oficio no tiene un turno pendiente de aceptar', 409);
+
+    res.json({ message: 'Oficio aceptado' });
+  } catch (err) { next(err); }
+}
+
 export async function devolverTurno(
   req: Request,
   res: Response,
@@ -1994,6 +2426,18 @@ export async function devolverTurno(
       .first();
     if (!esEncargado) {
       throw new AppError('Solo el encargado del área que tiene el oficio puede devolverlo', 403);
+    }
+
+    // Solo mientras el área no lo haya aceptado. Devolver deja el oficio en
+    // RECIBIDO en el área de origen, así que hacerlo con el trabajo ya hecho
+    // dejaba huérfanos el proyecto y el visto bueno, y el expediente terminaba
+    // diciendo que esta área nunca lo tomó. Después de aceptar, la salida es
+    // turnarlo por no competencia: un movimiento nuevo, con su justificación.
+    if (!(await turnoPorAceptar(oficio_id, actual.unidad_actual))) {
+      throw new AppError(
+        'Tu área ya aceptó este oficio. Si no le compete, túrnalo a la que corresponda desde «Turnar a otra área».',
+        409,
+      );
     }
 
     if (await tieneDelegatoriosPendientes(oficio_id)) {
@@ -2204,6 +2648,14 @@ export async function asignarOficio(
         observaciones:    mayus(observaciones),
       });
 
+      // Si llegó turnado y nadie lo había aceptado, repartirlo entre su gente ya
+      // es tomarlo: exigir un «Aceptar» previo sería un paso de más para decir lo
+      // que esta acción acaba de decir.
+      //
+      // El área sale del destinatario del oficio y no del abogado: son la misma
+      // casi siempre, pero la que manda es dónde vive el oficio.
+      await aceptarTurnoSiAbierto(oficio_id, await unidadDelOficio(oficio_id, trx), user.id, trx);
+
       await createAuditLog(trx, oficio_id, oficio.estatus, 'ASIGNADO', user.id);
     });
 
@@ -2294,9 +2746,17 @@ export async function subirProyecto(
       const version = gestionExistente ? (gestionExistente.version_proyecto ?? 1) + 1 : 1;
 
       if (gestionExistente) {
+        // El proyecto se sobrescribe: no se guardan versiones anteriores, así que
+        // el archivo viejo se borra en vez de quedarse huérfano en disco. Antes
+        // se perdía la referencia pero el PDF seguía ahí, acumulándose.
+        const anterior = gestionExistente.proyecto_url;
         await trx('gestiones_contestacion')
           .where({ oficio_id })
           .update({ proyecto_url, texto_proyecto, version_proyecto: version, vobo_encargado: false });
+        if (anterior && anterior !== proyecto_url) {
+          try { storage.delete(anterior); }
+          catch (err) { logger.error({ err, oficio_id }, 'No se pudo borrar el proyecto anterior'); }
+        }
       } else {
         await trx('gestiones_contestacion').insert({
           oficio_id, proyecto_url, texto_proyecto,
@@ -2306,7 +2766,12 @@ export async function subirProyecto(
 
       await trx('oficios')
         .where({ id: oficio_id })
-        .update({ estatus: 'EN_REVISION' as EstatusOficio });
+        .update({
+          estatus: 'EN_REVISION' as EstatusOficio,
+          // La vuelta terminó: la siguiente reconsideración decidirá de nuevo a
+          // quién le cae.
+          reconsideracion_al_encargado: false,
+        });
 
       await createAuditLog(trx, oficio_id, oficio.estatus, 'EN_REVISION', user.id);
     });
@@ -2340,12 +2805,27 @@ export async function reconsiderarOficio(
     const oficio_id  = parseInt(req.params.id, 10);
     const { comentario } = req.body;
 
-    // En delegaciones lo decide el delegado; en la DG, el encargado (misma regla que el VoBo).
+    // Más amplio que el visto bueno: además de quien aprueba, el titular del área
+    // —la Directora General en lo suyo— y quien tiene la carga del firmado.
     const oficioAuth = await db('oficios').where({ id: oficio_id }).select('dirigido_a_id').first();
     if (!oficioAuth) throw new AppError('Oficio no encontrado', 404);
-    if (!(await puedeAprobarOficio(user, oficioAuth.dirigido_a_id))) {
+    if (!(await puedeReconsiderarOficio(user, oficioAuth.dirigido_a_id, oficio_id))) {
       throw new AppError('No estás autorizado para solicitar correcciones de este oficio', 403);
     }
+
+    /**
+     * ¿A quién le cae de vuelta?
+     *
+     * Si quien regresa el oficio es el aprobador del área, la corrección es sobre
+     * el trabajo de su propio equipo y baja al analista que lo redactó. Si viene
+     * de más arriba —la Directora General, la carga del firmado—, el oficio venía
+     * ya aprobado, así que el que tiene que responder es el encargado que lo
+     * aprobó y lo mandó; él verá si lo corrige o se lo devuelve a su gente.
+     *
+     * Bajar siempre al analista le dejaba una observación que no le tocaba
+     * atender, y el encargado ni se enteraba de que le habían rechazado lo suyo.
+     */
+    const alEncargado = !(await puedeAprobarOficio(user, oficioAuth.dirigido_a_id));
 
     if (!comentario?.trim()) {
       throw new AppError('El comentario de corrección es obligatorio', 400);
@@ -2357,7 +2837,9 @@ export async function reconsiderarOficio(
       // VOBO_APROBADO también entra: un oficio que la Dirección General regresó de
       // firma ya trae el visto bueno dado, y aun así hay que devolvérselo al jurídico
       // que redactó la contestación. Si estaba esperando firma, primero se regresa.
-      if (!['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO'].includes(oficio.estatus)) {
+      // EN_RECONSIDERACION queda fuera: ya está regresado, y volver a regresarlo
+      // solo reescribiría la observación anterior sin mover nada.
+      if (!['EN_REVISION', 'VOBO_APROBADO'].includes(oficio.estatus)) {
         throw new AppError(
           `El oficio debe estar EN_REVISION para solicitar reconsideración (estatus: ${oficio.estatus})`,
           422,
@@ -2385,12 +2867,19 @@ export async function reconsiderarOficio(
 
       await trx('oficios')
         .where({ id: oficio_id })
-        .update({ estatus: 'EN_RECONSIDERACION' as EstatusOficio });
+        .update({
+          estatus: 'EN_RECONSIDERACION' as EstatusOficio,
+          reconsideracion_al_encargado: alEncargado,
+        });
 
       await createAuditLog(trx, oficio_id, oficio.estatus, 'EN_RECONSIDERACION', user.id);
     });
 
-    res.json({ message: 'Reconsideración solicitada. El jurídico recibirá los comentarios.' });
+    res.json({
+      message: alEncargado
+        ? 'Regresado al encargado del área con tus comentarios.'
+        : 'Reconsideración solicitada. El jurídico recibirá los comentarios.',
+    });
   } catch (err) {
     next(err);
   }
@@ -2468,10 +2957,13 @@ export async function getHistorial(
       .join('usuarios as u', 'u.id', 't.turnado_por_id')
       .leftJoin('catalogo_unidades as origen',  'origen.id',  't.unidad_origen_id')
       .leftJoin('catalogo_unidades as destino', 'destino.id', 't.unidad_destino_id')
+      .leftJoin('usuarios as acep', 'acep.id', 't.aceptado_por_id')
       .where('t.oficio_id', oficio_id)
       .select(
         't.id', 't.motivo', 't.estatus_previo', 't.creado_en', 't.es_devolucion', 't.tipo',
+        't.aceptado_en',
         'u.nombre as usuario_nombre',
+        'acep.nombre as aceptado_por',
         'origen.nombre as origen', 'destino.nombre as destino',
       )
       .orderBy('t.id', 'asc');
@@ -2554,18 +3046,40 @@ export async function getHistorial(
           ? 'Marcado de conocimiento: se cierra sin contestación ni firma'
           : `Se quitó la marca de conocimiento; el oficio regresó a ${k.estatus_restaurado ?? 'su punto anterior'}`,
       })),
-      ...turnos.map((t: any) => ({
-        // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
-        id:              -1000000 - t.id,
-        estado_anterior: t.estatus_previo,
-        estado_nuevo:    t.es_devolucion ? 'DEVUELTO'
-                          : t.tipo === 'INFORMACION' ? 'INFORMACION_ENVIADA' : 'TURNADO',
-        fecha_cambio:    t.creado_en,
-        usuario_nombre:  t.usuario_nombre,
-        detalle:         t.tipo === 'INFORMACION'
-          ? `${t.origen ?? 'Sin área'} → ${t.destino}, envío de información: ${t.motivo}`
-          : `${t.origen ?? 'Sin área'} → ${t.destino}: ${t.motivo}`,
-      })),
+      /**
+       * Los cambios de área dicen con qué opción se hicieron.
+       *
+       * «Turnado a otra área» a secas no distinguía entre mandar lo trabajado y
+       * deslindarse del asunto, que son cosas opuestas y quedaban idénticas en el
+       * expediente. Ahora cada movimiento sale con el nombre de la opción que se
+       * eligió —lo pone el rótulo del evento, no el texto del renglón, para no
+       * decirlo dos veces—. Y la aceptación tampoco aparecía en ningún lado,
+       * aunque es el momento en que el área se hace responsable.
+       */
+      ...turnos.flatMap((t: any) => {
+        const ruta = `${t.origen ?? 'Sin área'} → ${t.destino}`;
+        const movimiento = {
+          // Id negativo y desplazado para no chocar con auditoría ni delegatorios.
+          id:              -1000000 - t.id,
+          estado_anterior: t.estatus_previo,
+          estado_nuevo:    t.es_devolucion ? 'DEVUELTO'
+                            : t.tipo === 'INFORMACION' ? 'INFORMACION_ENVIADA' : 'TURNADO',
+          fecha_cambio:    t.creado_en,
+          usuario_nombre:  t.usuario_nombre,
+          detalle:         `${ruta}: ${t.motivo}`,
+        };
+        // La aceptación va como su propio renglón: es un acto de otra persona, en
+        // otro momento, y meterlo en el mismo dejaría dos autores en una línea.
+        if (!t.aceptado_en || t.es_devolucion) return [movimiento];
+        return [movimiento, {
+          id:              -3000000 - t.id,
+          estado_anterior: null,
+          estado_nuevo:    'TURNO_ACEPTADO',
+          fecha_cambio:    t.aceptado_en,
+          usuario_nombre:  t.aceptado_por ?? 'El área destino',
+          detalle:         `${t.destino} se hizo cargo del oficio`,
+        }];
+      }),
       ...delegatorios.map((c: any) => ({
         // Id negativo para no chocar con los de auditoría al usarlo como llave.
         id:              -c.id,
@@ -2708,9 +3222,13 @@ export async function aprobarVobo(
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
 
-      if (!['EN_REVISION', 'EN_RECONSIDERACION'].includes(oficio.estatus)) {
+      // Solo EN_REVISION. En reconsideración el turno es de quien tiene que
+      // corregir, y aprobar ahí daría por bueno el proyecto que se acaba de
+      // rechazar: el visto bueno vuelve a tener sentido cuando suban la versión
+      // corregida y el oficio regrese a revisión.
+      if (oficio.estatus !== 'EN_REVISION') {
         throw new AppError(
-          `El oficio debe estar EN_REVISION o EN_RECONSIDERACION para otorgar VoBo (estatus actual: ${oficio.estatus})`,
+          `El oficio debe estar EN_REVISION para otorgar el VoBo (estatus actual: ${oficio.estatus})`,
           422,
         );
       }
@@ -2818,12 +3336,28 @@ export async function finalizarOficio(
         );
       }
 
+      /**
+       * Con el firmado de por medio, el proyecto de contestación deja de tener
+       * razón de ser: lo que vale es el documento firmado, y el borrador solo
+       * ocupa espacio y se presta a que alguien lo confunda con lo oficial.
+       *
+       * Se borra el archivo y se suelta la referencia. El historial conserva
+       * quién lo redactó, cuándo y quién le dio el visto bueno.
+       */
+      const gestion = await trx('gestiones_contestacion').where({ oficio_id }).first();
+
       await trx('gestiones_contestacion')
         .where({ oficio_id })
         .update({
           escaneo_firmado_url,
           subido_por_secretaria_id: user.id,
+          proyecto_url: null,
         });
+
+      if (gestion?.proyecto_url) {
+        try { storage.delete(gestion.proyecto_url); }
+        catch (err) { logger.error({ err, oficio_id }, 'No se pudo borrar el proyecto al firmar'); }
+      }
 
       await trx('oficios')
         .where({ id: oficio_id })
@@ -3010,7 +3544,9 @@ export async function devolverPaseFirma(
     const motivo    = String(req.body?.motivo ?? '').trim().toUpperCase();
 
     if (!motivo) throw new AppError('Indica qué hay que corregir', 422);
-    if (!(await canActAsSecretaria(user))) {
+    // La Directora General y quienes tienen la carga del firmado: los mismos que
+    // pueden cerrarlo. Quien puede firmar un oficio tiene que poder negarse.
+    if (!(await puedeCerrarPaseFirma(user))) {
       throw new AppError('Solo la Dirección General puede regresar un oficio que está a firma', 403);
     }
 

@@ -377,17 +377,65 @@ function tipoDeRuta(req: Request): 'ORIGEN' | 'DESTINO' {
   return tipo as 'ORIGEN' | 'DESTINO';
 }
 
+/**
+ * Los correos de cada quien.
+ *
+ * El catálogo era único para toda la institución, así que la cuenta de la
+ * ventanilla de Chetumal le aparecía a quien captura en Cancún. Ahora cada
+ * persona ve las que ella ha usado; los renglones sin dueño son los que ya
+ * existían antes del cambio y se dejan a la vista de todos, para no hacerle
+ * desaparecer a nadie una cuenta que quizá esté usando.
+ */
+const míos = (q: any, userId: number) =>
+  q.where((sub: any) => sub.where('usuario_id', userId).orWhereNull('usuario_id'));
+
 // GET /catalogos/correos/:tipo
 export async function listarCorreos(
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
-    const data = await db('catalogo_correos')
-      .where({ tipo: tipoDeRuta(req), activo: true })
-      .select('id', 'correo as nombre')
+    const data = await míos(
+      db('catalogo_correos').where({ tipo: tipoDeRuta(req), activo: true }),
+      req.user!.id,
+    )
+      // `heredado` distingue los que venían del catálogo viejo, sin dueño: se le
+      // muestran a todos hasta que alguien los reclame, y conviene que se note.
+      .select('id', 'correo as nombre', db.raw('usuario_id IS NULL AS heredado'))
       .orderBy('correo', 'asc');
     res.json({ data });
   } catch (err) { next(err); }
+}
+
+/**
+ * Guarda un correo en la lista de una persona, si no lo tenía ya.
+ *
+ * Se llama al registrar un oficio por correo: es el único momento en que se sabe
+ * cuáles usa de verdad. Por eso no hace falta darlos de alta a mano.
+ *
+ * Nunca interrumpe el registro: si algo falla aquí, el oficio ya quedó guardado
+ * y lo único que se pierde es la comodidad de encontrar el correo la próxima vez.
+ */
+export async function recordarCorreo(
+  tipo: 'ORIGEN' | 'DESTINO', valor: unknown, usuarioId: number,
+): Promise<void> {
+  const correo = normCorreo(valor);
+  if (!correo || !FORMATO_CORREO.test(correo)) return;
+  try {
+    const existente = await míos(db('catalogo_correos').where({ tipo, correo }), usuarioId).first();
+    if (existente) {
+      const cambios: Record<string, unknown> = {};
+      if (existente.activo === false) cambios.activo = true;
+      // Sin dueño y alguien lo usa: pasa a ser suyo. Es la mejor pista que hay de
+      // a quién pertenece, y si otra persona usa el mismo después, se le creará
+      // el suyo aparte —ya no lo encontrará como heredado—.
+      if (existente.usuario_id === null) cambios.usuario_id = usuarioId;
+      if (Object.keys(cambios).length) {
+        await db('catalogo_correos').where({ id: existente.id }).update(cambios);
+      }
+      return;
+    }
+    await db('catalogo_correos').insert({ tipo, correo, usuario_id: usuarioId, creado_por_id: usuarioId });
+  } catch { /* la lista es una comodidad, no parte del registro */ }
 }
 
 // POST /catalogos/correos/:tipo
@@ -400,8 +448,10 @@ export async function crearCorreo(
     if (!correo) throw new AppError('El correo es requerido', 422);
     if (!FORMATO_CORREO.test(correo)) throw new AppError('El correo no tiene un formato válido', 422);
 
-    // Si ya estaba (aunque dado de baja), se reactiva en lugar de duplicarlo.
-    const existente = await db('catalogo_correos').where({ tipo, correo }).first();
+    // Si ya estaba en SU lista (aunque dado de baja), se reactiva en lugar de
+    // duplicarlo. Que otra persona tenga el mismo correo no estorba: cada quien
+    // lleva el suyo.
+    const existente = await míos(db('catalogo_correos').where({ tipo, correo }), req.user!.id).first();
     if (existente) {
       if (existente.activo === false) {
         await db('catalogo_correos').where({ id: existente.id }).update({ activo: true });
@@ -411,9 +461,32 @@ export async function crearCorreo(
     }
 
     const [row] = await db('catalogo_correos')
-      .insert({ tipo, correo, creado_por_id: req.user!.id })
+      .insert({ tipo, correo, usuario_id: req.user!.id, creado_por_id: req.user!.id })
       .returning(['id', 'correo as nombre']);
     res.status(201).json({ data: row, yaExistia: false });
+  } catch (err) { next(err); }
+}
+
+/**
+ * PATCH /catalogos/correos/:tipo/:id/es-mio
+ *
+ * Reclamar un correo heredado —de los que venían del catálogo viejo, sin dueño—.
+ * Usarlo al registrar también lo reclama solo; esto es para el que ya no se va a
+ * volver a teclear y aun así alguien quiere tener en su lista.
+ */
+export async function adoptarCorreo(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const tipo = tipoDeRuta(req);
+    const id   = parseInt(req.params.id, 10);
+    const [row] = await db('catalogo_correos')
+      .where({ id, tipo })
+      .whereNull('usuario_id')
+      .update({ usuario_id: req.user!.id })
+      .returning(['id', 'correo as nombre']);
+    if (!row) throw new AppError('Ese correo ya tiene dueño o no existe', 409);
+    res.json({ data: row });
   } catch (err) { next(err); }
 }
 
@@ -429,11 +502,13 @@ export async function editarCorreo(
     if (!correo) throw new AppError('El correo es requerido', 422);
     if (!FORMATO_CORREO.test(correo)) throw new AppError('El correo no tiene un formato válido', 422);
 
-    const dup = await db('catalogo_correos').where({ tipo, correo }).whereNot({ id }).first();
-    if (dup) throw new AppError('Ese correo ya está en esta lista', 409);
+    const dup = await míos(db('catalogo_correos').where({ tipo, correo }), req.user!.id)
+      .whereNot({ id }).first();
+    if (dup) throw new AppError('Ese correo ya está en tu lista', 409);
 
-    const [row] = await db('catalogo_correos')
-      .where({ id, tipo }).update({ correo }).returning(['id', 'correo as nombre']);
+    // Solo sobre los propios: la lista es de cada quien y nadie edita la de otro.
+    const [row] = await míos(db('catalogo_correos').where({ id, tipo }), req.user!.id)
+      .update({ correo }).returning(['id', 'correo as nombre']);
     if (!row) throw new AppError('Correo no encontrado', 404);
     res.json({ data: row });
   } catch (err) { next(err); }
@@ -447,7 +522,7 @@ export async function eliminarCorreo(
     await exigirGestionCatalogos(req);
     const tipo = tipoDeRuta(req);
     const id   = parseInt(req.params.id, 10);
-    const deleted = await db('catalogo_correos').where({ id, tipo }).delete();
+    const deleted = await míos(db('catalogo_correos').where({ id, tipo }), req.user!.id).delete();
     if (!deleted) throw new AppError('Correo no encontrado', 404);
     res.json({ message: 'Correo eliminado' });
   } catch (err) { next(err); }

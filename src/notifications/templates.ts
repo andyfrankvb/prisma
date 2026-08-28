@@ -326,6 +326,7 @@ export function renderTemplate(
     case 'DELEGATORIO_EN_REVISION':
     case 'DELEGATORIO_CONTESTADO':
     case 'DELEGATORIO_DEVUELTO':
+    case 'DELEGATORIO_DEMORADO':
     case 'OFICIO_TURNADO':
     case 'PASE_FIRMA_ENVIADO':
     case 'PASE_FIRMA_FIRMADO':
@@ -367,6 +368,12 @@ const DELEGATORIO_TEXTOS: Record<string, {
   DELEGATORIO_DEVUELTO: {
     emoji: '↩️', titulo: 'Delegatorio devuelto', color: '#92400E', fondo: '#FEF3C7',
     instruccion: 'Revisa los comentarios y corrige la respuesta.',
+  },
+  // La nota trae el detalle: cuántos días lleva y si falta asignarla o
+  // responderla. Aquí solo va lo común a los dos avisos.
+  DELEGATORIO_DEMORADO: {
+    emoji: '⏳', titulo: 'Solicitud sin respuesta', color: '#92400E', fondo: '#FEF3C7',
+    instruccion: 'Mientras no se conteste, el oficio de quien la pidió no puede firmarse.',
   },
   PASE_FIRMA_ENVIADO: {
     emoji: '✒️', titulo: 'Oficio en espera de firma', color: '#440412', fondo: '#FDE8EF',

@@ -309,9 +309,12 @@ export async function getPermisosCatalogos() {
 /** 'origen' = de quién llega el oficio; 'destino' = cuenta institucional que lo recibe. */
 export type TipoCorreo = 'origen' | 'destino';
 
+/** Un correo de la lista personal. `heredado` = venía del catálogo viejo y no tiene dueño. */
+export interface CorreoItem extends CatalogoItem { heredado?: boolean }
+
 export async function getCorreos(tipo: TipoCorreo) {
   const res = await fetch(`${BASE}/catalogos/correos/${tipo}`, { headers: authHeaders() });
-  return handleResponse<{ data: CatalogoItem[] }>(res);
+  return handleResponse<{ data: CorreoItem[] }>(res);
 }
 
 export async function crearCorreo(tipo: TipoCorreo, nombre: string) {
@@ -319,6 +322,19 @@ export async function crearCorreo(tipo: TipoCorreo, nombre: string) {
     method:  'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify({ nombre }),
+  });
+  return handleResponse<{ data: CatalogoItem }>(res);
+}
+
+/**
+ * Reclamar un correo heredado —de los que venían del catálogo anterior y no
+ * tienen dueño—. Usarlo al registrar también lo reclama solo; esto es para el
+ * que ya no se va a volver a teclear.
+ */
+export async function adoptarCorreo(tipo: TipoCorreo, id: number) {
+  const res = await fetch(`${BASE}/catalogos/correos/${tipo}/${id}/es-mio`, {
+    method:  'PATCH',
+    headers: authHeaders(),
   });
   return handleResponse<{ data: CatalogoItem }>(res);
 }
@@ -445,18 +461,6 @@ export async function getResponsables() {
 }
 
 /** Área a la que se puede turnar un oficio. */
-export interface AreaTurno {
-  id:      number;
-  nombre:  string;
-  tipo:    string;
-  titular: string;
-}
-
-export async function getAreasTurno() {
-  const res = await fetch(`${BASE}/oficios/areas-turno`, { headers: authHeaders() });
-  return handleResponse<{ data: AreaTurno[] }>(res);
-}
-
 /** Manda el oficio completo a otra área; ahí reinicia su flujo. */
 /**
  * Manda el oficio a firma de la Directora General. No cambia de área: el oficio
@@ -512,6 +516,20 @@ export async function turnarOficio(
 }
 
 /** El área regresa el oficio a quien se lo turnó, por no ser de su competencia. */
+/**
+ * El área recibe formalmente un oficio que le turnaron.
+ *
+ * No mueve el flujo —el oficio sigue esperando que lo asignen—; cierra la
+ * posibilidad de regresarlo y deja constancia de quién lo tomó.
+ */
+export async function aceptarTurno(id: number) {
+  const res = await fetch(`${BASE}/oficios/${id}/turnar/aceptar`, {
+    method:  'PATCH',
+    headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 export async function devolverTurno(id: number, motivo: string) {
   const res = await fetch(`${BASE}/oficios/${id}/turnar/devolver`, {
     method:  'PATCH',
@@ -827,7 +845,12 @@ export async function quitarArchivoRecurso(slot: number) {
 
 // ── Delegatorios: la DG turna parte de un oficio a otra área ─────────────────
 
-export type EstadoDelegatorio = 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO';
+export type EstadoDelegatorio =
+  | 'PENDIENTE' | 'ASIGNADO' | 'EN_REVISION' | 'CONTESTADO'
+  /** El área destino la regresó por no ser de su competencia. */
+  | 'RECHAZADO'
+  /** Quien la pidió la cerró: ya no la necesita, o le pidió a la que no era. */
+  | 'CANCELADO';
 
 export interface Delegatorio {
   /** Plazo del área, cuando lo tiene (búsqueda de testamentos). */
@@ -855,11 +878,25 @@ export async function getDelegatorios(oficioId: number) {
   return handleResponse<{ data: Delegatorio[]; meta: { pendientes: number } }>(res);
 }
 
-/** Áreas a las que se puede delegar (delegaciones y direcciones; la DG no). */
-export async function getAreasDestino(oficioId?: number) {
-  const qs = oficioId ? `?oficio_id=${oficioId}` : '';
-  const res = await fetch(`${BASE}/delegatorios/areas-destino${qs}`, { headers: authHeaders() });
-  return handleResponse<{ data: { id: number; nombre: string; tipo: string }[] }>(res);
+export interface AreaDestino {
+  id:     number;
+  nombre: string;
+  tipo:   'DIRECCION_GENERAL' | 'DIRECCION' | 'DELEGACION';
+  /** Titular al que quedaría dirigido. Nulo si el área no tiene ninguno activo. */
+  titular_id:     number | null;
+  titular_nombre: string | null;
+}
+
+/**
+ * Las áreas a las que puede dirigirse este oficio, según dónde vive hoy.
+ *
+ * Es la única lista: la usan las tres opciones de «Turnar a otra área». Antes
+ * había tres distintas que no coincidían entre sí, y una de ellas se recortaba
+ * según quién preguntaba en vez de según dónde estaba el oficio.
+ */
+export async function getAreasDestino(oficioId: number) {
+  const res = await fetch(`${BASE}/delegatorios/areas-destino?oficio_id=${oficioId}`, { headers: authHeaders() });
+  return handleResponse<{ data: AreaDestino[] }>(res);
 }
 
 /** Detona el delegatorio hacia una o varias áreas. */
@@ -908,6 +945,22 @@ export async function devolverDelegatorio(id: number, comentario: string) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ comentario }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/**
+ * Quien pidió cierra su propia solicitud, con motivo.
+ *
+ * Mientras una solicitud siga abierta, el oficio de quien la pidió no puede
+ * recibir visto bueno ni firma. Sin esto, destrabarlo dependía de que el área
+ * destino se acordara de contestar.
+ */
+export async function cancelarSolicitud(id: number, motivo: string) {
+  const res = await fetch(`${BASE}/delegatorios/${id}/cancelar`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ motivo }),
   });
   return handleResponse<{ message: string }>(res);
 }

@@ -30,9 +30,9 @@ import {
   listarResponsables,
   mandarAPaseFirma,
   devolverPaseFirma,
-  areasTurno,
   listarDestinatarios,
   turnarOficio,
+  aceptarTurno,
   devolverTurno,
   getCandidatosAsignacion,
   OFICIO_DOC_FIELDS,
@@ -53,6 +53,7 @@ import {
   permisosCatalogos,
   crearCorreo,
   editarCorreo,
+  adoptarCorreo,
   eliminarCorreo,
   editarRemitente,
   eliminarRemitente,
@@ -69,6 +70,7 @@ import {
   devolverDelegatorio,
   aprobarDelegatorio,
   rechazarDelegatorio,
+  cancelarDelegatorio,
   historialDelegatorio,
   areasDestino,
 } from './delegatorios.controller';
@@ -176,15 +178,15 @@ router.patch('/oficios/:id/sistemas', uploadOficio.single('boleta'), actualizarS
 /** GET /oficios/destinatarios — a quién se puede dirigir un oficio al registrarlo */
 router.get('/oficios/destinatarios', listarDestinatarios);
 
-/** GET /oficios/areas-turno — áreas a las que se puede turnar un oficio */
-router.get('/oficios/areas-turno', areasTurno);
-
 /** GET /oficios/responsables — quiénes pueden tener un oficio en bandeja. */
 router.get('/oficios/responsables', listarResponsables);
 
 /** PATCH /oficios/:id/turnar — el oficio cambia de área y reinicia su flujo ahí */
 // Multipart: el turno por envío de información lleva el documento trabajado.
 router.patch('/oficios/:id/turnar', uploadOficio.single('documento'), turnarOficio);
+
+/** PATCH /oficios/:id/turnar/aceptar — el área recibe formalmente un oficio turnado */
+router.patch('/oficios/:id/turnar/aceptar', aceptarTurno);
 
 /** PATCH /oficios/:id/turnar/devolver — regresarlo a quien lo turnó, por no competerle */
 router.patch('/oficios/:id/turnar/devolver', devolverTurno);
@@ -195,11 +197,13 @@ router.patch('/oficios/:id/testamento', marcarTestamento);
 /** PATCH /oficios/:id/de-conocimiento — cerrar (o reabrir) un oficio informativo */
 router.patch('/oficios/:id/de-conocimiento', marcarDeConocimiento);
 
-// ── Delegatorios: la DG turna parte de un oficio a otra área ──
+// ── Solicitudes a otras áreas: un área pide información sin soltar el oficio ──
 router.get  ('/delegatorios/bandeja',        bandejaDelegatorios);
 router.get  ('/delegatorios/areas-destino',  areasDestino);
 /** PATCH /delegatorios/:id/rechazar — el área lo regresa por no ser de su competencia */
 router.patch('/delegatorios/:id/rechazar',  rechazarDelegatorio);
+/** PATCH /delegatorios/:id/cancelar — quien pidió cierra su propia solicitud */
+router.patch('/delegatorios/:id/cancelar',  cancelarDelegatorio);
 router.get  ('/delegatorios/:id/historial',  historialDelegatorio);
 router.patch('/delegatorios/:id/asignar',    asignarDelegatorio);
 router.post ('/delegatorios/:id/responder',  uploadOficio.single('documento'), responderDelegatorio);
@@ -236,6 +240,8 @@ router.get('/catalogos/permisos', permisosCatalogos);
 router.get   ('/catalogos/correos/:tipo',      listarCorreos);
 router.post  ('/catalogos/correos/:tipo',      crearCorreo);
 router.patch ('/catalogos/correos/:tipo/:id',  editarCorreo);
+/** PATCH …/es-mio — reclamar un correo heredado, de los que no tienen dueño */
+router.patch ('/catalogos/correos/:tipo/:id/es-mio', adoptarCorreo);
 router.delete('/catalogos/correos/:tipo/:id',  eliminarCorreo);
 
 export default router;

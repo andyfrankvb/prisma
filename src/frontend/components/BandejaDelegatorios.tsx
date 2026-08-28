@@ -17,6 +17,8 @@ import {
 } from '../api';
 import type { Abogado } from '../types';
 import { useDialogo }  from '../context/DialogoContext';
+import { useAuth }     from '../context/AuthContext';
+import { ListaAcciones } from './MenuAcciones';
 
 type Item = Awaited<ReturnType<typeof getBandejaDelegatorios>>['data'][number];
 
@@ -24,9 +26,18 @@ export const BandejaDelegatorios: React.FC<{
   onCambio?: () => void;
   /** Cuántos hay sin contestar, para el número de la pestaña que la contiene. */
   onConteo?: (n: number) => void;
-  /** Con la bandeja como pestaña, hay que decirlo cuando no hay ninguno. */
-  mostrarVacio?: boolean;
-}> = ({ onCambio, onConteo, mostrarVacio = false }) => {
+  /**
+   * Solo lo de este oficio. Así el trabajo se hace dentro del expediente que le
+   * corresponde, en vez de en un cuadro suelto arriba de la lista: ahí ocupaba
+   * media pantalla y repetía oficios que ya salían abajo, en su propio renglón.
+   */
+  oficioId?: number;
+  /**
+   * Monta el componente sin dibujar nada. Se usa para que la pestaña conserve su
+   * número: quien tiene la lista es quien sabe cuántos hay pendientes.
+   */
+  soloConteo?: boolean;
+}> = ({ onCambio, onConteo, oficioId, soloConteo = false }) => {
   const [items,   setItems]   = useState<Item[]>([]);
   const [error,   setError]   = useState<string | null>(null);
   const [aviso,   setAviso]   = useState<string | null>(null);
@@ -35,14 +46,20 @@ export const BandejaDelegatorios: React.FC<{
   const [observacion, setObservacion] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  /** Solicitud en la que se está eligiendo a quién asignarla. */
+  const [repartiendo, setRepartiendo] = useState<number | null>(null);
   const dialogo = useDialogo();
+  const { user } = useAuth();
 
   const cargar = useCallback(() => {
     getBandejaDelegatorios().then((r) => setItems(r.data)).catch((e) => setError(e.message));
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
-  // El número vive aquí, que es quien tiene la lista; la pestaña solo lo muestra.
-  useEffect(() => { onConteo?.(items.length); }, [items.length, onConteo]);
+  // Cuántas hay pendientes. Dentro de un expediente se cuentan solo las suyas:
+  // quien pregunta quiere saber si ESE oficio le pide algo, no cuántas tiene en
+  // total.
+  const cuantas = oficioId ? items.filter((d) => d.oficio_id === oficioId).length : items.length;
+  useEffect(() => { onConteo?.(cuantas); }, [cuantas, onConteo]);
   useEffect(() => {
     if (items.length && gente.length === 0) {
       getCandidatosAsignacion().then(setGente).catch(() => {});
@@ -56,7 +73,22 @@ export const BandejaDelegatorios: React.FC<{
     try { const r = await asignarDelegatorio(id, usuarioId); notificar(r.message); } catch (e) { fallar(e); }
   };
   const responder = async (id: number) => {
-    if (!observacion.trim()) { setError('La justificación es obligatoria'); return; }
+    if (!observacion.trim()) { setError('Escribe la justificación de tu respuesta'); return; }
+
+    /**
+     * El documento es opcional —hay respuestas que solo dicen que no se encontró
+     * información— pero olvidarlo es fácil, y una respuesta sin adjunto se
+     * distingue poco de un descuido. Se pregunta una vez en lugar de exigirlo.
+     */
+    if (!archivo) {
+      const sigue = await dialogo.confirmar({
+        titulo:    'Responder sin documento',
+        mensaje:   'Vas a contestar solo con tu justificación, sin adjuntar ningún archivo. Es válido cuando no se encontró información; si tienes el documento, adjúntalo antes de enviar.',
+        confirmar: 'Enviar sin documento',
+      });
+      if (!sigue) return;
+    }
+
     setOcupado(true);
     try {
       const r = await responderDelegatorio(id, observacion.trim(), archivo);
@@ -91,22 +123,25 @@ export const BandejaDelegatorios: React.FC<{
     try { const r = await devolverDelegatorio(id, c); notificar(r.message); } catch (e) { fallar(e); }
   };
 
-  if (items.length === 0) {
-    if (!mostrarVacio) return null;
-    return (
-      <p style={{ padding: '28px', textAlign: 'center', color: theme.colors.textSecondary, fontSize: '0.85rem' }}>
-        No hay delegatorios pendientes de contestar.
-      </p>
-    );
-  }
+  // Dentro de un expediente solo interesa lo de ese oficio.
+  const visibles = oficioId ? items.filter((d) => d.oficio_id === oficioId) : items;
+
+  // Sin nada que atender no se dibuja: ni el cuadro ni un aviso de que está
+  // vacío. Antes decía «No hay delegatorios pendientes» y dejaba un hueco de
+  // media pantalla a quien no tenía ninguno.
+  if (soloConteo || visibles.length === 0) return null;
 
   return (
     <div style={caja}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <span style={titulo}>Delegatorios por atender</span>
-        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400E', backgroundColor: '#FEF3C7', padding: '2px 9px', borderRadius: '10px' }}>
-          {items.length}
+        <span style={titulo}>
+          {oficioId ? 'Lo que te pidieron de este oficio' : 'Solicitudes por atender'}
         </span>
+        {!oficioId && (
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400E', backgroundColor: '#FEF3C7', padding: '2px 9px', borderRadius: '10px' }}>
+            {visibles.length}
+          </span>
+        )}
       </div>
 
       {error && (
@@ -121,39 +156,83 @@ export const BandejaDelegatorios: React.FC<{
         </div>
       )}
 
-      {items.map((d) => (
+      {visibles.map((d) => (
         <div key={d.id} style={fila}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: '0.85rem', color: theme.colors.primary }}>{d.folio}</strong>
-            <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{d.area}</span>
-          </div>
+          {/* Dentro del expediente, el folio y el remitente ya están arriba:
+              repetirlos aquí solo alarga la pantalla. */}
+          {!oficioId && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: '0.85rem', color: theme.colors.primary }}>{d.folio}</strong>
+              <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{d.area}</span>
+            </div>
+          )}
           <p style={{ margin: '4px 0', fontSize: '0.8rem' }}>
             <strong>Solicitan:</strong> {d.descripcion}
           </p>
           <p style={{ margin: '0 0 8px', fontSize: '0.73rem', color: theme.colors.textSecondary }}>
-            {d.remitente} · {d.dependencia_origen}
-            {d.solicitado_por && ` · pidió ${d.solicitado_por}`}
+            {oficioId
+              ? (d.solicitado_por ? `Lo pidió ${d.solicitado_por}` : '')
+              : <>{d.remitente} · {d.dependencia_origen}{d.solicitado_por && ` · pidió ${d.solicitado_por}`}</>}
           </p>
-
-          {/* PENDIENTE → el encargado lo asigna */}
+          {/* Lo que más confundía: atender una solicitud no te lleva el oficio.
+              Se dice aquí, donde se decide, y no en un manual. */}
           {d.estado === 'PENDIENTE' && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                defaultValue=""
-                onChange={(e) => e.target.value && asignar(d.id, Number(e.target.value))}
-                style={select}
-              >
-                <option value="">— Asignar a alguien de tu área —</option>
-                {gente.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
-              </select>
-              <button
-                onClick={() => rechazar(d.id)}
-                title="Regresarlo a quien lo solicitó, por no ser de tu competencia"
-                style={{ ...btnSec, color: '#B45309', borderColor: '#B45309' }}
-              >
-                No compete a mi área
-              </button>
-            </div>
+            <p style={{ margin: '0 0 10px', fontSize: '0.73rem', color: theme.colors.textSecondary }}>
+              El oficio no cambia de área: sigue siendo de quien lo pidió. Lo que decides es si tu
+              área contesta esta solicitud.
+            </p>
+          )}
+
+          {/* PENDIENTE → atenderla o regresarla.
+              Se evita la palabra «aceptar» a propósito: en el turnado significa
+              hacerse cargo de un oficio que cambia de área, y aquí no cambia
+              nada de sitio —el oficio sigue siendo de quien lo pidió—. Usar el
+              mismo verbo para las dos cosas hacía creer que atender una solicitud
+              era quedarse con el expediente.
+
+              Las tarjetas son las mismas que el resto de «Acciones»: son
+              decisiones del mismo tipo y con otros controles parecían venir de
+              otro sistema. El desplegable de personas aparece al elegir asignar,
+              porque una lista de nombres no cabe en una tarjeta. */}
+          {d.estado === 'PENDIENTE' && (
+            repartiendo === d.id ? (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <select
+                  defaultValue=""
+                  autoFocus
+                  onChange={(e) => e.target.value && asignar(d.id, Number(e.target.value))}
+                  style={{ ...input, width: '100%' }}
+                >
+                  <option value="">— Elige a quién de tu área —</option>
+                  {gente.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+                </select>
+                <div>
+                  <button onClick={() => setRepartiendo(null)} style={btnSec}>Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <ListaAcciones acciones={[
+                {
+                  label: 'Asignar',
+                  descripcion: 'Tu área la atiende. Repártela a alguien de tu equipo.',
+                  onClick: () => setRepartiendo(d.id),
+                },
+                // El encargado puede quedársela en vez de repartirla, igual que
+                // «Trabajar» en un oficio: asignársela a sí mismo es lo que hace
+                // por debajo, y le ahorra buscarse en la lista.
+                ...(user?.id ? [{
+                  label: 'Trabajar',
+                  descripcion: 'Tu área la atiende. Quédatela tú y sube la respuesta.',
+                  onClick: () => asignar(d.id, user.id),
+                }] : []),
+                {
+                  label: 'No compete a mi área',
+                  tono: 'atencion' as const,
+                  descripcion: 'Tu área no la atiende. Regresa a quien la pidió, con el motivo.',
+                  onClick: () => rechazar(d.id),
+                },
+              ]} />
+            )
           )}
 
           {/* ASIGNADO → quien lo trabaja sube documento + justificación */}
@@ -175,21 +254,15 @@ export const BandejaDelegatorios: React.FC<{
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => { setActivo(d.id); setObservacion(''); setArchivo(null); }} style={btnPri}>
-                  Responder
-                </button>
-                <button
-                  onClick={() => rechazar(d.id)}
-                  title="Regresarlo a quien lo solicitó, por no ser de tu competencia"
-                  style={{ ...btnSec, color: '#B45309', borderColor: '#B45309' }}
-                >
-                  No compete a mi área
-                </button>
-                <span style={{ fontSize: '0.73rem', color: theme.colors.textSecondary, alignSelf: 'center' }}>
-                  {d.asignado_a ? `Asignado a ${d.asignado_a}` : ''}
-                </span>
-              </div>
+              <>
+                <ListaAcciones acciones={[{
+                  label: 'Responder',
+                  descripcion: d.asignado_a
+                    ? `La trabaja ${d.asignado_a}. Sube el documento y la justificación.`
+                    : 'Sube el documento y la justificación de la respuesta.',
+                  onClick: () => { setActivo(d.id); setObservacion(''); setArchivo(null); },
+                }]} />
+              </>
             )
           )}
 

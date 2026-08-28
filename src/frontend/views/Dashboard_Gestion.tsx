@@ -32,6 +32,10 @@ import {
   aprobarVobo,
   finalizarOficio,
   reconsiderarOficio,
+  mandarAPaseFirma,
+  devolverPaseFirma,
+  aceptarTurno,
+  devolverTurno,
   getComentarios,
   getOficioDocumentos,
 } from '../api';
@@ -39,14 +43,13 @@ import type { Oficio, Abogado, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion, OficioDocumento } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import { FiltrosOficios } from '../components/FiltrosOficios';
-import { PestanasBandeja, PasoChip, totalDeConteos } from '../components/PestanasBandeja';
+import { PestanasBandeja, PasoChip, totalDeConteos, leerVistaFijada, alternarVistaFijada } from '../components/PestanasBandeja';
 import { MenuAcciones } from '../components/MenuAcciones';
 import { OrdenColumna } from '../components/OrdenColumna';
 import type { OrdenLista } from '../components/OrdenColumna';
 import type { AccionMenu } from '../components/MenuAcciones';
 import type { VistaBandeja } from '../components/PestanasBandeja';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
-import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
 import { ESTATUS_META } from '../components/oficiosEstatus';
 
 const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
@@ -83,10 +86,11 @@ export const Dashboard_Gestion: React.FC = () => {
   const [total,     setTotal]     = useState(0);
   const [conteos,   setConteos]   = useState<Record<string, number>>({});
   const [miPendientes, setMiPendientes] = useState(0);
-  const [delegatoriosPend, setDelegatoriosPend] = useState(0);
   const [deOtrasAreas, setDeOtrasAreas] = useState(0);
   // Pestaña activa: el histórico del área, lo que espera algo de mí, o el archivo.
-  const [vista, setVista] = useState<VistaBandeja>('todo');
+  // Arranca en la que la persona haya fijado, si fijó alguna.
+  const [vistaFijada, setVistaFijada] = useState<VistaBandeja | null>(() => leerVistaFijada(user?.id));
+  const [vista, setVista] = useState<VistaBandeja>(() => leerVistaFijada(user?.id) ?? 'todo');
   // Orden de la lista. Vacío = el de siempre, por fecha de ingreso descendente.
   const [orden, setOrden] = useState<OrdenLista | null>(null);
   const miBandeja = vista === 'mia';
@@ -131,6 +135,12 @@ export const Dashboard_Gestion: React.FC = () => {
 
   // ── Selected oficio (detail panel) ───────────────────────
   const [selected, setSelected] = useState<Oficio | null>(null);
+  /**
+   * Abrir el expediente con «Acciones del oficio» ya desplegado. Lo piden las
+   * acciones del renglón que necesitan un formulario —turnar, mandar a firma—:
+   * sin esto, la persona llegaba al detalle y tenía que buscar el panel a mano.
+   */
+  const [abrirAcciones, setAbrirAcciones] = useState(false);
 
   // ── Assign modal (ENCARGADO) ──────────────────────────────
   const [showAssign,    setShowAssign]    = useState(false);
@@ -176,56 +186,200 @@ export const Dashboard_Gestion: React.FC = () => {
    * antes decidían qué botón se pintaba; reunirlas aquí evita que la columna de
    * acciones crezca a lo ancho y descuadre la tabla.
    */
+  /**
+   * Las acciones que no piden formulario se ejecutan desde el propio menú, con
+   * su diálogo de confirmación. Antes abrían el expediente para que la persona
+   * buscara el botón dentro de un panel; ahora el panel solo informa.
+   */
+  const handleMandarFirma = async (o: Oficio) => {
+    const sigue = await dialogo.confirmar({
+      titulo:    'Mandar a firma de la Dirección General',
+      mensaje:   `El oficio ${o.folio} conserva su visto bueno y sigue siendo de tu área, pero lo firmará la Directora General. Se avisará a la Dirección General.`,
+      confirmar: 'Mandar a firma',
+    });
+    if (!sigue) return;
+    try { await mandarAPaseFirma(o.id); fetchOficios(); }
+    catch (e: any) { setListError(e?.message ?? 'No se pudo mandar a firma'); }
+  };
+
+  const handleRegresarSinFirmar = async (o: Oficio) => {
+    const motivo = await dialogo.pedirTexto({
+      titulo:      'Regresar sin firmar',
+      mensaje:     'El oficio vuelve con quien lo mandó, conservando su visto bueno. Se le informará el motivo.',
+      etiqueta:    '¿Qué hay que corregir?',
+      placeholder: 'ESCRIBE QUÉ HAY QUE CORREGIR…',
+      confirmar:   'Regresar',
+      peligro:     true,
+    });
+    if (!motivo) return;
+    try { await devolverPaseFirma(o.id, motivo); fetchOficios(); }
+    catch (e: any) { setListError(e?.message ?? 'No se pudo regresar el oficio'); }
+  };
+
+  const handleAceptarTurno = async (o: Oficio) => {
+    const sigue = await dialogo.confirmar({
+      titulo:    'Aceptar el oficio',
+      mensaje:   `Tu área se hace cargo del oficio ${o.folio}. Después de aceptarlo ya no podrás regresarlo a quien te lo turnó; si no le compete, tendrás que turnarlo a la que corresponda.`,
+      confirmar: 'Aceptar',
+    });
+    if (!sigue) return;
+    try { await aceptarTurno(o.id); fetchOficios(); }
+    catch (e: any) { setListError(e?.message ?? 'No se pudo aceptar el oficio'); }
+  };
+
+  /** El rótulo es «Reconsiderar petición»; por debajo deshace el turno. */
+  const handleReconsiderarPeticion = async (o: Oficio) => {
+    const razon = await dialogo.pedirTexto({
+      titulo:      'Reconsiderar petición',
+      mensaje:     'Se regresará a quien te lo turnó y se le informará el motivo.',
+      etiqueta:    '¿Por qué no le compete a tu área?',
+      placeholder: 'ESCRIBE EL MOTIVO…',
+      confirmar:   'Regresar',
+      peligro:     true,
+    });
+    if (!razon) return;
+    try { await devolverTurno(o.id, razon); setSelected(null); fetchOficios(); }
+    catch (e: any) { setListError(e?.message ?? 'No se pudo regresar el oficio'); }
+  };
+
   const accionesDe = (o: Oficio): AccionMenu[] => {
     const acc: AccionMenu[] = [];
     const estatus = o.estatus as EstatusOficio;
 
-    // Orquestación — solo el encargado: asigna o se lo queda.
-    if (esEncargado) {
+    /**
+     * Mientras el área no haya aceptado el oficio, no hay nada más que decidir:
+     * o se hace cargo, o lo regresa. Ofrecer «Asignar» o «Trabajar» antes daba a
+     * entender que ya era suyo, y repartirlo entre su gente sin haberlo aceptado
+     * dejaba el paso de aceptación sin sentido.
+     */
+    const porAceptar = !!o.puede_aceptar_turno;
+
+    // Orquestación — solo el encargado, y solo en los oficios de su propia área.
+    // Ser encargado se sabe de forma global; sin la segunda condición, un área
+    // que conserva la vista de lo que mandó a otra vería «Asignar» sobre un
+    // oficio que ya no es suyo.
+    if (esEncargado && o.es_de_mi_area && !porAceptar) {
       if (estatus === 'RECIBIDO') {
-        acc.push({ label: 'Asignar', onClick: () => { setSelected(o); setShowAssign(true); } });
-        acc.push({ label: 'Trabajar', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+        acc.push({ label: 'Asignar', descripcion: 'Repártelo a alguien de tu equipo para que lo trabaje.', onClick: () => { setSelected(o); setShowAssign(true); } });
+        acc.push({ label: 'Trabajar', descripcion: 'Quédatelo tú y sube el proyecto de contestación.', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
-      // Si lo mandaron a corregir y no hay analista, corrige el propio encargado.
-      if (estatus === 'EN_RECONSIDERACION' && !o.abogado_nombre) {
-        acc.push({ label: 'Corregir', onClick: () => { setSelected(o); setShowTrabajar(true); } });
+      // Si lo mandaron a corregir y no hay analista —o si lo regresaron desde
+      // arriba, que le toca a él responder— corrige el propio encargado.
+      if (estatus === 'EN_RECONSIDERACION' && (!o.abogado_nombre || o.reconsideracion_al_encargado)) {
+        acc.push({ label: 'Corregir', descripcion: 'Sube la corrección que te pidieron.', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
       if ((['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(estatus)) {
-        acc.push({ label: 'Reasignar', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
+        acc.push({ label: 'Reasignar', descripcion: 'Pásalo a otra persona de tu equipo.', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
       }
     }
 
     // Aprobación — quien tiene la autoridad en esa área. Si algo la frena, la
     // acción se muestra apagada con el motivo, en vez de desaparecer: si no, la
     // persona lee «te toca el visto bueno» y no encuentra dónde darlo.
-    if (o.es_aprobador && (estatus === 'EN_REVISION' || estatus === 'EN_RECONSIDERACION')) {
+    // Solo EN_REVISION: hay un proyecto esperando revisión. En reconsideración el
+    // turno es de quien tiene que corregir, y ofrecer «Aprobar» ahí invitaba a dar
+    // por bueno el proyecto que uno mismo acaba de rechazar.
+    if (o.es_aprobador && estatus === 'EN_REVISION') {
       acc.push({
         label: 'Aprobar', tono: 'positivo',
+        descripcion: 'Da el visto bueno al proyecto para que siga a firma.',
         bloqueada: o.puede_vobo ? null : o.bloqueo,
         onClick: () => handleVobo(o),
       });
-      acc.push({ label: 'Reconsiderar', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
     }
-    // Ya aprobado pero aún sin firmar: todavía se puede regresar al jurídico.
-    if (o.puede_vobo && estatus === 'VOBO_APROBADO' && !o.en_pase_firma) {
-      acc.push({ label: 'Reconsiderar', tono: 'atencion', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+
+    /**
+     * Regresar a corregir alcanza a más gente que aprobar: además de quien da el
+     * visto bueno, el titular del área y quien tiene la carga del firmado, que
+     * son los últimos en ver el oficio antes de que salga. Aprobar sigue siendo
+     * del aprobador; esto solo permite frenarlo.
+     */
+    const puedeRegresarlo = o.puede_reconsiderar ?? o.es_aprobador;
+    // EN_RECONSIDERACION queda fuera: ya está regresado y esperando la corrección.
+    // Volver a regresarlo solo reescribiría la observación anterior.
+    if (puedeRegresarlo && estatus === 'EN_REVISION') {
+      acc.push({ label: 'Reconsiderar', tono: 'atencion', descripcion: 'Regrésalo a quien lo redactó con tus observaciones.', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
+    }
+    // Ya aprobado pero aún sin firmar: todavía se puede regresar al jurídico. Y a
+    // firma también, que es cuando la Directora General lo tiene enfrente.
+    if (puedeRegresarlo && estatus === 'VOBO_APROBADO') {
+      acc.push({ label: 'Reconsiderar', tono: 'atencion', descripcion: 'Regrésalo a quien lo redactó con tus observaciones.', onClick: () => { handleSelectOficio(o); setShowRecon(true); } });
     }
 
     // Consultar el proyecto. Un oficio de conocimiento no tiene.
-    if (!o.de_conocimiento && (esEncargado || o.puede_vobo)
-        && (['EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO', 'FINALIZADO'] as EstatusOficio[]).includes(estatus)) {
-      acc.push({ label: 'Ver proyecto', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/proyecto`) });
+    // Se ofrece cuando el archivo existe, sin importar el estatus: un oficio
+    // turnado vuelve a RECIBIDO y aun así puede traer el borrador de la otra área.
+    if (!o.de_conocimiento && o.tiene_proyecto
+        && ((esEncargado && o.es_de_mi_area) || o.puede_vobo)) {
+      acc.push({ label: 'Ver proyecto', tono: 'neutro', descripcion: 'Abre el borrador de la contestación.', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/proyecto`) });
     }
 
     if (estatus === 'VOBO_APROBADO' && (o.puede_finalizar || (o.es_aprobador && o.bloqueo))) {
       acc.push({
         label: 'Subir firmado',
+        descripcion: 'Sube el documento ya firmado y cierra el trámite.',
         bloqueada: o.puede_finalizar ? null : o.bloqueo,
         onClick: () => { setSelected(o); setShowUpload(true); },
       });
     }
     if (estatus === 'FINALIZADO' && !o.de_conocimiento) {
-      acc.push({ label: 'Ver firmado', tono: 'neutro', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/firmado`) });
+      acc.push({ label: 'Ver firmado', tono: 'neutro', descripcion: 'Abre el documento ya firmado.', onClick: () => abrirArchivo(`/api/v1/files/${o.id}/firmado`) });
+    }
+
+    /**
+     * Lo que mueve el oficio de área o lo manda a firma.
+     *
+     * Desde la lista no se podía hacer nada de esto: había que abrir el
+     * expediente, desplegar «Acciones del oficio» y buscar el panel. Aquí se
+     * ofrece desde el renglón y se abre el expediente ya con el panel desplegado,
+     * porque las tres piden datos —el área destino, la justificación, el
+     * documento— y eso no cabe en un menú.
+     *
+     * No se repiten dentro del expediente: allá ya están en su propio panel, con
+     * su formulario. Tenerlas dos veces en la misma pantalla sería el mismo
+     * problema que ya corregimos con las casillas.
+     */
+    if (o.puede_aceptar_turno) {
+      acc.push({ id: 'aceptar', label: 'Aceptar', tono: 'positivo', descripcion: 'Tu área se hace cargo. Después ya no podrás regresarlo.', onClick: () => handleAceptarTurno(o) });
+    }
+    if (o.puede_devolver_turno) {
+      // Solo el rótulo: por debajo deshace el turno, no toca la reconsideración
+      // del proyecto, que es otro paso y otro endpoint.
+      /**
+       * No se puede regresar un oficio sobre el que ya se le pidió información a
+       * otras áreas: allá hay gente trabajando para alguien que estaría por
+       * soltarlo. El servidor ya lo impedía; aquí se dice el motivo en vez de
+       * esconder la acción, que dejaba la pantalla con «Aceptar» como única
+       * salida sin explicar por qué.
+       */
+      const conSolicitudes = Number(o.delegatorios_pendientes ?? 0);
+      acc.push({
+        id: 'reconsiderar-peticion', label: 'Reconsiderar petición', tono: 'atencion',
+        descripcion: 'Regrésalo a quien te lo turnó, con el motivo.',
+        bloqueada: conSolicitudes > 0
+          ? (conSolicitudes === 1
+              ? 'Ya le pediste información a un área sobre este oficio. Cancela esa solicitud antes de regresarlo.'
+              : `Ya le pediste información a ${conSolicitudes} áreas sobre este oficio. Cancela esas solicitudes antes de regresarlo.`)
+          : null,
+        onClick: () => handleReconsiderarPeticion(o),
+      });
+    }
+    if (o.puede_mandar_firma) {
+      acc.push({ label: 'Mandar a firma de la DG', descripcion: 'Lo firma la Directora General; el oficio sigue siendo de tu área.', onClick: () => handleMandarFirma(o) });
+    }
+    if (o.puede_devolver_pase_firma) {
+      acc.push({ label: 'Regresar sin firmar', tono: 'atencion', descripcion: 'Devuélvelo al área para que corrijan antes de firmarlo.', onClick: () => handleRegresarSinFirmar(o) });
+    }
+    // La única que sigue abriendo el expediente: necesita elegir área, escribir
+    // la justificación y a veces adjuntar un documento, y eso no cabe en un menú.
+    if (o.puede_turnar && !porAceptar) {
+      acc.push({
+        id: 'turnar', label: 'Turnar a otra área',
+        descripcion: 'Pide información sin soltarlo, manda lo que ya trabajaste, o pásalo a quien le corresponde.',
+        // En la lista abre el expediente; dentro del expediente, el propio panel
+        // lo intercepta y despliega el formulario sin ir a ningún lado.
+        onClick: () => { setSelected(o); setAbrirAcciones(true); },
+      });
     }
 
     return acc;
@@ -466,7 +620,8 @@ export const Dashboard_Gestion: React.FC = () => {
         o.unidad_interna ?? '',
         o.fecha_oficio ? soloFecha(o.fecha_oficio) : '',
         new Date(o.fecha_registro).toLocaleDateString('es-MX'),
-        o.dirigido_a_nombre ?? '',
+        // El destinatario del documento, no a quién se le turnó después.
+        o.dirigido_a_original_nombre ?? o.dirigido_a_nombre ?? '',
         // Quién lo tiene ahora: el mismo dato que muestra la bandeja en pantalla.
         o.en_bandeja_de ?? '',
         o.descripcion_solicitud ?? '',
@@ -479,12 +634,14 @@ export const Dashboard_Gestion: React.FC = () => {
         : (filtros.estatus ? (ESTATUS_META.find((m) => m.value === filtros.estatus)?.label ?? filtros.estatus) : 'Todos');
       const rangoFechas  = (filtros.desde || filtros.hasta) ? `${filtros.desde || 'inicio'} a ${filtros.hasta || 'hoy'}` : 'Todas';
       const areaNombre   = filtros.area ? (todos[0]?.delegacion_nombre ?? todos[0]?.dirigido_a_nombre ?? `ID ${filtros.area}`) : 'Todas';
+      // Los mismos rótulos que las pestañas: el reporte tiene que decir de dónde
+      // salió con las palabras que la persona vio en pantalla al generarlo.
       const VISTA_LABEL: Record<string, string> = {
-        todo: 'Todo', mia: 'Mi bandeja', finalizados: 'Finalizados',
-        otras_areas: 'De otras áreas',
+        todo: 'Recepción', mia: 'Mi bandeja', finalizados: 'Finalizados',
+        otras_areas: 'Turnados',
       };
       const filtrosList: [string, string][] = [
-        ['Vista', VISTA_LABEL[vista] ?? 'Todo'],
+        ['Vista', VISTA_LABEL[vista] ?? 'Recepción'],
         ['Búsqueda', filtros.search || '—'],
         ['Estatus', estatusLabel],
         ['Área (dirigido a)', areaNombre],
@@ -627,19 +784,14 @@ export const Dashboard_Gestion: React.FC = () => {
           totalTodo={totalDeConteos(conteos)}
           totalMia={miPendientes}
           totalFinalizados={conteos.FINALIZADO ?? 0}
-          totalOtrasAreas={deOtrasAreas + delegatoriosPend}
+          /* Solo lo que la lista puede mostrar. Sumarle aparte las solicitudes
+             dejaba la pestaña con un número que no correspondía a ningún renglón:
+             el servidor ya las cuenta dentro de «de otras áreas». */
+          totalOtrasAreas={deOtrasAreas}
+          fijada={vistaFijada}
+          onFijar={(v) => setVistaFijada(alternarVistaFijada(user?.id, v, vistaFijada))}
         />
 
-        {/* Lo que otras áreas le pidieron a la mía. Se mantiene montada aunque no
-            esté al frente: es quien sabe cuántos delegatorios hay pendientes. */}
-        <div style={{
-          display: vista === 'otras_areas' ? 'block' : 'none',
-          margin: '0 24px', padding: '10px 14px 4px',
-          borderLeft: `1px solid ${theme.colors.border}`, borderRight: `1px solid ${theme.colors.border}`,
-          backgroundColor: theme.colors.surface,
-        }}>
-          <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} mostrarVacio />
-        </div>
 
         {/* Table — scroll horizontal en móvil para no romper el layout */}
         {/* `0 1 auto` y no `flex: 1`: con pocos oficios el recuadro termina donde
@@ -736,49 +888,27 @@ export const Dashboard_Gestion: React.FC = () => {
             <h2 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 700 }}>
               Detalle — {selected.folio}
             </h2>
-            <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} aria-label="Cerrar detalle">×</button>
+            <button onClick={() => { setSelected(null); setAbrirAcciones(false); }} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} aria-label="Cerrar detalle">×</button>
           </div>
           <div style={{ padding: '20px', flex: 1 }}>
             <OficioDetalle
               oficio={selected}
-              acciones={
-                <>
+              onCambio={fetchOficios}
+              /* Una sola zona al final del expediente: las acciones, el
+                 formulario de turnar, las marcas y el estado. Antes iban en dos
+                 bloques separados por media pantalla, y había que aprenderse cuál
+                 miraba uno según lo que quisiera hacer. */
+              accionesFinales={
                 <AccionesOficio
                   oficio={selected}
+                  acciones={accionesDe(selected)}
+                  abrirTurnar={abrirAcciones}
                   conDelegatorios
-                  puedeDelegar={selected.dirigido_a_unidad_tipo === 'DIRECCION_GENERAL'}
+                  puedeDelegar={!!selected.puede_solicitar}
                   onActualizar={(o) => { setSelected((prev) => prev ? { ...prev, ...o } : o); fetchOficios(); }}
-                  onSalio={() => { setSelected(null); fetchOficios(); }}
+                  onSalio={() => { setSelected(null); setAbrirAcciones(false); fetchOficios(); }}
                   onRefrescar={() => fetchOficios()}
                 />
-                {selected.puede_vobo && selected.estatus === 'EN_REVISION' ? (
-                  <div style={{
-                    padding: '14px 16px',
-                    backgroundColor: '#F0FDF4', border: `1px solid #86EFAC`,
-                    borderRadius: '8px', display: 'flex',
-                    alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap',
-                  }}>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#166534' }}>
-                        ¿El proyecto está correcto?
-                      </p>
-                      <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: '#15803D' }}>
-                        Al otorgar el VoBo, se notificará a Secretaría para la firma.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleVobo(selected)}
-                      style={{
-                        padding: '9px 20px', backgroundColor: theme.colors.alert.green,
-                        color: '#fff', border: 'none', borderRadius: '7px',
-                        fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      ✓ Otorgar VoBo
-                    </button>
-                  </div>
-                ) : null}
-                </>
               }
             />
             {/* La línea de tiempo ahora vive dentro del modal "Ver historial". */}

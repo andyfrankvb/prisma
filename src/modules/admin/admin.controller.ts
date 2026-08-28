@@ -501,7 +501,14 @@ export async function listarFlujos(
 
         return {
           rol_flujo:            rol,
-          por_unidad:           esRolPorUnidad(modulo.clave, rol) || cfgs.length > 1 || cfgs.some((c: any) => c.unidad_id !== null),
+          // Cómo se llama en pantalla. El identificador guardado no cambia
+          // —migrarlo obligaría a tocar cada lugar que lo consulta—, pero
+          // «SECRETARIA» nombraba un puesto y no la función que ejerce.
+          nombre_visible:       rule?.nombreVisible ?? rol,
+          por_unidad:           esRolPorUnidad(modulo.clave, rol) || cfgs.some((c: any) => c.unidad_id !== null),
+          // Admite varias personas. Cuando además no es por unidad —la carga del
+          // firmado— se agregan sin elegir área.
+          admite_varios:        admiteVariosPorUnidad(modulo.clave, rol),
           configuraciones:      cfgs.map((c: any) => ({
             id:                     c.id,
             usuario_id:             c.usuario_id,
@@ -736,9 +743,10 @@ export async function listarDelegacionesVobo(
   next: NextFunction,
 ): Promise<void> {
   try {
-    // Delegaciones y direcciones de área: ambas resuelven su propio VoBo, así que
-    // ambas necesitan el selector. La Dirección General queda fuera: ahí aprueba
-    // siempre el encargado y el firmado lo sube la secretaría.
+    // Delegaciones y direcciones de área: ambas eligen quién aprueba. La
+    // Dirección General queda fuera a propósito —el visto bueno del flujo es
+    // siempre de su encargado, sobre el trabajo de su equipo—. Lo de la Directora
+    // General es la firma: aprobar o regresar lo que él le manda terminado.
     const delegaciones = await db('catalogo_unidades as cu')
       .whereIn('cu.tipo', ['DELEGACION', 'DIRECCION'])
       .leftJoin('usuarios as d', function () {
@@ -807,6 +815,105 @@ export async function actualizarDelegacionVobo(
 
     await db('catalogo_unidades').where({ id: unidadId }).update(cambios);
     res.json({ message: 'Configuración actualizada', data: { id: unidadId, ...cambios } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Destinos entre áreas ──────────────────────────────────────
+/**
+ * GET /admin/destinos
+ *
+ * La matriz de qué área puede dirigirse a qué área. Antes esto vivía en el
+ * código y en dos lugares que no coincidían, así que cambiarlo obligaba a tocar
+ * el programa; ahora se ve y se ajusta aquí.
+ *
+ * Se devuelve la matriz completa —todas las combinaciones, con su `permitido`
+ * ya resuelto— y no solo las excepciones guardadas: la pantalla necesita pintar
+ * cada casilla, y hacerle deducir el valor por omisión sería repetir del lado
+ * del navegador una regla que ya vive en la base.
+ */
+export async function listarDestinos(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const unidades = await db('catalogo_unidades')
+      .where('activo', true)
+      .select('id', 'nombre', 'tipo')
+      .orderByRaw(`CASE tipo
+                     WHEN 'DIRECCION_GENERAL' THEN 0
+                     WHEN 'DIRECCION'         THEN 1
+                     ELSE 2 END`)
+      .orderBy('nombre', 'asc');
+
+    const vetados = await db('configuracion_destinos')
+      .where('permitido', false)
+      .select('unidad_origen_id', 'unidad_destino_id');
+    const vetado = new Set(vetados.map((v: any) => `${v.unidad_origen_id}:${v.unidad_destino_id}`));
+
+    const matriz = unidades.flatMap((origen: any) =>
+      unidades
+        .filter((destino: any) => destino.id !== origen.id)
+        .map((destino: any) => ({
+          unidad_origen_id:  origen.id,
+          unidad_destino_id: destino.id,
+          permitido:         !vetado.has(`${origen.id}:${destino.id}`),
+        })),
+    );
+
+    res.json({ data: { unidades, matriz } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUT /admin/destinos/:origenId/:destinoId
+ *
+ * Prende o apaga una casilla. Se guarda el renglón en ambos casos —aunque
+ * `permitido: true` sea el valor por omisión— para dejar constancia de quién lo
+ * cambió y cuándo: al revisar por qué un área ve lo que ve, importa distinguir
+ * lo que nadie ha tocado de lo que alguien devolvió a su lugar.
+ */
+export async function actualizarDestino(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const origenId  = parseInt(req.params.origenId, 10);
+    const destinoId = parseInt(req.params.destinoId, 10);
+    if (!origenId || !destinoId) throw new AppError('Faltan las áreas', 422);
+    if (origenId === destinoId)  throw new AppError('Un área no se turna a sí misma', 422);
+
+    const existen = await db('catalogo_unidades')
+      .whereIn('id', [origenId, destinoId])
+      .andWhere('activo', true)
+      .count('id as n')
+      .first();
+    if (Number((existen as any)?.n ?? 0) !== 2) {
+      throw new AppError('Alguna de las áreas no existe o está inactiva', 422);
+    }
+
+    const permitido = req.body?.permitido === true || req.body?.permitido === 'true';
+
+    await db('configuracion_destinos')
+      .insert({
+        unidad_origen_id:   origenId,
+        unidad_destino_id:  destinoId,
+        permitido,
+        actualizado_en:     new Date(),
+        actualizado_por_id: req.user?.id ?? null,
+      })
+      .onConflict(['unidad_origen_id', 'unidad_destino_id'])
+      .merge(['permitido', 'actualizado_en', 'actualizado_por_id']);
+
+    res.json({
+      message: permitido ? 'Destino habilitado' : 'Destino deshabilitado',
+      data: { unidad_origen_id: origenId, unidad_destino_id: destinoId, permitido },
+    });
   } catch (err) {
     next(err);
   }

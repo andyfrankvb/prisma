@@ -20,6 +20,7 @@ import {
   notifyDeadline1Day,
   notifyDeadlineOverdue,
 } from './notification.dispatcher';
+import { revisarSolicitudesDemoradas } from './solicitudes.scheduler';
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -87,6 +88,10 @@ export async function runDeadlineCheck(): Promise<void> {
         ),
       );
     }
+
+    // Las solicitudes a otras áreas se revisan en la misma pasada nocturna: son
+    // el otro motivo por el que un oficio se queda parado sin que nadie avise.
+    await revisarSolicitudesDemoradas();
 
     const elapsed = Date.now() - new Date(startedAt).getTime();
     logger.info({ elapsed_ms: elapsed }, 'Deadline check completed');

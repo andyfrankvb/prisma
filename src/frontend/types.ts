@@ -63,9 +63,26 @@ export interface Oficio {
   de_conocimiento_en?:      string | null;
   /** Solo la Dirección Jurídica ve la casilla. Lo calcula el servidor. */
   puede_de_conocimiento?:   boolean;
+  /**
+   * El usuario responde por el área donde vive hoy el oficio —es su titular o su
+   * encargado—. Ser encargado se sabe de forma global; esto lo dice por oficio,
+   * que es lo que hace falta desde que un área conserva la vista de lo que mandó.
+   */
+  es_de_mi_area?:           boolean;
   /** El encargado del área que lo tiene puede turnarlo a otra. Lo calcula el servidor. */
   puede_turnar?:            boolean;
-  /** Llegó por un turno, así que se puede regresar a quien lo mandó. */
+  /**
+   * Puede solicitar información a otra área sobre este oficio. Más abierto que
+   * turnar: el analista que lo trabaja también puede, porque es quien descubre
+   * que le falta algo. Lo calcula el servidor; la pantalla no lo deduce.
+   */
+  puede_solicitar?:         boolean;
+  /**
+   * Llegó turnado y el área todavía no lo recibe. Hasta que lo acepte puede
+   * regresarlo; después, la salida es turnarlo por no competencia.
+   */
+  puede_aceptar_turno?:     boolean;
+  /** Llegó por un turno y sigue sin aceptarse: se puede regresar a quien lo mandó. */
   puede_devolver_turno?:    boolean;
   /** Llegó a esta área desde otra, no lo capturó su propia oficialía. */
   llego_de_otra_area?:      boolean;
@@ -98,12 +115,31 @@ export interface Oficio {
   dias_restantes?:       number | null;
   /** Horas que faltan, solo cuando el término se capturó en horas. */
   horas_restantes?:      number | null;
+  /**
+   * Lo regresaron a corregir desde arriba —la Directora General, la carga del
+   * firmado—, así que le toca al encargado que lo aprobó y no al analista que lo
+   * redactó. Se levanta sola al subir la versión corregida.
+   */
+  reconsideracion_al_encargado?: boolean;
+  /**
+   * Hay un proyecto de contestación guardado. Lo dice el servidor mirando el
+   * archivo, no el estatus: un oficio turnado vuelve a RECIBIDO y aun así puede
+   * traer el borrador que redactó la otra área. Al firmar se borra y esto pasa a
+   * ser falso.
+   */
+  tiene_proyecto?:       boolean;
   /** true si el usuario actual puede dar el VoBo / reconsiderar este oficio */
   puede_vobo?:           boolean;
   /** true si el usuario actual puede subir el firmado y finalizar este oficio */
   puede_finalizar?:      boolean;
   /** Es quien da el visto bueno en su área, aunque ahora esté bloqueado. */
   es_aprobador?:         boolean;
+  /**
+   * Puede regresar el oficio a corregir. Alcanza a más gente que aprobar: el
+   * aprobador, el titular del área —la Directora General en lo suyo— y quien
+   * tiene la carga del firmado, que es el último en verlo antes de que salga.
+   */
+  puede_reconsiderar?:   boolean;
   /** Por qué no se puede cerrar todavía, dicho con palabras. Vacío si no hay freno. */
   bloqueo?:              string | null;
   /** el oficio está esperando la firma de la Dirección General */

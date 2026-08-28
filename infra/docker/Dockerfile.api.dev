@@ -3,7 +3,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 # poppler-utils para convertir PDF a imagen + tesseract para OCR
-RUN apk add --no-cache python3 make g++ poppler-utils tesseract-ocr tesseract-ocr-data-spa
+# ghostscript: comprime los PDFs subidos, igual que en producción. Sin él la
+# compresión se salta en silencio y en local todo pesa más que allá, así que un
+# problema de tamaño no se reproduce donde se prueba.
+RUN apk add --no-cache python3 make g++ poppler-utils tesseract-ocr tesseract-ocr-data-spa ghostscript
 
 COPY package*.json ./
 RUN npm install

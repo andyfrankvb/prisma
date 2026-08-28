@@ -29,7 +29,7 @@ import type { CatalogoItem, TipoCorreo, PosibleDuplicado } from '../api';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio, Abogado } from '../types';
 import { FiltrosOficios } from '../components/FiltrosOficios';
-import { PestanasBandeja, totalDeConteos } from '../components/PestanasBandeja';
+import { PestanasBandeja, totalDeConteos, leerVistaFijada, alternarVistaFijada } from '../components/PestanasBandeja';
 import type { VistaBandeja } from '../components/PestanasBandeja';
 import {
   thStyle, tdStyle, inputStyle, selectStyle, emptyCell,
@@ -67,7 +67,9 @@ export const Dashboard_Oficial: React.FC = () => {
   const [miPendientes, setMiPendientes] = useState(0);
   const [deOtrasAreas, setDeOtrasAreas] = useState(0);
   // Pestaña activa: el histórico, lo que espera algo de mí, o el archivo.
-  const [vista, setVista] = useState<VistaBandeja>('todo');
+  // Arranca en la pestaña que la persona haya fijado, si fijó alguna.
+  const [vistaFijada, setVistaFijada] = useState<VistaBandeja | null>(() => leerVistaFijada(user?.id));
+  const [vista, setVista] = useState<VistaBandeja>(() => leerVistaFijada(user?.id) ?? 'todo');
   const [page,      setPage]      = useState(1);
   const [estatus,   setEstatus]   = useState('');
   const [loading,   setLoading]   = useState(false);
@@ -182,7 +184,7 @@ export const Dashboard_Oficial: React.FC = () => {
         mi_bandeja: vista === 'mia' || undefined,
         de_otras_areas: vista === 'otras_areas' || undefined,
         page, limit: LIMIT,
-        estatus:          estatus  || undefined,
+        estatus:          vista === 'finalizados' ? 'FINALIZADO' : (estatus || undefined),
         search:           searchDeb || undefined,
         desde:            desde    || undefined,
         hasta:            hasta    || undefined,
@@ -517,6 +519,8 @@ export const Dashboard_Oficial: React.FC = () => {
           totalTodo={totalDeConteos(conteos)}
           totalMia={miPendientes}
           totalFinalizados={conteos.FINALIZADO ?? 0}
+          fijada={vistaFijada}
+          onFijar={(v) => setVistaFijada(alternarVistaFijada(user?.id, v, vistaFijada))}
         />
 
         <div className="scroll-x" style={{ flex: 1, overflowY: 'auto', margin: '0 24px 24px', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
@@ -614,6 +618,7 @@ export const Dashboard_Oficial: React.FC = () => {
 
             <OficioDetalle
               oficio={selected}
+              onCambio={fetchOficios}
               acciones={
                 <>
                   {/* Subir documento firmado (para quien también finaliza) */}
