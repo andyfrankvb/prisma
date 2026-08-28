@@ -720,9 +720,19 @@ export async function listarUsuariosDisponibles(
       )
       .where('u.activo', true);
 
-    // No filtrar por unidad: el ENCARGADO es un rol funcional asignado a una persona,
-    // independientemente de en cuál área esté registrada. Así Oscar Gopar (Jurídica)
-    // puede ser ENCARGADO de Dirección General.
+    // Para el rol ENCARGADO, permitir usuarios de Dirección General Y Jurídica:
+    // Oscar Gopar (Jurídica) puede ser ENCARGADO de Dirección General, pero no
+    // queremos mostrar gente de todas las áreas.
+    if (req.query.unidad_id && rolFlujo === 'ENCARGADO' && moduloClave === 'officialia_partes') {
+      const unidadId = Number(req.query.unidad_id);
+      // IDs: 34=Dirección General, 36=Dirección Jurídica
+      const unidadesCompatibles = [34, 36];
+      query = query.whereIn('u.unidad_id', unidadesCompatibles);
+    } else if (req.query.unidad_id) {
+      // Para otros roles, filtrar por unidad
+      query = query.where('u.unidad_id', Number(req.query.unidad_id));
+    }
+
     const usuarios = await query.orderBy('u.nombre', 'asc');
 
     res.json({ data: usuarios });
