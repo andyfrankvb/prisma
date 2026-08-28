@@ -720,11 +720,9 @@ export async function listarUsuariosDisponibles(
       )
       .where('u.activo', true);
 
-    // Filtrar por unidad_id si se proporciona
-    if (req.query.unidad_id) {
-      query = query.where('u.unidad_id', Number(req.query.unidad_id));
-    }
-
+    // No filtrar por unidad: el ENCARGADO es un rol funcional asignado a una persona,
+    // independientemente de en cuál área esté registrada. Así Oscar Gopar (Jurídica)
+    // puede ser ENCARGADO de Dirección General.
     const usuarios = await query.orderBy('u.nombre', 'asc');
 
     res.json({ data: usuarios });
