@@ -9,7 +9,19 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
+
+# `--ignore-scripts` protege de que un paquete ejecute código al instalarse, pero
+# también impide que `bcrypt` compile su binario nativo. Sin él la imagen queda
+# con el módulo pero sin su `.node`, y la API muere al arrancar:
+#   Cannot find module '.../bcrypt/lib/binding/napi-v3/bcrypt_lib.node'
+#
+# Se conserva la protección para todo el árbol y se compila bcrypt aparte, que es
+# el único nativo que usamos. Las herramientas de compilación viven solo en esta
+# etapa: la imagen final copia node_modules y no las arrastra.
+RUN apk add --no-cache --virtual .build python3 make g++ \
+ && npm ci --omit=dev --ignore-scripts \
+ && npm rebuild bcrypt --build-from-source \
+ && apk del .build
 
 # ── Stage 2: build ────────────────────────────────────────────
 FROM node:20-alpine AS builder
