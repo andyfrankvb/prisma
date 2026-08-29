@@ -11,6 +11,7 @@
  * Aquí solo se corrige un dedazo o se quita el que ya no sirve.
  */
 import React, { useCallback, useEffect, useState } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import { getCorreos, editarCorreo, eliminarCorreo, adoptarCorreo } from '../api';
 import type { CorreoItem, TipoCorreo } from '../api';
@@ -148,7 +149,7 @@ export const SeccionCorreos: React.FC = () => {
       {error && (
         <div role="alert" onClick={() => setError(null)}
           style={{ marginBottom: '14px', padding: '9px 12px', borderRadius: '6px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.8rem', cursor: 'pointer' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
 

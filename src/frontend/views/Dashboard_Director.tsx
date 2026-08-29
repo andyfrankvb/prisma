@@ -11,6 +11,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { useAuth }      from '../context/AuthContext';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
@@ -85,7 +87,7 @@ interface TendenciaPunto { fecha: string; total: number; }
 const CollapsibleCard: React.FC<{
   id:          string;
   title:       string;
-  icon:        string;
+  icon:        NombreIcono;
   defaultOpen?: boolean;
   action?:     React.ReactNode;
   accent?:     string;
@@ -128,8 +130,8 @@ const CollapsibleCard: React.FC<{
       >
         <span style={{
           width: '34px', height: '34px', borderRadius: '10px', flexShrink: 0,
-          backgroundColor: `${accent}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.05rem',
-        }}>{icon}</span>
+          backgroundColor: `${accent}15`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}><Icono nombre={icon} size={18} color={accent} /></span>
         <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: theme.colors.primaryDark, flex: 1 }}>{title}</h3>
         {open && action && (
           <span onClick={(e) => e.stopPropagation()}>{action}</span>
@@ -371,24 +373,24 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
 
       {/* ── KPI Cards (siempre visibles) ─────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-        <KpiCard label="Total Oficios" value={metricas.total_general} icon="📋" color={theme.colors.primary} />
-        <KpiCard label="Vencidos" value={metricas.vencidos} icon="🚨"
+        <KpiCard label="Total Oficios" value={metricas.total_general} icon="lista" color={theme.colors.primary} />
+        <KpiCard label="Vencidos" value={metricas.vencidos} icon="alerta"
           color={metricas.vencidos > 0 ? theme.colors.alert.red : theme.colors.alert.green} alert={metricas.vencidos > 0} />
-        <KpiCard label="Urgentes (24h)" value={metricas.urgentes_24h} icon="⚠️"
+        <KpiCard label="Urgentes (24h)" value={metricas.urgentes_24h} icon="alerta"
           color={metricas.urgentes_24h > 0 ? theme.colors.alert.yellow : theme.colors.alert.green} alert={metricas.urgentes_24h > 0} />
-        <KpiCard label="Finalizados (mes)" value={metricas.finalizados_mes} icon="✅" color={theme.colors.alert.green} />
+        <KpiCard label="Finalizados (mes)" value={metricas.finalizados_mes} icon="checkCirculo" color={theme.colors.alert.green} />
         <KpiCard label="Promedio resolución"
           value={metricas.promedio_dias_resolucion !== null ? `${metricas.promedio_dias_resolucion}d` : '—'} icon="⏱" color={theme.colors.primaryLight} />
       </div>
 
       {/* ── Distribución por estatus ─────────────────────── */}
-      <CollapsibleCard id="distribucion" title="Distribución por Estatus" icon="🍩" accent={theme.colors.primary}>
+      <CollapsibleCard id="distribucion" title="Distribución por Estatus" icon="grafica" accent={theme.colors.primary}>
         <DonutChart data={metricas.por_estatus} total={metricas.total_general} />
       </CollapsibleCard>
 
       {/* ── Tendencia ────────────────────────────────────── */}
       <CollapsibleCard
-        id="tendencia" title="Tendencia de Oficios" icon="📈" accent="#2563EB"
+        id="tendencia" title="Tendencia de Oficios" icon="grafica" accent="#3D3935"
         action={
           <div style={{ display: 'flex', gap: '6px' }}>
             {[7, 30, 60].map((d) => (
@@ -414,7 +416,7 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
 
       {/* ── Carga por abogado + Alertas (2 columnas) ─────── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px', alignItems: 'start' }}>
-        <CollapsibleCard id="carga" title={`Carga por Abogado · ${carga.length} activos`} icon="⚖️" accent="#7C3AED">
+        <CollapsibleCard id="carga" title={`Carga por Abogado · ${carga.length} activos`} icon="personas" accent="#AB0A3D">
           {carga.length === 0 ? (
             <EmptyState text="Sin asignaciones activas" />
           ) : (
@@ -424,10 +426,10 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
           )}
         </CollapsibleCard>
 
-        <CollapsibleCard id="alertas" title={`Alertas de Vencimiento${totalAlertas > 0 ? ` · ${totalAlertas}` : ''}`} icon="🔔"
+        <CollapsibleCard id="alertas" title={`Alertas de Vencimiento${totalAlertas > 0 ? ` · ${totalAlertas}` : ''}`} icon="campana"
           accent={totalAlertas > 0 ? theme.colors.alert.red : theme.colors.alert.green}>
           {totalAlertas === 0 ? (
-            <EmptyState text="Sin alertas activas 🎉" color={theme.colors.alert.green} />
+            <EmptyState text="Sin alertas activas" color={theme.colors.alert.green} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '420px', overflowY: 'auto' }}>
               {alertas.vencidos.map((o) => <AlertaRow key={o.id} oficio={o} tipo="vencido" />)}
@@ -438,7 +440,7 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
       </div>
 
       {/* ── Supervisión de módulos (colapsado por defecto) ─ */}
-      <CollapsibleCard id="supervision" title="Supervisión de Módulos" icon="🔍" accent="#0891B2" defaultOpen={false}>
+      <CollapsibleCard id="supervision" title="Supervisión de Módulos" icon="buscar" accent="#B68400" defaultOpen={false}>
         <SeccionSupervision embedded />
       </CollapsibleCard>
 
@@ -455,7 +457,7 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
 const KpiCard: React.FC<{
   label: string;
   value: number | string;
-  icon:  string;
+  icon:  NombreIcono;
   color: string;
   alert?: boolean;
 }> = ({ label, value, icon, color, alert }) => (
@@ -476,7 +478,7 @@ const KpiCard: React.FC<{
         boxShadow: `0 0 0 3px ${color}33`,
       }} />
     )}
-    <div style={{ fontSize: '1.6rem', marginBottom: '8px' }}>{icon}</div>
+    <div style={{ marginBottom: '8px' }}><Icono nombre={icon} size={24} color={color} /></div>
     <div style={{ fontSize: '1.8rem', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
     <div style={{ fontSize: '0.78rem', color: theme.colors.textSecondary, marginTop: '4px', fontWeight: 500 }}>{label}</div>
   </div>
@@ -736,8 +738,8 @@ const AlertaRow: React.FC<{ oficio: OficioAlerta; tipo: 'vencido' | 'proximo' }>
             : <span style={{ color: theme.colors.alert.yellow, fontWeight: 700 }}>Vence en {oficio.dias_restantes}d</span>
           }
         </span>
-        {oficio.abogado_nombre && <span>👤 {oficio.abogado_nombre}</span>}
-        <span>📅 {oficio.fecha_vencimiento}</span>
+        {oficio.abogado_nombre && <span><Icono nombre="persona" inline />{oficio.abogado_nombre}</span>}
+        <span><Icono nombre="calendario" inline />{oficio.fecha_vencimiento}</span>
       </div>
     </div>
   );
@@ -749,7 +751,7 @@ import type { EstadoTarea, RegistroHistorial } from '../types';
 
 const ESTADO_CFG_BANDEJA: Partial<Record<EstadoTarea, { bg: string; text: string; label: string }>> = {
   EN_REVISION:    { bg: '#FEF3C7', text: '#92400E', label: 'En Revisión'    },
-  EN_REVISION_DG: { bg: '#EDE9FE', text: '#5B21B6', label: 'En Revisión DG' },
+  EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
   COMPLETADA:     { bg: '#D1FAE5', text: '#065F46', label: 'Completada'     },
@@ -911,7 +913,7 @@ const BandejaRevision: React.FC = () => {
       {!loading && !error && (
         tareasFiltradas.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: theme.colors.textSecondary }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>✅</div>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}><Icono nombre="checkCirculo" size={40} color={theme.colors.alert.green} /></div>
             <p style={{ margin: 0 }}>
               {filtro === 'todas' ? 'No hay tareas pendientes de revisión.' : 'No hay tareas en esta categoría.'}
             </p>
@@ -1013,7 +1015,7 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
         <div style={{ flex: 1, minWidth: '200px' }}>
           <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem', color: theme.colors.textPrimary }}>{tarea.titulo}</p>
           <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-            📅 {tarea.evento_titulo} &nbsp;·&nbsp; 👤 {tarea.asignado_a_nombre}
+            <Icono nombre="calendario" inline />{tarea.evento_titulo} &nbsp;·&nbsp; <Icono nombre="persona" inline />{tarea.asignado_a_nombre}
           </p>
           {tarea.descripcion && (
             <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>{tarea.descripcion}</p>
@@ -1027,14 +1029,14 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
 
         {/* Fecha */}
         <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
-          📅 {tarea.fecha_programada}
+          <Icono nombre="calendario" inline />{tarea.fecha_programada}
         </span>
 
         {/* EN_REVISION = nivel 1 (director de área). La DG NO actúa aquí,
             solo ve el estado. Sus acciones son únicamente en EN_REVISION_DG. */}
         {tarea.estado === 'EN_REVISION' && (
           <span style={{ fontSize: '0.75rem', color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-            🔍 En revisión por el director de área
+            <Icono nombre="buscar" inline />En revisión por el director de área
           </span>
         )}
 
@@ -1046,14 +1048,14 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
               disabled={finalizando}
               style={{ padding: '6px 14px', backgroundColor: '#D1FAE5', color: '#065F46', border: '1px solid #6EE7B7', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: finalizando ? 'not-allowed' : 'pointer', opacity: finalizando ? 0.6 : 1, fontFamily: theme.font.family }}
             >
-              {finalizando ? '…' : '✓ Finalizar'}
+              {finalizando ? '…' : 'Finalizar'}
             </button>
             <button
               onClick={() => { setShowDevolverDG(true); setComentarioDG(''); setErrorDevolDG(null); }}
               disabled={finalizando}
               style={{ padding: '6px 14px', backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
             >
-              ↩ Devolver
+              <Icono nombre="regresarIzq" inline />Devolver
             </button>
           </div>
         )}
@@ -1068,8 +1070,8 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
       </div>
 
       {/* Errores inline */}
-      {aprobarError   && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {aprobarError}</div>}
-      {finalizarError && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {finalizarError}</div>}
+      {aprobarError   && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{aprobarError}</div>}
+      {finalizarError && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{finalizarError}</div>}
 
       {/* Modal devolver */}
       {showDevolverModal && (
@@ -1079,7 +1081,7 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
           onClick={(e) => { if (e.target === e.currentTarget) setShowDevolverModal(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>↩ Devolver tarea</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="regresarIzq" inline />Devolver tarea</h3>
             <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px', color: theme.colors.textPrimary }}>
               Motivo de devolución <span style={{ color: theme.colors.alert.red }}>*</span>
@@ -1092,7 +1094,7 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
               disabled={enviandoDev}
               style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical', marginBottom: '14px' }}
             />
-            {errorDev && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {errorDev}</p>}
+            {errorDev && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorDev}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowDevolverModal(false)} disabled={enviandoDev} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleDevolver} disabled={enviandoDev || !comentarioDev.trim()} style={{ padding: '8px 18px', backgroundColor: '#F59E0B', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (enviandoDev || !comentarioDev.trim()) ? 'not-allowed' : 'pointer', opacity: (enviandoDev || !comentarioDev.trim()) ? 0.6 : 1, fontFamily: theme.font.family }}>
@@ -1110,7 +1112,7 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
           onClick={(e) => { if (e.target === e.currentTarget) setShowDevolverDG(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>↩ Devolver con observaciones</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="regresarIzq" inline />Devolver con observaciones</h3>
             <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px', color: theme.colors.textPrimary }}>
               Observaciones <span style={{ color: theme.colors.alert.red }}>*</span>
@@ -1123,7 +1125,7 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
               disabled={enviandoDevolDG}
               style={{ width: '100%', boxSizing: 'border-box' as const, padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical' as const, marginBottom: '14px' }}
             />
-            {errorDevolDG && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {errorDevolDG}</p>}
+            {errorDevolDG && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorDevolDG}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowDevolverDG(false)} disabled={enviandoDevolDG} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleDevolverDG} disabled={enviandoDevolDG || !comentarioDG.trim()} style={{ padding: '8px 18px', backgroundColor: '#F59E0B', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (enviandoDevolDG || !comentarioDG.trim()) ? 'not-allowed' : 'pointer', opacity: (enviandoDevolDG || !comentarioDG.trim()) ? 0.6 : 1, fontFamily: theme.font.family }}>
@@ -1150,10 +1152,10 @@ const BandejaTareaCard: React.FC<{ tarea: TareaRevision; onRefresh: () => void }
 // ── HistorialBandejaModal ─────────────────────────────────────
 
 const TIPO_CFG: Record<string, { bg: string; text: string; label: string }> = {
-  AVANCE:        { bg: '#DBEAFE', text: '#1E40AF', label: 'Avance'       },
+  AVANCE:        { bg: '#EFEDEA', text: '#3D3935', label: 'Avance'       },
   DEVOLUCION:    { bg: '#FEF3C7', text: '#92400E', label: 'Devolución'   },
   APROBACION_N1: { bg: '#D1FAE5', text: '#065F46', label: 'Aprobado N1'  },
-  APROBACION_N2: { bg: '#EDE9FE', text: '#5B21B6', label: 'Aprobado DG'  },
+  APROBACION_N2: { bg: '#FDE8EF', text: '#8A0730', label: 'Aprobado DG'  },
 };
 
 const HistorialBandejaModal: React.FC<{
@@ -1187,15 +1189,15 @@ const HistorialBandejaModal: React.FC<{
     >
       <div style={{ backgroundColor: '#fff', borderRadius: '10px', width: '100%', maxWidth: '520px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', fontFamily: theme.font.family }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: `1px solid ${theme.colors.border}` }}>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>📋 Historial de Revisiones</h3>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="lista" inline />Historial de Revisiones</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: theme.colors.textSecondary }}>×</button>
         </div>
         <p style={{ margin: '10px 24px 0', fontSize: '0.82rem', color: theme.colors.textSecondary }}>
           Tarea: <strong style={{ color: theme.colors.textPrimary }}>{tareaTitulo}</strong>
         </p>
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px 20px' }}>
-          {loading && <p style={{ textAlign: 'center', color: theme.colors.textSecondary }}>⏳ Cargando…</p>}
-          {!loading && error && <p style={{ color: theme.colors.alert.red }}>⚠ {error}</p>}
+          {loading && <p style={{ textAlign: 'center', color: theme.colors.textSecondary }}><Icono nombre="reloj" inline />Cargando…</p>}
+          {!loading && error && <p style={{ color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{error}</p>}
           {!loading && !error && registros.length === 0 && <p style={{ textAlign: 'center', color: theme.colors.textSecondary }}>Sin historial aún.</p>}
           {!loading && !error && registros.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1241,7 +1243,7 @@ const LoadingScreen: React.FC = () => (
 const ErrorScreen: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
   <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background }}>
     <div style={{ textAlign: 'center', maxWidth: '360px' }}>
-      <div style={{ fontSize: '2rem', marginBottom: '12px' }}>⚠️</div>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}><Icono nombre="alerta" size={32} color={theme.colors.alert.yellow} /></div>
       <p style={{ color: theme.colors.alert.red, fontWeight: 600, marginBottom: '16px' }}>{message}</p>
       <button onClick={onRetry} style={{ padding: '10px 24px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '7px', cursor: 'pointer', fontWeight: 700 }}>
         Reintentar

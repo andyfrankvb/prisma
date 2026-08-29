@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import type { RolUsuario, ModuloConEstado } from '../types';
 import type { UsuarioAdmin } from '../api';
@@ -59,9 +60,9 @@ const ROL_COLOR: Record<RolUsuario, { bg: string; text: string }> = {
   OFICIAL:    { bg: '#FEF3C7', text: '#92400E' },
   ENCARGADO:  { bg: '#FDE8EF', text: '#AB0A3D' },
   JURIDICO:   { bg: '#D1FAE5', text: '#065F46' },
-  SECRETARIA: { bg: '#DBEAFE', text: '#1E40AF' },
+  SECRETARIA: { bg: '#EFEDEA', text: '#3D3935' },
   DIRECTOR:   { bg: '#EDE9E4', text: '#3D3935' },
-  SUPERADMIN: { bg: '#4C1D95', text: '#fff'    },
+  SUPERADMIN: { bg: '#440412', text: '#fff'    },
   OPERATIVO:  { bg: '#F0FDF4', text: '#166534' },
 };
 
@@ -366,7 +367,7 @@ export const SeccionModulos: React.FC = () => {
 
           <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px' }}>
             <h4 style={{ margin: '0 0 12px', fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              🧩 Módulos del sistema
+              <Icono nombre="lista" inline />Módulos del sistema
             </h4>
 
             {modulosLoading ? (
@@ -409,7 +410,7 @@ export const SeccionModulos: React.FC = () => {
                     </div>
                     {toggleErrors[m.id] && (
                       <p style={{ margin: '4px 0 0 14px', fontSize: '0.72rem', color: theme.colors.alert.red }}>
-                        ⚠ {toggleErrors[m.id]}
+                        <Icono nombre="alerta" inline />{toggleErrors[m.id]}
                       </p>
                     )}
                   </div>

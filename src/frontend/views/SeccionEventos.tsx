@@ -5,6 +5,8 @@
  */
 
 import React, { useState, useEffect, useCallback, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { theme } from '../theme';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
@@ -52,11 +54,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 const ESTADO_TAREA_CFG: Record<EstadoTarea, { bg: string; text: string; label: string }> = {
   PENDIENTE:      { bg: '#FEF3C7', text: '#92400E', label: 'Pendiente'      },
-  EN_PROGRESO:    { bg: '#DBEAFE', text: '#1E40AF', label: 'En Progreso'    },
+  EN_PROGRESO:    { bg: '#EFEDEA', text: '#3D3935', label: 'En Progreso'    },
   COMPLETADA:     { bg: '#D1FAE5', text: '#065F46', label: 'Completada'     },
   FINALIZADO:     { bg: '#D1FAE5', text: '#065F46', label: 'Finalizado'     },
   EN_REVISION:    { bg: '#FEF3C7', text: '#92400E', label: 'En Revisión'    },
-  EN_REVISION_DG: { bg: '#EDE9FE', text: '#5B21B6', label: 'En Revisión DG' },
+  EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
 };
@@ -368,7 +370,7 @@ export const SeccionEventos: React.FC = () => {
       {!loading && !error && (
         eventosOrdenados.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: theme.colors.textSecondary }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>📅</div>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}><Icono nombre="calendario" size={40} color={theme.colors.grayMid} /></div>
             <p style={{ margin: 0 }}>No hay eventos registrados. Crea el primero.</p>
           </div>
         ) : (
@@ -413,7 +415,7 @@ export const SeccionEventos: React.FC = () => {
             {/* Advertencia — solo en eventos de la Dirección General */}
             {esDG && (
               <div style={{ padding: '12px 14px', backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', borderLeft: '4px solid #D97706', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem', color: '#92400E', lineHeight: 1.5 }}>
-                ⚠️ <strong>Dirección General aprueba la conclusión de este proceso.</strong> Verifica con cuidado antes de continuar: al terminar el evento no se puede reabrir.
+                <Icono nombre="alerta" inline /><strong>Dirección General aprueba la conclusión de este proceso.</strong> Verifica con cuidado antes de continuar: al terminar el evento no se puede reabrir.
               </div>
             )}
 
@@ -432,7 +434,7 @@ export const SeccionEventos: React.FC = () => {
               style={{ padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical', width: '100%', boxSizing: 'border-box' as const }}
             />
             {errorCierre[cierreEvento.id] && (
-              <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: theme.colors.alert.red }}>⚠ {errorCierre[cierreEvento.id]}</p>
+              <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorCierre[cierreEvento.id]}</p>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
@@ -443,7 +445,7 @@ export const SeccionEventos: React.FC = () => {
                 disabled={!justifCierre.trim() || cerrando === cierreEvento.id}
                 style={{ padding: '8px 18px', backgroundColor: '#374151', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: 700, fontSize: '0.85rem', cursor: (!justifCierre.trim() || cerrando === cierreEvento.id) ? 'not-allowed' : 'pointer', opacity: (!justifCierre.trim() || cerrando === cierreEvento.id) ? 0.6 : 1, fontFamily: theme.font.family }}
               >
-                {cerrando === cierreEvento.id ? 'Cerrando…' : '🔒 Terminar evento'}
+                {cerrando === cierreEvento.id ? 'Cerrando…' : 'Terminar evento'}
               </button>
             </div>
           </div>
@@ -705,13 +707,13 @@ const EventoCard: React.FC<EventoCardProps> = ({
             </span>
             <EstadoBadge estado={evento.estado} />
             {esEncargado && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#EDE9FE', color: '#5B21B6', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                👤 Encargado
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: '#FDE8EF', color: '#8A0730', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+                <Icono nombre="persona" inline />Encargado
               </span>
             )}
             {evento.tareas_vencidas > 0 && (
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: theme.colors.alert.red, backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}>
-                ⚠ {evento.tareas_vencidas} vencida{evento.tareas_vencidas !== 1 ? 's' : ''}
+                <Icono nombre="alerta" inline />{evento.tareas_vencidas} vencida{evento.tareas_vencidas !== 1 ? 's' : ''}
               </span>
             )}
           </div>
@@ -722,7 +724,7 @@ const EventoCard: React.FC<EventoCardProps> = ({
           )}
           {evento.fecha_programada && (
             <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: theme.colors.primary, fontWeight: 600 }}>
-              📅 Fecha límite: {evento.fecha_programada}
+              <Icono nombre="calendario" inline />Fecha límite: {evento.fecha_programada}
             </p>
           )}
         </div>
@@ -744,14 +746,14 @@ const EventoCard: React.FC<EventoCardProps> = ({
           style={{ flexShrink: 0, padding: '6px 14px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
           title="Ver resumen y detalles del evento"
         >
-          📂 Abrir
+          <Icono nombre="carpeta" inline />Abrir
         </button>
       </div>
 
       {/* Error cierre */}
       {errorCierre && (
         <div style={{ padding: '6px 18px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}>
-          ⚠ {errorCierre}
+          <Icono nombre="alerta" inline />{errorCierre}
         </div>
       )}
 
@@ -759,7 +761,7 @@ const EventoCard: React.FC<EventoCardProps> = ({
       {expanded && (
         <div style={{ borderTop: `1px solid ${theme.colors.border}`, padding: '16px 18px' }}>
 
-          {/* El responsable y los participantes se gestionan dentro del modal "📂 Abrir" */}
+          {/* El responsable y los participantes se gestionan dentro del modal «Abrir» */}
 
           {/* Acciones — ocultas para observadores (solo lectura) */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
@@ -773,7 +775,7 @@ const EventoCard: React.FC<EventoCardProps> = ({
                   disabled={cerrando}
                   style={{ ...btnSecondary, fontSize: '0.8rem', padding: '7px 14px', color: theme.colors.alert.red, borderColor: theme.colors.alert.red }}
                 >
-                  {cerrando ? 'Cerrando…' : '🔒 Cerrar Evento'}
+                  {cerrando ? 'Cerrando…' : 'Cerrar Evento'}
                 </button>
               </>
             )}
@@ -877,7 +879,7 @@ const DevolverTareaModal: React.FC<DevolverTareaModalProps> = ({ open, tarea, on
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <h3 id="devolver-modal-title" style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>
-            ↩ Devolver Tarea
+            <Icono nombre="regresarIzq" inline />Devolver Tarea
           </h3>
           <button
             onClick={onClose}
@@ -916,7 +918,7 @@ const DevolverTareaModal: React.FC<DevolverTareaModalProps> = ({ open, tarea, on
         {/* Error */}
         {error && (
           <div role="alert" style={{ ...alertErrorStyle, marginBottom: '14px' }}>
-            ⚠ {error}
+            <Icono nombre="alerta" inline />{error}
           </div>
         )}
 
@@ -962,14 +964,14 @@ interface TimelineItem {
   documento_url: string | null;
 }
 
-// Config visual por tipo — el COMENTARIO se distingue en morado con 💬
-const TIMELINE_CFG: Record<TimelineTipo, { label: string; icon: string; dot: string; bg: string; text: string }> = {
-  AVANCE:        { label: 'Avance',            icon: '📤', dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
-  DEVOLUCION:    { label: 'Devolución',        icon: '↩',  dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
-  APROBACION_N1: { label: 'Aprobación (área)', icon: '✓',  dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
-  APROBACION_N2: { label: 'Aprobación (DG)',   icon: '✅', dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
-  REASIGNACION:  { label: 'Delegación',        icon: '👥', dot: '#0891B2', bg: '#CFFAFE', text: '#155E75' },
-  COMENTARIO:    { label: 'Comentario',        icon: '💬', dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' },
+// Config visual por tipo — el COMENTARIO se distingue en morado
+const TIMELINE_CFG: Record<TimelineTipo, { label: string; icon: NombreIcono; dot: string; bg: string; text: string }> = {
+  AVANCE:        { label: 'Avance',            icon: 'subir', dot: '#3D3935', bg: '#EFEDEA', text: '#3D3935' },
+  DEVOLUCION:    { label: 'Devolución',        icon: 'regresarIzq',  dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
+  APROBACION_N1: { label: 'Aprobación (área)', icon: 'check',  dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
+  APROBACION_N2: { label: 'Aprobación (DG)',   icon: 'checkCirculo', dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
+  REASIGNACION:  { label: 'Delegación',        icon: 'personas', dot: '#B68400', bg: '#FBF3DF', text: '#7A5A00' },
+  COMENTARIO:    { label: 'Comentario',        icon: 'comentario', dot: '#AB0A3D', bg: '#FDE8EF', text: '#8A0730' },
 };
 
 interface HistorialRevisionModalProps {
@@ -1059,7 +1061,7 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: `1px solid ${theme.colors.border}` }}>
           <h3 id="historial-modal-title" style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>
-            📋 Seguimiento de la tarea
+            <Icono nombre="lista" inline />Seguimiento de la tarea
           </h3>
           <button
             onClick={onClose}
@@ -1087,7 +1089,7 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
           )}
 
           {!cargando && errorMsg && (
-            <div role="alert" style={alertErrorStyle}>⚠ {errorMsg}</div>
+            <div role="alert" style={alertErrorStyle}><Icono nombre="alerta" inline />{errorMsg}</div>
           )}
 
           {!cargando && !errorMsg && items.length === 0 && (
@@ -1121,7 +1123,7 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                            {cfg.icon} {cfg.label}
+                            <Icono nombre={cfg.icon} size={13} /> {cfg.label}
                           </span>
                           <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                           <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.creado_en)}</span>
@@ -1131,8 +1133,8 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
                         )}
                         {it.documento_url && (
                           <a href={`/files${it.documento_url}`} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#1E40AF', textDecoration: 'none', backgroundColor: '#EFF6FF', padding: '4px 10px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
-                            📎 Ver documento adjunto
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#3D3935', textDecoration: 'none', backgroundColor: '#F5F4F2', padding: '4px 10px', borderRadius: '6px', border: '1px solid #E2DDD8' }}>
+                            <Icono nombre="documento" inline />Ver documento adjunto
                           </a>
                         )}
                       </div>
@@ -1147,7 +1149,7 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
           {puedeEscribir && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '14px' }}>
               <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
-                💬 Agregar comentario
+                <Icono nombre="comentario" inline />Agregar comentario
               </p>
               <textarea
                 value={nuevoComentario}
@@ -1157,7 +1159,7 @@ const HistorialRevisionModal: React.FC<HistorialRevisionModalProps> = ({
                 disabled={enviando}
                 style={{ padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: theme.font.family, resize: 'vertical', width: '100%', boxSizing: 'border-box' as const }}
               />
-              {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}>⚠ {envioError}</p>}
+              {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{envioError}</p>}
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={onEnviarComentario}
@@ -1342,7 +1344,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
             {tarea.titulo}
           </p>
           <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-            👤 {tarea.asignado_a_nombre}
+            <Icono nombre="persona" inline />{tarea.asignado_a_nombre}
           </p>
         </div>
 
@@ -1366,17 +1368,17 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
         {/* Fecha + indicadores */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>📅 Límite: <strong>{tarea.fecha_programada}</strong></span>
+            <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
             {tarea.vencida && (
-              <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem' }}>🔴 Vencida</span>
+              <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem' }}>Vencida</span>
             )}
             {!tarea.vencida && tarea.proxima_a_vencer && (
-              <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem' }}>🟡 Próxima</span>
+              <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem' }}>Próxima</span>
             )}
           </div>
           {tarea.fecha_compromiso && (
             <span style={{ color: theme.colors.primary }}>
-              🤝 Compromiso: <strong>{tarea.fecha_compromiso}</strong>
+              <Icono nombre="personas" inline />Compromiso: <strong>{tarea.fecha_compromiso}</strong>
             </span>
           )}
         </div>
@@ -1402,7 +1404,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
                 flexShrink:      0,
               }}
             >
-              {aprobando ? 'Aprobando…' : '✓ Aprobar'}
+              {aprobando ? 'Aprobando…' : 'Aprobar'}
             </button>
             <button
               onClick={() => setShowDevolverModal(true)}
@@ -1421,7 +1423,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
                 flexShrink:      0,
               }}
             >
-              ↩ Devolver
+              <Icono nombre="regresarIzq" inline />Devolver
             </button>
           </div>
         )}
@@ -1435,20 +1437,20 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
                 disabled={aprobandoDG}
                 style={{ padding: '5px 12px', backgroundColor: '#D1FAE5', color: '#065F46', border: '1px solid #6EE7B7', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: aprobandoDG ? 'not-allowed' : 'pointer', opacity: aprobandoDG ? 0.6 : 1, fontFamily: theme.font.family }}
               >
-                {aprobandoDG ? '…' : '✓ Finalizar'}
+                {aprobandoDG ? '…' : 'Finalizar'}
               </button>
               <button
                 onClick={() => { setShowDevolverDGModal(true); setComentarioDevolDG(''); setErrorDevolDG(null); }}
                 disabled={aprobandoDG}
                 style={{ padding: '5px 12px', backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
               >
-                ↩ Devolver
+                <Icono nombre="regresarIzq" inline />Devolver
               </button>
-              {aprobarDGError && <span style={{ fontSize: '0.72rem', color: theme.colors.alert.red }}>⚠ {aprobarDGError}</span>}
+              {aprobarDGError && <span style={{ fontSize: '0.72rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{aprobarDGError}</span>}
             </div>
           ) : (
-            <span style={{ fontSize: '0.75rem', color: '#5B21B6', backgroundColor: '#EDE9FE', border: '1px solid #C4B5FD', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-              ⏳ Pendiente aprobación DG
+            <span style={{ fontSize: '0.75rem', color: '#8A0730', backgroundColor: '#FDE8EF', border: '1px solid #F2C9D6', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
+              <Icono nombre="reloj" inline />Pendiente aprobación DG
             </span>
           )
         )}
@@ -1456,7 +1458,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
         {/* FINALIZADO */}
         {(tarea.estado === 'FINALIZADO' || tarea.estado === 'COMPLETADA') && (
           <span style={{ fontSize: '0.75rem', color: '#065F46', backgroundColor: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-            ✅ Finalizado
+            <Icono nombre="checkCirculo" inline />Finalizado
           </span>
         )}
 
@@ -1478,14 +1480,14 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
           title="Ver historial de avances, comentarios y documentos de la tarea"
           aria-label="Abrir seguimiento de la tarea"
         >
-          📋 Abrir
+          <Icono nombre="lista" inline />Abrir
         </button>
       </div>
 
       {/* Error al aprobar */}
       {aprobarError && (
         <div style={{ padding: '6px 12px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}>
-          ⚠ {aprobarError}
+          <Icono nombre="alerta" inline />{aprobarError}
         </div>
       )}
 
@@ -1508,7 +1510,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
           onClick={(e) => { if (e.target === e.currentTarget) setShowDevolverDGModal(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>↩ Devolver con observaciones</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="regresarIzq" inline />Devolver con observaciones</h3>
             <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px', color: theme.colors.textPrimary }}>
               Observaciones <span style={{ color: theme.colors.alert.red }}>*</span>
@@ -1521,7 +1523,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
               disabled={enviandoDevolDG}
               style={{ width: '100%', boxSizing: 'border-box' as const, padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical' as const, marginBottom: '14px' }}
             />
-            {errorDevolDG && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {errorDevolDG}</p>}
+            {errorDevolDG && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorDevolDG}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowDevolverDGModal(false)} disabled={enviandoDevolDG} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleDevolverDG} disabled={enviandoDevolDG || !comentarioDevolDG.trim()} style={{ padding: '8px 18px', backgroundColor: '#F59E0B', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (enviandoDevolDG || !comentarioDevolDG.trim()) ? 'not-allowed' : 'pointer', opacity: (enviandoDevolDG || !comentarioDevolDG.trim()) ? 0.6 : 1, fontFamily: theme.font.family }}>
@@ -1540,10 +1542,10 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
           onClick={(e) => { if (e.target === e.currentTarget) setShowFinalizarDG(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>✓ Finalizar actividad</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="check" inline />Finalizar actividad</h3>
             <p style={{ margin: '0 0 12px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <div style={{ padding: '10px 12px', backgroundColor: '#D1FAE5', border: '1px solid #6EE7B7', borderLeft: '4px solid #059669', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem', color: '#065F46', lineHeight: 1.5 }}>
-              ✅ <strong>La Dirección General aprueba la finalización de esta actividad.</strong>
+              <Icono nombre="checkCirculo" inline /><strong>La Dirección General aprueba la finalización de esta actividad.</strong>
             </div>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '14px', fontSize: '0.85rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
               <input
@@ -1555,7 +1557,7 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
               />
               <span>Confirmo la finalización de esta actividad.</span>
             </label>
-            {aprobarDGError && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {aprobarDGError}</p>}
+            {aprobarDGError && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{aprobarDGError}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowFinalizarDG(false)} disabled={aprobandoDG} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleAprobarDG} disabled={aprobandoDG || !confirmaFinalDG} style={{ padding: '8px 18px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (aprobandoDG || !confirmaFinalDG) ? 'not-allowed' : 'pointer', opacity: (aprobandoDG || !confirmaFinalDG) ? 0.6 : 1, fontFamily: theme.font.family }}>

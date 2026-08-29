@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
 import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
@@ -139,7 +140,7 @@ export const Dashboard_Juridico: React.FC = () => {
       const resp = await subirProyecto(detalleOficio.id, draftFile);
       const aviso = textoCompresion(resp.compresion);
       setSuccessMsg(
-        `Proyecto subido para oficio ${detalleOficio.folio}` + (aviso ? ` · 📉 ${aviso}` : ''),
+        `Proyecto subido para oficio ${detalleOficio.folio}` + (aviso ? ` · ${aviso}` : ''),
       );
       closeDetalle();
       fetchOficios();
@@ -168,7 +169,7 @@ export const Dashboard_Juridico: React.FC = () => {
       {/* Feedback */}
       {successMsg && (
         <div role="status" style={{ ...alertSuccess, marginBottom: '16px', cursor: 'pointer' }} onClick={() => setSuccessMsg(null)}>
-          ✓ {successMsg}
+          <Icono nombre="check" inline />{successMsg}
         </div>
       )}
       {listError && <div role="alert" style={{ ...alertError, marginBottom: '16px' }}>{listError}</div>}
@@ -269,7 +270,7 @@ export const Dashboard_Juridico: React.FC = () => {
                 <div style={{ border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: theme.colors.charcoal, color: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>🤖</span>
+                      <Icono nombre="engranaje" size={16} />
                       <span style={{ fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const, fontFamily: theme.font.family }}>
                         Texto extraído por IA
                       </span>
@@ -282,7 +283,7 @@ export const Dashboard_Juridico: React.FC = () => {
                     {(detalleOficio as any).texto_ocr}
                   </div>
                   <div style={{ padding: '8px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                    💡 Texto seleccionable — puedes copiar cualquier fragmento para tu proyecto de contestación
+                    <Icono nombre="informacion" inline />Texto seleccionable — puedes copiar cualquier fragmento para tu proyecto de contestación
                   </div>
                 </div>
               </section>
@@ -303,7 +304,7 @@ export const Dashboard_Juridico: React.FC = () => {
                   marginBottom: '16px',
                 }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: '#991B1B' }}>
-                    ⚠️ Este oficio requiere correcciones
+                    <Icono nombre="alerta" inline />Este oficio requiere correcciones
                   </p>
                   <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#B91C1C' }}>
                     El Director Jurídico ha solicitado cambios. Revisa los comentarios y sube una versión corregida en la sección de abajo.
@@ -330,7 +331,7 @@ export const Dashboard_Juridico: React.FC = () => {
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '1rem' }}>👤</span>
+                            <Icono nombre="persona" size={16} />
                             <span style={{ fontWeight: 700, fontSize: '0.82rem', color: theme.colors.charcoal }}>
                               {c.encargado_nombre}
                             </span>
@@ -341,7 +342,7 @@ export const Dashboard_Juridico: React.FC = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {c.resuelto && (
                               <span style={{ fontSize: '0.68rem', backgroundColor: '#D1FAE5', color: '#065F46', padding: '1px 7px', borderRadius: '10px', fontWeight: 700 }}>
-                                ✓ Resuelto
+                                <Icono nombre="check" inline />Resuelto
                               </span>
                             )}
                             <span style={{ fontSize: '0.7rem', color: theme.colors.textSecondary }}>
@@ -375,7 +376,7 @@ export const Dashboard_Juridico: React.FC = () => {
                   marginBottom: '20px',
                 }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem', color: detalleOficio.estatus === 'EN_RECONSIDERACION' ? '#991B1B' : '#92400E' }}>
-                    {detalleOficio.estatus === 'EN_RECONSIDERACION' ? '🔄 Subir proyecto corregido' : '📝 Proyecto de Contestación'}
+                    {detalleOficio.estatus === 'EN_RECONSIDERACION' ? 'Subir proyecto corregido' : 'Proyecto de Contestación'}
                   </p>
                   <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: detalleOficio.estatus === 'EN_RECONSIDERACION' ? '#B91C1C' : '#78350F' }}>
                     {detalleOficio.estatus === 'EN_RECONSIDERACION'
@@ -402,7 +403,7 @@ export const Dashboard_Juridico: React.FC = () => {
                     marginBottom:    '20px',
                   }}
                 >
-                  <span style={{ fontSize: '2rem' }}>{draftFile ? '📝' : '📂'}</span>
+                  <Icono nombre={draftFile ? "editar" : "carpeta"} size={30} />
                   {draftFile ? (
                     <>
                       <p style={{ margin: 0, fontWeight: 700, color: theme.colors.primary, fontSize: '0.875rem' }}>{draftFile.name}</p>
@@ -432,7 +433,7 @@ export const Dashboard_Juridico: React.FC = () => {
                     disabled={uploading || !draftFile}
                     style={{ ...btnPrimary, opacity: (!draftFile || uploading) ? 0.6 : 1, cursor: (!draftFile || uploading) ? 'not-allowed' : 'pointer' }}
                   >
-                    {uploading ? 'Subiendo…' : '⬆ Subir Proyecto'}
+                    {uploading ? 'Subiendo…' : 'Subir Proyecto'}
                   </button>
                 </div>
                 </form>
@@ -481,11 +482,11 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
       {/* Botones */}
       <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
         <button onClick={() => onOpen('pdf')} style={btnSmall} title="Ver PDF original">
-          📄 Ver PDF
+          <Icono nombre="documento" inline />Ver PDF
         </button>
         {textoOcr && (
           <button onClick={() => onOpen('texto')} style={{ ...btnSmall, borderColor: theme.colors.charcoal, color: theme.colors.charcoal }} title="Ver texto extraído por IA">
-            🤖 Texto IA
+            <Icono nombre="engranaje" inline />Texto IA
           </button>
         )}
         {esRecon && (
@@ -494,7 +495,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
             style={{ ...btnSmall, backgroundColor: '#FEF2F2', color: theme.colors.alert.red, borderColor: theme.colors.alert.red, fontWeight: 700 }}
             title="Ver correcciones solicitadas"
           >
-            💬 Ver Correcciones
+            <Icono nombre="comentario" inline />Ver Correcciones
           </button>
         )}
         {puedeSubir && (
@@ -503,7 +504,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
             style={{ ...btnSmall, backgroundColor: theme.colors.primary, color: '#fff', border: 'none' }}
             title={esRecon ? 'Subir proyecto corregido' : 'Subir proyecto de contestación'}
           >
-            ⬆ {esRecon ? 'Subir Corrección' : 'Subir Proyecto'}
+            <Icono nombre="subir" inline />{esRecon ? 'Subir Corrección' : 'Subir Proyecto'}
           </button>
         )}
       </div>

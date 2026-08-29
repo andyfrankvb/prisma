@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
 import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
@@ -486,7 +487,7 @@ export const Dashboard_Oficial: React.FC = () => {
               fontWeight:   500,
               width:        'fit-content',
             }}>
-              <span aria-hidden>📉</span>{avisoCompresion}
+              <Icono nombre="tendenciaBaja" size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: '4px' }} />{avisoCompresion}
             </div>
           )}
 
@@ -544,7 +545,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     onClick={() => setSelected(selected?.id === o.id ? null : o)}
                     style={{
                       backgroundColor: selected?.id === o.id
-                        ? '#EFF6FF'
+                        ? '#F5F4F2'
                         : i % 2 === 0 ? '#fff' : '#F9FAFB',
                       borderBottom: `1px solid ${theme.colors.border}`,
                       cursor: 'pointer',
@@ -564,7 +565,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     </td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
-                      {o.en_bandeja_de ? `👤 ${o.en_bandeja_de}` : '—'}
+                      {o.en_bandeja_de ? o.en_bandeja_de : '—'}
                     </td>
                     <td style={{ ...tdStyle, width: '1%', whiteSpace: 'nowrap', textAlign: 'center' }}>
                       <SistemasChips oficio={o} />
@@ -632,7 +633,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     </button>
                   )}
                   {selected.estatus === 'FINALIZADO' && (
-                    <div style={{ marginBottom: '14px', fontSize: '0.8rem', fontWeight: 700, color: '#065F46' }}>✓ Documento firmado</div>
+                    <div style={{ marginBottom: '14px', fontSize: '0.8rem', fontWeight: 700, color: '#065F46' }}><Icono nombre="check" inline />Documento firmado</div>
                   )}
 
                   {/* Registro en SIQROO / SIGER: se marca aquí, no al ingresar */}
@@ -714,7 +715,7 @@ export const Dashboard_Oficial: React.FC = () => {
                         border: `1.5px solid ${added ? theme.colors.alert.green : theme.colors.border}`,
                         backgroundColor: added ? theme.colors.alert.green : '#fff',
                         color: '#fff', fontSize: '0.8rem', fontWeight: 800,
-                      }}>{added ? '✓' : ''}</span>
+                      }}>{added ? <Icono nombre="check" size={13} color="#fff" /> : null}</span>
 
                       <span style={{ fontWeight: 600, fontSize: '0.82rem', color: theme.colors.textPrimary, flexShrink: 0 }}>
                         {label}{key === 'oficio' && <span style={{ color: theme.colors.alert.red }}> *</span>}
@@ -736,8 +737,7 @@ export const Dashboard_Oficial: React.FC = () => {
                           }}
                           style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0 2px', lineHeight: 1 }}
                         >
-                          👁️
-                        </button>
+                          <Icono nombre="ojo" inline />                        </button>
                       )}
 
                       <input
@@ -763,8 +763,8 @@ export const Dashboard_Oficial: React.FC = () => {
             </div>
 
             {/* Folio automático */}
-            <div style={{ padding: '8px 12px', backgroundColor: '#EFF6FF', border: `1px solid #BFDBFE`, borderRadius: '8px', marginBottom: '16px' }}>
-              <p style={{ margin: 0, fontSize: '0.78rem', color: '#1D4ED8' }}>
+            <div style={{ padding: '8px 12px', backgroundColor: '#F5F4F2', border: `1px solid #E2DDD8`, borderRadius: '8px', marginBottom: '16px' }}>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#3D3935' }}>
                 <strong>Folio de seguimiento:</strong> Será generado automáticamente por el sistema al momento de guardar el registro, conforme a la siguiente estructura: <strong>OF-(FECHA)-(ÁREA)-(CONSECUTIVO)</strong>.
               </p>
             </div>
@@ -775,7 +775,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaDepNombre} onChange={(e) => setNuevaDepNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA NUEVA DEPENDENCIA" autoFocus />
                   <button type="button" onClick={agregarDependencia} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
-                  <button type="button" onClick={() => { setAddDepMode(false); setNuevaDepNombre(''); }} style={btnSecondary}>✕</button>
+                  <button type="button" onClick={() => { setAddDepMode(false); setNuevaDepNombre(''); }} style={btnSecondary}><Icono nombre="cerrar" size={14} /></button>
                 </div>
               ) : (
                 <SearchableSelect
@@ -783,7 +783,7 @@ export const Dashboard_Oficial: React.FC = () => {
                   options={dependencias.map((d) => ({ value: String(d.id), label: d.nombre }))}
                   onChange={(v) => seleccionarDependencia(v ? Number(v) : '')}
                   placeholder="— Selecciona la dependencia —"
-                  addLabel="➕ Agregar nueva dependencia…"
+                  addLabel="Agregar nueva dependencia…"
                   onAdd={() => setAddDepMode(true)}
                 />
               )}
@@ -800,7 +800,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevaUniNombre} onChange={(e) => setNuevaUniNombre(e.target.value.toUpperCase())} placeholder="NOMBRE DE LA UNIDAD ADMINISTRATIVA" autoFocus />
                   <button type="button" onClick={agregarUnidad} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
-                  <button type="button" onClick={() => { setAddUniMode(false); setNuevaUniNombre(''); }} style={btnSecondary}>✕</button>
+                  <button type="button" onClick={() => { setAddUniMode(false); setNuevaUniNombre(''); }} style={btnSecondary}><Icono nombre="cerrar" size={14} /></button>
                 </div>
               ) : (
                 <SearchableSelect
@@ -808,7 +808,7 @@ export const Dashboard_Oficial: React.FC = () => {
                   options={unidadesList.map((u) => ({ value: String(u.id), label: u.nombre }))}
                   onChange={(v) => seleccionarUnidad(v ? Number(v) : '')}
                   placeholder="— Selecciona la unidad administrativa —"
-                  addLabel="➕ Agregar nueva unidad administrativa…"
+                  addLabel="Agregar nueva unidad administrativa…"
                   onAdd={() => setAddUniMode(true)}
                 />
               )}
@@ -820,7 +820,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...inputStyle, textTransform: 'uppercase' }} value={nuevoRemNombre} onChange={(e) => setNuevoRemNombre(e.target.value.toUpperCase())} placeholder="NOMBRE COMPLETO DEL REMITENTE" autoFocus />
                   <button type="button" onClick={agregarRemitente} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>Agregar</button>
-                  <button type="button" onClick={() => { setAddRemMode(false); setNuevoRemNombre(''); }} style={btnSecondary}>✕</button>
+                  <button type="button" onClick={() => { setAddRemMode(false); setNuevoRemNombre(''); }} style={btnSecondary}><Icono nombre="cerrar" size={14} /></button>
                 </div>
               ) : (
                 <SearchableSelect
@@ -828,7 +828,7 @@ export const Dashboard_Oficial: React.FC = () => {
                   options={remitentesList.map((r) => ({ value: String(r.id), label: r.nombre }))}
                   onChange={(v) => seleccionarRemitente(v ? Number(v) : '')}
                   placeholder="— Selecciona el remitente —"
-                  addLabel="➕ Agregar nuevo remitente…"
+                  addLabel="Agregar nuevo remitente…"
                   onAdd={() => setAddRemMode(true)}
                 />
               )}
@@ -929,7 +929,7 @@ export const Dashboard_Oficial: React.FC = () => {
                         options={correosOri.map((c) => ({ value: c.nombre, label: c.nombre }))}
                         onChange={(v) => setCorreoOrigen(v)}
                         placeholder="— Selecciona el correo —"
-                        addLabel="➕ Agregar nuevo correo…"
+                        addLabel="Agregar nuevo correo…"
                         onAdd={() => { setNuevoCorreo(''); setAddCorMode('origen'); }}
                       />
                     )}
@@ -954,7 +954,7 @@ export const Dashboard_Oficial: React.FC = () => {
                         options={correosDes.map((c) => ({ value: c.nombre, label: c.nombre }))}
                         onChange={(v) => setCorreoDestino(v)}
                         placeholder="— Selecciona el correo —"
-                        addLabel="➕ Agregar nuevo correo…"
+                        addLabel="Agregar nuevo correo…"
                         onAdd={() => { setNuevoCorreo(''); setAddCorMode('destino'); }}
                       />
                     )}
@@ -1036,7 +1036,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 Cancelar
               </button>
               <button type="submit" disabled={submitting} style={btnPrimary}>
-                {submitting ? 'Guardando…' : '✓ Registrar Oficio'}
+                {submitting ? 'Guardando…' : 'Registrar Oficio'}
               </button>
             </div>
           </form>
@@ -1048,7 +1048,7 @@ export const Dashboard_Oficial: React.FC = () => {
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Documento escaneado y firmado (PDF) <span style={{ color: theme.colors.alert.red }}> *</span></label>
             <input type="file" accept=".pdf,application/pdf" onChange={(e) => setSignedFile(e.target.files?.[0] ?? null)} />
-            {signedFile && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.alert.green }}>✓ {signedFile.name}</p>}
+            {signedFile && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.alert.green }}><Icono nombre="check" inline />{signedFile.name}</p>}
           </div>
           {uploadError && <div role="alert" style={alertStyle}>{uploadError}</div>}
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>

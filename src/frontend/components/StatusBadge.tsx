@@ -35,7 +35,7 @@ export const StatusBadge: React.FC<Props> = ({ estatus, turnado, devuelto, deCon
     : (turnado && estatus === 'RECIBIDO')
     ? (devuelto
         ? { bg: '#FEF3C7', text: '#92400E', label: 'Devuelto' }
-        : { bg: '#EDE9FE', text: '#5B21B6', label: 'Turnado' })
+        : { bg: '#FDE8EF', text: '#8A0730', label: 'Turnado' })
     : theme.estatus[estatus] ?? { bg: '#EDE9E4', text: '#3D3935', label: estatus };
   return (
     <span style={{

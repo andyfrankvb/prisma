@@ -9,6 +9,7 @@
 import React from 'react';
 import { theme } from '../theme';
 import { ESTATUS_META, TOTAL_META } from './oficiosEstatus';
+import { Icono } from './Icono';
 
 export const OficiosResumen: React.FC<{ conteos: Record<string, number>; estatus: string }> = ({ conteos, estatus }) => {
   const total = Object.values(conteos).reduce((a, b) => a + b, 0);
@@ -34,7 +35,9 @@ export const OficiosResumen: React.FC<{ conteos: Record<string, number>; estatus
           {meta ? 'con este estatus' : 'en total'}
         </div>
       </div>
-      <span style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.15rem', flexShrink: 0 }}>{icon}</span>
+      <span style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icono nombre={icon} size={19} color="#fff" />
+      </span>
     </div>
   );
 };

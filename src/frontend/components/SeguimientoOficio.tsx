@@ -4,13 +4,14 @@
  *
  * Fusiona en UNA sola línea temporal, ordenada por fecha:
  *   · MOVIMIENTOS — cambios de estado (auditoría): recibido, asignado, en revisión
- *     (proyecto entregado), reconsideración, VoBo, finalizado. 🔄 con color por estado.
- *   · COMENTARIOS — observaciones de corrección del encargado. 💬 en morado.
+ *     (proyecto entregado), reconsideración, VoBo, finalizado, con color por estado.
+ *   · COMENTARIOS — observaciones de corrección del encargado, en morado.
  *
  * Muestra los detalles y fechas de los avances, entregas y revisiones del oficio.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
@@ -63,18 +64,18 @@ const ESTADO_LABEL: Record<string, string> = {
   DELEGATORIO: 'Delegatorio', TURNADO: 'Turnado a otra área', DEVUELTO: 'Devuelto por competencia',
 };
 const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = {
-  RECIBIDO:           { dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
+  RECIBIDO:           { dot: '#3D3935', bg: '#EFEDEA', text: '#3D3935' },
   ASIGNADO:           { dot: '#4F46E5', bg: '#E0E7FF', text: '#3730A3' },
   EN_REVISION:        { dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
   EN_RECONSIDERACION: { dot: '#DC2626', bg: '#FEE2E2', text: '#991B1B' },
   VOBO_APROBADO:      { dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
   FINALIZADO:         { dot: '#374151', bg: '#F3F4F6', text: '#374151' },
   DELEGATORIO:        { dot: '#0EA5E9', bg: '#E0F2FE', text: '#075985' },
-  TURNADO:            { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' },
+  TURNADO:            { dot: '#AB0A3D', bg: '#FDE8EF', text: '#8A0730' },
   DEVUELTO:           { dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
 };
 const ESTADO_FALLBACK  = { dot: '#6B7280', bg: '#F3F4F6', text: '#374151' };
-const COMENTARIO_STYLE = { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' };
+const COMENTARIO_STYLE = { dot: '#AB0A3D', bg: '#FDE8EF', text: '#8A0730' };
 
 interface TimelineItem {
   key:              string;
@@ -134,8 +135,8 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
         Línea de tiempo · avances, entregas y revisiones
       </p>
 
-      {loading && <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>⏳ Cargando…</p>}
-      {!loading && error && <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.alert.red }}>⚠ {error}</p>}
+      {loading && <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}><Icono nombre="reloj" inline />Cargando…</p>}
+      {!loading && error && <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p style={{ margin: 0, fontSize: '0.82rem', color: theme.colors.textSecondary }}>Sin movimientos todavía.</p>
       )}
@@ -170,7 +171,7 @@ export const SeguimientoOficio: React.FC<Props> = ({ oficioId }) => {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: st.bg, color: st.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                        {esComentario ? '💬 Comentario' : `${it.estado_nuevo === 'DEVUELTO' ? '↩️' : it.estado_nuevo === 'TURNADO' ? '🔀' : esDelegatorio ? '📨' : '🔄'} ${estadoLbl}`}
+                        {esComentario ? <>Comentario</> : <><Icono nombre={it.estado_nuevo === 'DEVUELTO' ? 'regresarIzq' : it.estado_nuevo === 'TURNADO' ? 'regresarDer' : esDelegatorio ? 'correo' : 'refrescar'} size={12} /> {estadoLbl}</>}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.fecha)}</span>

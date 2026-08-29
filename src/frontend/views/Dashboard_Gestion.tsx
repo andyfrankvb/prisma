@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
@@ -111,15 +112,17 @@ export const Dashboard_Gestion: React.FC = () => {
    * por separado, cada columna que se escondía dejaba la tabla descuadrada.
    */
   const columnas: { texto: string; orden?: string }[] = [
-    { texto: '' },
+    // Consecutivo + semáforo del término, en una sola columna angosta. Sin flecha:
+    // el número ES la posición en la lista, así que ordenar por él no significa nada.
+    { texto: '#' },
     { texto: 'Folio',         orden: 'folio' },
-    { texto: 'N° de origen' },
-    ...(variasAreas ? [{ texto: 'Delegación' }] : []),
-    { texto: 'Remitente' },
+    { texto: 'N° de origen',  orden: 'origen' },
+    ...(variasAreas ? [{ texto: 'Delegación', orden: 'delegacion' }] : []),
+    { texto: 'Remitente',     orden: 'remitente' },
     { texto: 'Ingreso',       orden: 'ingreso' },
     { texto: 'Término',       orden: 'termino' },
     { texto: 'Estatus',       orden: 'estatus' },
-    ...(miBandeja ? [{ texto: 'Qué sigue' }] : []),
+    ...(miBandeja ? [{ texto: 'Qué sigue', orden: 'paso' }] : []),
     { texto: 'Sistemas',      orden: 'sistemas' },
     // En «Mi bandeja» esta columna repetiría el nombre del propio usuario en
     // todos los renglones.
@@ -254,21 +257,43 @@ export const Dashboard_Gestion: React.FC = () => {
      */
     const porAceptar = !!o.puede_aceptar_turno;
 
-    // Orquestación — solo el encargado, y solo en los oficios de su propia área.
-    // Ser encargado se sabe de forma global; sin la segunda condición, un área
-    // que conserva la vista de lo que mandó a otra vería «Asignar» sobre un
-    // oficio que ya no es suyo.
-    if (esEncargado && o.es_de_mi_area && !porAceptar) {
-      if (estatus === 'RECIBIDO') {
+    /**
+     * Un oficio se mueve desde la bandeja de quien lo tiene.
+     *
+     * Antes bastaba con responder por el área (`es_de_mi_area`), y eso incluía a
+     * quien figura como «Dirigido a». El resultado: la destinataria de un oficio
+     * veía «Asignar» y «Reasignar» sobre expedientes que vivían en la bandeja del
+     * encargado de esa unidad. El servidor rechazaba el clic, pero la acción no
+     * debió ofrecerse.
+     */
+    const loTengoYo = !!o.en_mi_bandeja;
+
+    /**
+     * Única excepción: el encargado sí puede recuperar y repartir el trabajo de
+     * su propia área aunque el oficio esté con alguien de su equipo. Sin ella,
+     * unas vacaciones o una incapacidad dejarían el oficio atorado sin que nadie
+     * pudiera moverlo.
+     */
+    const puedeRepartirSuArea = !!o.soy_encargado_del_area;
+
+    // Orquestación — de quien tiene el oficio, o del encargado sobre su área.
+    if (esEncargado && (loTengoYo || puedeRepartirSuArea) && !porAceptar) {
+      // Tomarlo o repartirlo por primera vez exige tenerlo: en RECIBIDO la
+      // bandeja es justamente la del encargado, así que no le quita nada.
+      if (estatus === 'RECIBIDO' && loTengoYo) {
         acc.push({ label: 'Asignar', descripcion: 'Repártelo a alguien de tu equipo para que lo trabaje.', onClick: () => { setSelected(o); setShowAssign(true); } });
         acc.push({ label: 'Trabajar', descripcion: 'Quédatelo tú y sube el proyecto de contestación.', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
       // Si lo mandaron a corregir y no hay analista —o si lo regresaron desde
       // arriba, que le toca a él responder— corrige el propio encargado.
-      if (estatus === 'EN_RECONSIDERACION' && (!o.abogado_nombre || o.reconsideracion_al_encargado)) {
+      if (estatus === 'EN_RECONSIDERACION' && loTengoYo
+          && (!o.abogado_nombre || o.reconsideracion_al_encargado)) {
         acc.push({ label: 'Corregir', descripcion: 'Sube la corrección que te pidieron.', onClick: () => { setSelected(o); setShowTrabajar(true); } });
       }
-      if ((['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(estatus)) {
+      // Reasignar es la excepción acordada: alcanza al encargado del área aunque
+      // el oficio esté en la bandeja de otra persona de su equipo.
+      if ((['ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION'] as EstatusOficio[]).includes(estatus)
+          && (loTengoYo || puedeRepartirSuArea)) {
         acc.push({ label: 'Reasignar', descripcion: 'Pásalo a otra persona de tu equipo.', onClick: () => { handleSelectOficio(o); setShowReassign(true); } });
       }
     }
@@ -566,7 +591,7 @@ export const Dashboard_Gestion: React.FC = () => {
       const aviso = textoCompresion(resp.compresion);
       setShowUpload(false);
       setSignedFile(null);
-      setActionMsg('Oficio finalizado correctamente' + (aviso ? ` · 📉 ${aviso}` : ''));
+      setActionMsg('Oficio finalizado correctamente' + (aviso ? ` · ${aviso}` : ''));
       fetchOficios();
     } catch (err: any) {
       setUploadError(err.message);
@@ -755,7 +780,7 @@ export const Dashboard_Gestion: React.FC = () => {
                              cursor: exporting ? 'wait' : 'pointer' }}
                     title="Genera un Excel con los oficios que estás viendo, con la pestaña y los filtros aplicados"
                   >
-                    {exporting ? '⏳ Generando…' : '⬇ Generar reporte'}
+                    {exporting ? 'Generando…' : 'Generar reporte'}
                   </button>
                 }
               />
@@ -770,7 +795,7 @@ export const Dashboard_Gestion: React.FC = () => {
             style={{ padding: '10px 24px', backgroundColor: '#D1FAE5', color: theme.colors.alert.green, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
             onClick={() => setActionMsg(null)}
           >
-            ✓ {actionMsg} &nbsp;<span style={{ opacity: 0.6 }}>(clic para cerrar)</span>
+            <Icono nombre="check" inline />{actionMsg} &nbsp;<span style={{ opacity: 0.6 }}>(clic para cerrar)</span>
           </div>
         )}
 
@@ -826,14 +851,30 @@ export const Dashboard_Gestion: React.FC = () => {
                     key={o.id}
                     onClick={() => handleSelectOficio(o)}
                     style={{
-                      backgroundColor: selected?.id === o.id ? '#EFF6FF' : i % 2 === 0 ? '#fff' : '#F9FAFB',
+                      backgroundColor: selected?.id === o.id ? '#F5F4F2' : i % 2 === 0 ? '#fff' : '#F9FAFB',
                       borderBottom: `1px solid ${theme.colors.border}`,
                       cursor: 'pointer',
                     }}
                   >
-                    {/* Traffic light dot */}
-                    <td style={{ ...tdStyle, width: '8px', padding: '0 0 0 12px' }}>
-                      <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} />
+                    {/* Consecutivo + semáforo del término.
+                        El número es la posición en la lista tal como se está
+                        viendo: se renumera al ordenar o filtrar. Va en la misma
+                        celda que el punto para no ensanchar la tabla, que ya se
+                        desplaza a lo horizontal. */}
+                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', padding: '0 0 0 12px' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{
+                          fontSize:      '0.72rem',
+                          fontWeight:    600,
+                          color:         theme.colors.textSecondary,
+                          fontVariantNumeric: 'tabular-nums',
+                          minWidth:      '1.6em',
+                          textAlign:     'right',
+                        }}>
+                          {i + 1}
+                        </span>
+                        <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} />
+                      </span>
                     </td>
                     <td style={tdStyle}><strong>{o.folio}</strong></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: theme.colors.textSecondary }}>
@@ -856,7 +897,7 @@ export const Dashboard_Gestion: React.FC = () => {
                       <td style={tdStyle}>
                         {o.en_bandeja_de ? (
                           <span style={{ fontSize: '0.78rem', color: theme.colors.textPrimary, fontWeight: 600 }}>
-                            👤 {o.en_bandeja_de}
+                            <Icono nombre="persona" inline />{o.en_bandeja_de}
                           </span>
                         ) : (
                           <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>—</span>
@@ -883,14 +924,54 @@ export const Dashboard_Gestion: React.FC = () => {
 
       {/* ── Detail panel ──────────────────────────────────── */}
       {selected && (
-        <div style={{ flex: isMobile ? '1' : '0 0 45%', borderLeft: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ position: 'sticky', top: 0, zIndex: 1, padding: '16px 20px', borderBottom: `1px solid ${theme.colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.colors.primary }}>
-            <h2 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 700 }}>
+        /* Flota por encima de la lista, igual que el visor. Como columna en el
+           flujo compartía plano con la tarjeta de la lista, y el canto recto de
+           ésta se veía como un cuadro pegado detrás.
+           El z-index queda por debajo del visor (1100) para que, al abrir un
+           documento, éste se monte encima y no al revés. */
+        <div style={{
+          position:        isMobile ? 'static' : 'fixed',
+          // 70 = 58 px del encabezado + 12 de margen. Los mismos números del
+          // visor, para que las dos ventanas queden a la misma altura.
+          top:             isMobile ? undefined : 70,
+          bottom:          isMobile ? undefined : 12,
+          right:           isMobile ? undefined : 12,
+          width:           isMobile ? undefined : '45vw',
+          maxWidth:        isMobile ? undefined : '760px',
+          zIndex:          isMobile ? undefined : 1000,
+          flex:            isMobile ? '1' : undefined,
+          backgroundColor: theme.colors.surface,
+          borderRadius:    isMobile ? 0 : '12px',
+          boxShadow:       isMobile ? 'none' : '0 2px 8px rgba(61,57,53,0.10), 0 16px 44px rgba(61,57,53,0.24)',
+          // El recorte vive aquí y el scroll en el div interior: juntos, la barra
+          // se dibujaba sobre el canto y le comía la curva a la esquina.
+          overflow:        'hidden',
+          display:         'flex',
+          flexDirection:   'column',
+        }}>
+          <div style={{
+            flexShrink: 0, padding: '9px 18px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primaryDark} 100%)`,
+          }}>
+            <h2 style={{ margin: 0, color: '#fff', fontSize: '0.92rem', fontWeight: 700, letterSpacing: '0.02em' }}>
               Detalle — {selected.folio}
             </h2>
-            <button onClick={() => { setSelected(null); setAbrirAcciones(false); }} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} aria-label="Cerrar detalle">×</button>
+            <button
+              onClick={() => { setSelected(null); setAbrirAcciones(false); }}
+              style={{
+                background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff',
+                fontSize: '1.05rem', cursor: 'pointer', lineHeight: 1,
+                width: '24px', height: '24px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s', flexShrink: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.32)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.18)')}
+              aria-label="Cerrar detalle"
+            >×</button>
           </div>
-          <div style={{ padding: '20px', flex: 1 }}>
+          <div style={{ padding: '20px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
             <OficioDetalle
               oficio={selected}
               onCambio={fetchOficios}
@@ -988,7 +1069,7 @@ export const Dashboard_Gestion: React.FC = () => {
             fontSize: '0.82rem',
             color: '#78350F',
           }}>
-            <p style={{ margin: 0, fontWeight: 700 }}>⚠️ El proyecto requiere correcciones</p>
+            <p style={{ margin: 0, fontWeight: 700 }}><Icono nombre="alerta" inline />El proyecto requiere correcciones</p>
             <p style={{ margin: '4px 0 0' }}>
               El oficio pasará a estado <strong>En Reconsideración</strong>. El jurídico recibirá tus comentarios y deberá subir una nueva versión.
             </p>
@@ -1049,7 +1130,7 @@ export const Dashboard_Gestion: React.FC = () => {
                 fontFamily: theme.font.family,
               }}
             >
-              {reconLoading ? 'Enviando…' : '⚠️ Enviar Correcciones'}
+              {reconLoading ? 'Enviando…' : 'Enviar Correcciones'}
             </button>
           </div>
         </form>
@@ -1072,7 +1153,7 @@ export const Dashboard_Gestion: React.FC = () => {
             fontSize: '0.82rem',
             color: '#92400E',
           }}>
-            <p style={{ margin: 0, fontWeight: 700 }}>🔄 Reasignación de oficio</p>
+            <p style={{ margin: 0, fontWeight: 700 }}><Icono nombre="refrescar" inline />Reasignación de oficio</p>
             <p style={{ margin: '4px 0 0' }}>
               La asignación actual quedará inactiva y el oficio regresará a estado <strong>Asignado</strong> con el nuevo jurídico.
             </p>
@@ -1125,7 +1206,7 @@ export const Dashboard_Gestion: React.FC = () => {
               disabled={reassigning || !reassignAbogadoId}
               style={{ ...btnPrimary, backgroundColor: reassigning || !reassignAbogadoId ? theme.colors.grayMid : theme.colors.gold }}
             >
-              {reassigning ? 'Reasignando…' : '🔄 Confirmar Reasignación'}
+              {reassigning ? 'Reasignando…' : 'Confirmar Reasignación'}
             </button>
           </div>
         </form>
@@ -1137,7 +1218,7 @@ export const Dashboard_Gestion: React.FC = () => {
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Documento escaneado y firmado (PDF) <span style={{ color: theme.colors.alert.red }}>*</span></label>
             <input type="file" accept="application/pdf" onChange={(e) => setSignedFile(e.target.files?.[0] ?? null)} style={{ fontSize: '0.875rem' }} aria-required="true" />
-            {signedFile && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.alert.green }}>✓ {signedFile.name}</p>}
+            {signedFile && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: theme.colors.alert.green }}><Icono nombre="check" inline />{signedFile.name}</p>}
           </div>
           {uploadError && <div role="alert" style={alertStyle}>{uploadError}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>

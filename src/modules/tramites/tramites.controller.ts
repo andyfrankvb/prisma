@@ -127,7 +127,7 @@ export async function crearTramite(
 ): Promise<void> {
   try {
     const user = req.user!;
-    const {
+    let {
       descripcion,
       numero_ticket,
       nombre_solicitante,
@@ -136,6 +136,17 @@ export async function crearTramite(
       checklist_documentacion,
       checklist_proyecto,
     } = req.body as CrearTramiteBody;
+
+    // Cuando el formulario lleva archivos adjuntos se envía como multipart, y
+    // multer entrega todos los campos como texto: el checkbox llega como "true",
+    // no como true. La comparación estricta lo rechazaba y el alta fallaba solo
+    // al adjuntar documentos.
+    if (typeof checklist_documentacion === 'string') {
+      checklist_documentacion = checklist_documentacion === 'true';
+    }
+    if (typeof checklist_proyecto === 'string') {
+      checklist_proyecto = checklist_proyecto === 'true';
+    }
 
     // Validaciones de campos obligatorios
     if (!descripcion?.trim())          throw new AppError('La descripción es requerida', 422);
@@ -673,7 +684,7 @@ export async function reenviarDesdeDevuelto(
   try {
     const user = req.user!;
     const id   = parseInt(req.params.id, 10);
-    const {
+    let {
       nombre_solicitante,
       correo_solicitante,
       telefono_solicitante,
@@ -682,6 +693,17 @@ export async function reenviarDesdeDevuelto(
       comentarios,
       comentario,
     } = req.body as ReenviarDevueltoBody;
+
+    // Cuando el formulario lleva archivos adjuntos se envía como multipart, y
+    // multer entrega todos los campos como texto: el checkbox llega como "true",
+    // no como true. La comparación estricta lo rechazaba y el alta fallaba solo
+    // al adjuntar documentos.
+    if (typeof checklist_documentacion === 'string') {
+      checklist_documentacion = checklist_documentacion === 'true';
+    }
+    if (typeof checklist_proyecto === 'string') {
+      checklist_proyecto = checklist_proyecto === 'true';
+    }
 
     const tramiteRole = await getUserTramiteRole(user);
     if (tramiteRole !== 'creador') {

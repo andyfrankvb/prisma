@@ -78,7 +78,7 @@ export const SearchableSelect: React.FC<Props> = ({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="🔍 Buscar…"
+            placeholder="Buscar…"
             style={searchInputStyle}
             onKeyDown={(e) => {
               if (e.key === 'Escape') { setOpen(false); setQuery(''); }
@@ -108,7 +108,7 @@ export const SearchableSelect: React.FC<Props> = ({
                 onClick={() => { setOpen(false); setQuery(''); onAdd(); }}
                 style={addStyle}
               >
-                {addLabel ?? '➕ Agregar nuevo…'}
+                {addLabel ?? 'Agregar nuevo…'}
               </button>
             )}
           </div>

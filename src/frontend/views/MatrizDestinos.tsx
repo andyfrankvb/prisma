@@ -16,6 +16,7 @@
  * invisible hasta que alguien se acuerde de habilitarla.
  */
 import React, { useCallback, useEffect, useState } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? '/api/v1';
@@ -113,7 +114,7 @@ export const MatrizDestinos: React.FC = () => {
       {error && (
         <div role="alert" onClick={() => setError(null)}
           style={{ margin: '12px 20px 0', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.78rem', cursor: 'pointer' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
 

@@ -24,7 +24,7 @@ export const PASO_LABEL: Record<string, string> = {
 
 const PASO_COLOR: Record<string, { bg: string; text: string }> = {
   ASIGNAR:     { bg: '#FEF3C7', text: '#92400E' },
-  REDACTAR:    { bg: '#DBEAFE', text: '#1E40AF' },
+  REDACTAR:    { bg: '#EFEDEA', text: '#3D3935' },
   VISTO_BUENO: { bg: '#D1FAE5', text: '#065F46' },
   FIRMAR:      { bg: '#FDE8EF', text: '#9F2241' },
 };

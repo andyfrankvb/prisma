@@ -22,7 +22,12 @@ volumes:
     driver_opts:
       type: cifs
       device: "//${SMB_HOST}/${SMB_SHARE}"
-      o: "username=${SMB_USER},password=${SMB_PASS},uid=1000,gid=1000,vers=3.0,file_mode=0660,dir_mode=0770"
+      # uid/gid deben coincidir con el usuario que corre la API dentro del contenedor.
+      # `node:20-alpine` ya trae ocupado el UID 1000 (usuario `node`), así que el
+      # `adduser -S appuser` del Dockerfile recibe el 100:101. Con uid=1000 los
+      # archivos quedaban a nombre de otro usuario y, al ser 0770/0660, la app no
+      # podía ni entrar a la carpeta: EACCES al abrir cualquier documento.
+      o: "username=${SMB_USER},password=${SMB_PASS},uid=100,gid=101,vers=3.0,file_mode=0660,dir_mode=0770"
 
 services:
   redis:

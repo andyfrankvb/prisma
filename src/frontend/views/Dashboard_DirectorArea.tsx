@@ -5,6 +5,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { useAuth } from '../context/AuthContext';
 import { theme }   from '../theme';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -52,11 +54,11 @@ type FiltroCategoria = 'todas' | 'en_proceso' | 'en_revision' | 'devueltas';
 
 const ESTADO_CFG: Record<EstadoTarea, { bg: string; text: string; label: string }> = {
   PENDIENTE:      { bg: '#FEF3C7', text: '#92400E', label: 'Pendiente'      },
-  EN_PROGRESO:    { bg: '#DBEAFE', text: '#1E40AF', label: 'En Progreso'    },
+  EN_PROGRESO:    { bg: '#EFEDEA', text: '#3D3935', label: 'En Progreso'    },
   COMPLETADA:     { bg: '#D1FAE5', text: '#065F46', label: 'Completada'     },
   FINALIZADO:     { bg: '#D1FAE5', text: '#065F46', label: 'Finalizado'     },
   EN_REVISION:    { bg: '#FEF3C7', text: '#92400E', label: 'En Revisión'    },
-  EN_REVISION_DG: { bg: '#EDE9FE', text: '#5B21B6', label: 'En Revisión DG' },
+  EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
 };
@@ -76,7 +78,7 @@ const FILTRO_PILLS: {
   estados: EstadoTarea[];
 }[] = [
   { key: 'todas',       label: 'Todas',       bg: '#F3F4F6', text: '#374151', estados: [] },
-  { key: 'en_proceso',  label: 'En Proceso',  bg: '#DBEAFE', text: '#1E40AF', estados: ['PENDIENTE', 'EN_PROGRESO'] },
+  { key: 'en_proceso',  label: 'En Proceso',  bg: '#EFEDEA', text: '#3D3935', estados: ['PENDIENTE', 'EN_PROGRESO'] },
   { key: 'en_revision', label: 'En Revisión', bg: '#FEF3C7', text: '#92400E', estados: ['EN_REVISION', 'EN_REVISION_DG'] },
   { key: 'devueltas',   label: 'Devueltas',   bg: '#FEE2E2', text: '#991B1B', estados: ['DEVUELTO'] },
 ];
@@ -238,9 +240,9 @@ export const Dashboard_DirectorArea: React.FC = () => {
       <div style={{ padding: `0 ${padX}`, display: 'flex', gap: '8px', borderBottom: `1px solid ${theme.colors.border}`, backgroundColor: theme.colors.surface, marginTop: '12px' }}>
         {([
           // El observador no tiene actividades propias → solo ve "Mis Eventos"
-          ...(esObservador ? [] : [{ key: 'actividades', label: 'Mis Actividades', icon: '🗂️' }]),
-          ...((esDirector || esDG) ? [{ key: 'eventos', label: esObservador ? 'Eventos' : 'Mis Eventos', icon: '📅' }] : []),
-        ] as { key: 'actividades' | 'eventos'; label: string; icon: string }[]).map(({ key, label, icon }) => {
+          ...(esObservador ? [] : [{ key: 'actividades', label: 'Mis Actividades', icon: 'carpeta' }]),
+          ...((esDirector || esDG) ? [{ key: 'eventos', label: esObservador ? 'Eventos' : 'Mis Eventos', icon: 'calendario' }] : []),
+        ] as { key: 'actividades' | 'eventos'; label: string; icon: NombreIcono }[]).map(({ key, label, icon }) => {
           const active = seccion === key;
           return (
             <button
@@ -256,7 +258,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
                 display: 'flex', alignItems: 'center', gap: '6px',
               }}
             >
-              {icon} {label}
+              <Icono nombre={icon} size={15} /> {label}
               {key === 'actividades' && actividades.length > 0 && (
                 <span style={{ backgroundColor: theme.colors.primary, color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '0.7rem', fontWeight: 700 }}>
                   {actividades.length}
@@ -318,7 +320,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
               {eventosUnicos.map((ev) => <option key={ev.id} value={ev.id}>{ev.titulo}</option>)}
             </select>
             {filtroEvento && (
-              <button onClick={() => setFiltroEvento('')} style={{ ...btnSecondary, padding: '7px 14px', fontSize: '0.8rem' }}>✕ Limpiar</button>
+              <button onClick={() => setFiltroEvento('')} style={{ ...btnSecondary, padding: '7px 14px', fontSize: '0.8rem' }}><Icono nombre="cerrar" inline />Limpiar</button>
             )}
             <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
               {actividadesFiltradas.length} actividad{actividadesFiltradas.length !== 1 ? 'es' : ''}
@@ -346,7 +348,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
           {!loading && !error && (
             grupos.size === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: theme.colors.textSecondary }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>✅</div>
+                <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}><Icono nombre="checkCirculo" size={40} color={theme.colors.alert.green} /></div>
                 <p style={{ margin: 0 }}>
                   {actividades.length === 0
                     ? 'No tienes actividades asignadas.'
@@ -359,7 +361,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
                   <div key={eventoId}>
                     {/* Cabecera del evento */}
                     <div style={{ padding: '10px 16px', backgroundColor: theme.colors.primaryDark, borderRadius: '8px 8px 0 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '0.9rem' }}>📅</span>
+                      <Icono nombre="calendario" size={14} />
                       <h3 style={{ margin: 0, color: '#fff', fontSize: '0.9rem', fontWeight: 700 }}>{grupo.titulo}</h3>
                       <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)' }}>
                         {grupo.tareas.length} actividad{grupo.tareas.length !== 1 ? 'es' : ''}
@@ -547,14 +549,14 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
         {/* Validación hint */}
         {!valido && (
           <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.yellow }}>
-            ⚠ Debes incluir al menos un comentario o un archivo.
+            <Icono nombre="alerta" inline />Debes incluir al menos un comentario o un archivo.
           </p>
         )}
 
         {/* Error de envío */}
         {error && (
           <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>
-            ⚠ {error}
+            <Icono nombre="alerta" inline />{error}
           </p>
         )}
 
@@ -566,7 +568,7 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
             backgroundColor: '#EAF7EE', color: '#1B7A3D',
             fontSize: '0.72rem', fontWeight: 500,
           }}>
-            <span aria-hidden>📉</span>{aviso} · Enviado ✓
+            <Icono nombre="tendenciaBaja" size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: '4px' }} />{aviso} · Enviado
           </div>
         )}
 
@@ -713,10 +715,10 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
   const [errorCom,         setErrorCom]         = useState<string | null>(null);
 
   const TIPO_LABEL_ROW: Record<string, { bg: string; text: string; label: string }> = {
-    AVANCE:        { bg: '#DBEAFE', text: '#1E40AF', label: 'Avance'      },
+    AVANCE:        { bg: '#EFEDEA', text: '#3D3935', label: 'Avance'      },
     DEVOLUCION:    { bg: '#FEF3C7', text: '#92400E', label: 'Devolución'  },
     APROBACION_N1: { bg: '#D1FAE5', text: '#065F46', label: 'Aprobado N1' },
-    APROBACION_N2: { bg: '#EDE9FE', text: '#5B21B6', label: 'Aprobado DG' },
+    APROBACION_N2: { bg: '#FDE8EF', text: '#8A0730', label: 'Aprobado DG' },
   };
 
   const handleAbrirDetalle = async () => {
@@ -764,13 +766,13 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
         {/* Fechas */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>📅 Límite: <strong>{tarea.fecha_programada}</strong></span>
-            {tarea.vencida && <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}>🔴 Vencida</span>}
-            {!tarea.vencida && tarea.proxima_a_vencer && <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FFFBEB', padding: '2px 8px', borderRadius: '20px' }}>🟡 Próxima</span>}
+            <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
+            {tarea.vencida && <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}>Vencida</span>}
+            {!tarea.vencida && tarea.proxima_a_vencer && <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FFFBEB', padding: '2px 8px', borderRadius: '20px' }}>Próxima</span>}
           </div>
           {!editandoFecha ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {tarea.fecha_compromiso ? <span style={{ color: theme.colors.primary }}>🤝 Compromiso: <strong>{tarea.fecha_compromiso}</strong></span> : <span style={{ fontStyle: 'italic' }}>Sin fecha compromiso</span>}
+              {tarea.fecha_compromiso ? <span style={{ color: theme.colors.primary }}><Icono nombre="personas" inline />Compromiso: <strong>{tarea.fecha_compromiso}</strong></span> : <span style={{ fontStyle: 'italic' }}>Sin fecha compromiso</span>}
               <button onClick={() => { setEditandoFecha(true); setErrorFecha(null); }} style={{ background: 'none', border: 'none', color: theme.colors.primary, cursor: 'pointer', fontSize: '0.7rem', padding: '0 4px', fontFamily: theme.font.family, textDecoration: 'underline' }}>
                 {tarea.fecha_compromiso ? 'Cambiar' : '+ Agregar'}
               </button>
@@ -780,7 +782,7 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
               <input type="date" value={fechaCompromiso} onChange={(e) => setFechaCompromiso(e.target.value)} max={tarea.fecha_programada} min={new Date().toISOString().slice(0,10)} style={{ padding: '4px 8px', border: `1px solid ${theme.colors.border}`, borderRadius: '5px', fontSize: '0.75rem', fontFamily: theme.font.family }} />
               <button onClick={handleGuardarFecha} disabled={guardandoFecha || !fechaCompromiso} style={{ padding: '4px 10px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '5px', fontSize: '0.72rem', fontWeight: 700, cursor: (guardandoFecha || !fechaCompromiso) ? 'not-allowed' : 'pointer', opacity: (guardandoFecha || !fechaCompromiso) ? 0.6 : 1, fontFamily: theme.font.family }}>{guardandoFecha ? '…' : 'Guardar'}</button>
               <button onClick={() => { setEditandoFecha(false); setFechaCompromiso(tarea.fecha_compromiso ?? ''); setErrorFecha(null); }} style={{ padding: '4px 8px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '5px', fontSize: '0.72rem', cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
-              {errorFecha && <span style={{ color: theme.colors.alert.red, fontSize: '0.72rem' }}>⚠ {errorFecha}</span>}
+              {errorFecha && <span style={{ color: theme.colors.alert.red, fontSize: '0.72rem' }}><Icono nombre="alerta" inline />{errorFecha}</span>}
             </div>
           )}
         </div>
@@ -790,11 +792,11 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem' }}>
           {reasignadoNombre ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ color: theme.colors.primary }}>👷 Delegado a: <strong>{reasignadoNombre}</strong></span>
+              <span style={{ color: theme.colors.primary }}>Delegado a: <strong>{reasignadoNombre}</strong></span>
               <button onClick={handleAbrirReasignacion} style={{ background: 'none', border: 'none', color: theme.colors.primary, cursor: 'pointer', fontSize: '0.7rem', textDecoration: 'underline', fontFamily: theme.font.family, padding: 0 }}>Cambiar</button>
             </div>
           ) : (
-            <button onClick={handleAbrirReasignacion} style={{ padding: '5px 12px', backgroundColor: reasignando ? theme.colors.primaryDark : '#fff', color: reasignando ? '#fff' : theme.colors.primary, border: `1px solid ${theme.colors.primary}`, borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family, flexShrink: 0 }}>👷 Delegar a mi equipo</button>
+            <button onClick={handleAbrirReasignacion} style={{ padding: '5px 12px', backgroundColor: reasignando ? theme.colors.primaryDark : '#fff', color: reasignando ? '#fff' : theme.colors.primary, border: `1px solid ${theme.colors.primary}`, borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family, flexShrink: 0 }}><Icono nombre="personas" inline />Delegar a mi equipo</button>
           )}
           {reasignando && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
@@ -804,7 +806,7 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
               </select>
               <button onClick={handleReasignar} disabled={guardandoReasig || !operativoSel} style={{ padding: '5px 12px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '5px', fontSize: '0.72rem', fontWeight: 700, cursor: (guardandoReasig || !operativoSel) ? 'not-allowed' : 'pointer', opacity: (guardandoReasig || !operativoSel) ? 0.6 : 1, fontFamily: theme.font.family }}>{guardandoReasig ? '…' : 'Asignar'}</button>
               <button onClick={() => { setReasignando(false); setErrorReasig(null); }} style={{ padding: '5px 8px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '5px', fontSize: '0.72rem', cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
-              {errorReasig && <span style={{ color: theme.colors.alert.red, fontSize: '0.72rem' }}>⚠ {errorReasig}</span>}
+              {errorReasig && <span style={{ color: theme.colors.alert.red, fontSize: '0.72rem' }}><Icono nombre="alerta" inline />{errorReasig}</span>}
             </div>
           )}
         </div>
@@ -827,38 +829,38 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
 
         {(tarea.estado === 'EN_PROGRESO') && (
           <button onClick={() => setShowRevisionModal(true)} style={{ padding: '6px 14px', backgroundColor: '#F59E0B', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family, flexShrink: 0 }}>
-            📤 Enviar para revisión
+            <Icono nombre="subir" inline />Enviar para revisión
           </button>
         )}
 
         {tarea.estado === 'DEVUELTO' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '260px' }}>
-            {cargandoDevolucion && <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}>⏳ Cargando devolución…</span>}
+            {cargandoDevolucion && <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary }}><Icono nombre="reloj" inline />Cargando devolución…</span>}
             {!cargandoDevolucion && ultimaDevolucion && (
               <div style={{ padding: '8px 10px', backgroundColor: '#FEE2E2', borderRadius: '6px', fontSize: '0.75rem', color: '#991B1B', borderLeft: '3px solid #F87171' }}>
                 <strong>Motivo de devolución:</strong> {ultimaDevolucion}
               </div>
             )}
             <button onClick={() => setShowRevisionModal(true)} style={{ padding: '6px 14px', backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family, flexShrink: 0 }}>
-              🔄 Reenviar para revisión
+              <Icono nombre="refrescar" inline />Reenviar para revisión
             </button>
           </div>
         )}
 
         {tarea.estado === 'EN_REVISION' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '5px 12px', backgroundColor: '#FEF3C7', color: '#92400E', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, fontFamily: theme.font.family, flexShrink: 0 }}>
-            🔍 En revisión por el Director
+            <Icono nombre="buscar" inline />En revisión por el Director
           </span>
         )}
 
         {tarea.estado === 'EN_REVISION_DG' && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '5px 12px', backgroundColor: '#EDE9FE', color: '#5B21B6', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, fontFamily: theme.font.family, flexShrink: 0 }}>
-            ⏳ En revisión por la Directora General
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '5px 12px', backgroundColor: '#FDE8EF', color: '#8A0730', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, fontFamily: theme.font.family, flexShrink: 0 }}>
+            <Icono nombre="reloj" inline />En revisión por la Directora General
           </span>
         )}
       </div>
 
-      {error && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.75rem', color: theme.colors.alert.red }}>⚠ {error}</div>}
+      {error && <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{error}</div>}
 
       {/* Modal Abrir — idéntico al de BandejaTareaCardArea */}
       {showDetalle && (
@@ -871,7 +873,7 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '20px 24px 14px', borderBottom: `1px solid ${theme.colors.border}` }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>{tarea.titulo}</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>📅 {tarea.evento_titulo}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}><Icono nombre="calendario" inline />{tarea.evento_titulo}</p>
                 <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: '6px', padding: '2px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, textTransform: 'uppercase' as const }}>
                   {cfg.label}
                 </span>
@@ -916,7 +918,7 @@ const btnSecondary: React.CSSProperties = { padding: '8px 16px', backgroundColor
 
 const ESTADO_CFG_BANDEJA: Partial<Record<EstadoTarea, { bg: string; text: string; label: string }>> = {
   EN_REVISION:    { bg: '#FEF3C7', text: '#92400E', label: 'Para revisar'   },
-  EN_REVISION_DG: { bg: '#EDE9FE', text: '#5B21B6', label: 'En Revisión DG' },
+  EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
   FINALIZADO:     { bg: '#D1FAE5', text: '#065F46', label: 'Finalizado'     },
@@ -1001,10 +1003,10 @@ const BandejaTareaCardArea: React.FC<{
   };
 
   const TIPO_LABEL: Record<string, { bg: string; text: string; label: string }> = {
-    AVANCE:        { bg: '#DBEAFE', text: '#1E40AF', label: 'Avance'      },
+    AVANCE:        { bg: '#EFEDEA', text: '#3D3935', label: 'Avance'      },
     DEVOLUCION:    { bg: '#FEF3C7', text: '#92400E', label: 'Devolución'  },
     APROBACION_N1: { bg: '#D1FAE5', text: '#065F46', label: 'Aprobado N1' },
-    APROBACION_N2: { bg: '#EDE9FE', text: '#5B21B6', label: 'Aprobado DG' },
+    APROBACION_N2: { bg: '#FDE8EF', text: '#8A0730', label: 'Aprobado DG' },
   };
 
   function fmt(iso: string) {
@@ -1024,8 +1026,8 @@ const BandejaTareaCardArea: React.FC<{
         <div style={{ flex: 1, minWidth: '200px' }}>
           <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem', color: theme.colors.textPrimary }}>{tarea.titulo}</p>
           <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
-            📅 {tarea.evento_titulo}
-            {esDirector && <> &nbsp;·&nbsp; 👤 {tarea.asignado_a_nombre}</>}
+            <Icono nombre="calendario" inline />{tarea.evento_titulo}
+            {esDirector && <> &nbsp;·&nbsp; <Icono nombre="persona" inline />{tarea.asignado_a_nombre}</>}
           </p>
           {tarea.descripcion && (
             <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>{tarea.descripcion}</p>
@@ -1039,7 +1041,7 @@ const BandejaTareaCardArea: React.FC<{
 
         {/* Fecha */}
         <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
-          📅 {tarea.fecha_programada}
+          <Icono nombre="calendario" inline />{tarea.fecha_programada}
         </span>
 
         {/* Acciones director: Aprobar / Devolver cuando EN_REVISION */}
@@ -1050,14 +1052,14 @@ const BandejaTareaCardArea: React.FC<{
               disabled={aprobando}
               style={{ padding: '6px 14px', backgroundColor: '#D1FAE5', color: '#065F46', border: '1px solid #6EE7B7', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: aprobando ? 'not-allowed' : 'pointer', opacity: aprobando ? 0.6 : 1, fontFamily: theme.font.family }}
             >
-              {aprobando ? '…' : '✓ Aprobar'}
+              {aprobando ? '…' : 'Aprobar'}
             </button>
             <button
               onClick={() => { setShowDevolver(true); setComentarioDev(''); setErrorDev(null); }}
               disabled={aprobando}
               style={{ padding: '6px 14px', backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
             >
-              ↩ Devolver
+              <Icono nombre="regresarIzq" inline />Devolver
             </button>
           </div>
         )}
@@ -1065,7 +1067,7 @@ const BandejaTareaCardArea: React.FC<{
         {/* Mensaje operativo: en revisión */}
         {!esDirector && tarea.estado === 'EN_REVISION' && (
           <span style={{ fontSize: '0.75rem', color: '#92400E', backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-            🔍 Revisando tu jefe directo
+            <Icono nombre="buscar" inline />Revisando tu jefe directo
           </span>
         )}
 
@@ -1078,11 +1080,11 @@ const BandejaTareaCardArea: React.FC<{
               style={{ padding: '6px 14px', backgroundColor: '#FFEDD5', color: '#9A3412', border: '1px solid #FDBA74', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family, flexShrink: 0 }}
               title="Bajar la actividad a tu colaborador con observaciones extra"
             >
-              ↩ Bajar a mi colaborador
+              <Icono nombre="regresarIzq" inline />Bajar a mi colaborador
             </button>
           ) : (
             <span style={{ fontSize: '0.75rem', color: '#9A3412', backgroundColor: '#FFEDD5', border: '1px solid #FDBA74', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-              ↩ Devuelta por DG — con el director de área
+              <Icono nombre="regresarIzq" inline />Devuelta por DG — con el director de área
             </span>
           )
         )}
@@ -1096,19 +1098,19 @@ const BandejaTareaCardArea: React.FC<{
                 disabled={aprobando}
                 style={{ padding: '6px 14px', backgroundColor: '#D1FAE5', color: '#065F46', border: '1px solid #6EE7B7', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: aprobando ? 'not-allowed' : 'pointer', opacity: aprobando ? 0.6 : 1, fontFamily: theme.font.family }}
               >
-                {aprobando ? '…' : '✓ Finalizar'}
+                {aprobando ? '…' : 'Finalizar'}
               </button>
               <button
                 onClick={() => { setShowDevolver(true); setComentarioDev(''); setErrorDev(null); }}
                 disabled={aprobando}
                 style={{ padding: '6px 14px', backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
               >
-                ↩ Devolver
+                <Icono nombre="regresarIzq" inline />Devolver
               </button>
             </div>
           ) : (
-            <span style={{ fontSize: '0.75rem', color: '#5B21B6', backgroundColor: '#EDE9FE', border: '1px solid #C4B5FD', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
-              ⏳ Pendiente aprobación DG
+            <span style={{ fontSize: '0.75rem', color: '#8A0730', backgroundColor: '#FDE8EF', border: '1px solid #F2C9D6', borderRadius: '6px', padding: '5px 10px', fontWeight: 600, flexShrink: 0 }}>
+              <Icono nombre="reloj" inline />Pendiente aprobación DG
             </span>
           )
         )}
@@ -1116,7 +1118,7 @@ const BandejaTareaCardArea: React.FC<{
         {/* DEVUELTO: el director la devolvió a su colaborador; espera la corrección */}
         {tarea.estado === 'DEVUELTO' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '5px 12px', backgroundColor: '#FEE2E2', color: '#991B1B', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, fontFamily: theme.font.family, flexShrink: 0 }}>
-            ↩ Devuelta — esperando corrección del colaborador
+            <Icono nombre="regresarIzq" inline />Devuelta — esperando corrección del colaborador
           </span>
         )}
 
@@ -1132,7 +1134,7 @@ const BandejaTareaCardArea: React.FC<{
       {/* Error aprobar */}
       {aprobarError && (
         <div style={{ padding: '6px 16px', backgroundColor: '#FEE2E2', fontSize: '0.78rem', color: theme.colors.alert.red }}>
-          ⚠ {aprobarError}
+          <Icono nombre="alerta" inline />{aprobarError}
         </div>
       )}
 
@@ -1144,7 +1146,7 @@ const BandejaTareaCardArea: React.FC<{
           onClick={(e) => { if (e.target === e.currentTarget) setShowDevolver(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>↩ Devolver tarea</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="regresarIzq" inline />Devolver tarea</h3>
             <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px', color: theme.colors.textPrimary }}>
               Motivo de devolución <span style={{ color: theme.colors.alert.red }}>*</span>
@@ -1157,7 +1159,7 @@ const BandejaTareaCardArea: React.FC<{
               disabled={enviandoDev}
               style={{ width: '100%', boxSizing: 'border-box' as const, padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical' as const, marginBottom: '14px' }}
             />
-            {errorDev && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {errorDev}</p>}
+            {errorDev && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorDev}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowDevolver(false)} disabled={enviandoDev} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleDevolver} disabled={enviandoDev || !comentarioDev.trim()} style={{ padding: '8px 18px', backgroundColor: '#F59E0B', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (enviandoDev || !comentarioDev.trim()) ? 'not-allowed' : 'pointer', opacity: (enviandoDev || !comentarioDev.trim()) ? 0.6 : 1, fontFamily: theme.font.family }}>
@@ -1176,10 +1178,10 @@ const BandejaTareaCardArea: React.FC<{
           onClick={(e) => { if (e.target === e.currentTarget) setShowFinalizar(false); }}
         >
           <div style={{ backgroundColor: '#fff', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '460px', fontFamily: theme.font.family }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>✓ Finalizar actividad</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="check" inline />Finalizar actividad</h3>
             <p style={{ margin: '0 0 12px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>{tarea.titulo}</p>
             <div style={{ padding: '10px 12px', backgroundColor: '#D1FAE5', border: '1px solid #6EE7B7', borderLeft: '4px solid #059669', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem', color: '#065F46', lineHeight: 1.5 }}>
-              ✅ <strong>La Dirección General aprueba la finalización de esta actividad.</strong>
+              <Icono nombre="checkCirculo" inline /><strong>La Dirección General aprueba la finalización de esta actividad.</strong>
             </div>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '14px', fontSize: '0.85rem', color: theme.colors.textPrimary, cursor: 'pointer' }}>
               <input
@@ -1191,7 +1193,7 @@ const BandejaTareaCardArea: React.FC<{
               />
               <span>Confirmo la finalización de esta actividad.</span>
             </label>
-            {aprobarError && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}>⚠ {aprobarError}</p>}
+            {aprobarError && <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{aprobarError}</p>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => setShowFinalizar(false)} disabled={aprobando} style={{ padding: '8px 18px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '7px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
               <button onClick={handleFinalizarDG} disabled={aprobando || !confirmaFinal} style={{ padding: '8px 18px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.85rem', fontWeight: 700, cursor: (aprobando || !confirmaFinal) ? 'not-allowed' : 'pointer', opacity: (aprobando || !confirmaFinal) ? 0.6 : 1, fontFamily: theme.font.family }}>
@@ -1216,8 +1218,8 @@ const BandejaTareaCardArea: React.FC<{
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: theme.colors.textPrimary }}>{tarea.titulo}</h3>
                 <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
-                  📅 {tarea.evento_titulo}
-                  {tarea.asignado_a_nombre && <> &nbsp;·&nbsp; 👤 {tarea.asignado_a_nombre}</>}
+                  <Icono nombre="calendario" inline />{tarea.evento_titulo}
+                  {tarea.asignado_a_nombre && <> &nbsp;·&nbsp; <Icono nombre="persona" inline />{tarea.asignado_a_nombre}</>}
                 </p>
                 <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: '6px', padding: '2px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, textTransform: 'uppercase' as const }}>
                   {cfg.label}

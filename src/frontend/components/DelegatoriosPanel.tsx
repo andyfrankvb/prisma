@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 import {
   getDelegatorios, devolverDelegatorio, cancelarSolicitud, crearDelegatorios,
@@ -21,8 +22,8 @@ import { useDialogo }       from '../context/DialogoContext';
 const ETIQUETA: Record<string, { texto: string; color: string; fondo: string }> = {
   PENDIENTE:   { texto: 'Pendiente',      color: '#92400E', fondo: '#FEF3C7' },
   ASIGNADO:    { texto: 'En proceso',     color: '#92400E', fondo: '#FEF3C7' },
-  EN_REVISION: { texto: 'En revisión',    color: '#1E40AF', fondo: '#DBEAFE' },
-  CONTESTADO:  { texto: '✓ Contestado',   color: '#065F46', fondo: '#D1FAE5' },
+  EN_REVISION: { texto: 'En revisión',    color: '#3D3935', fondo: '#EFEDEA' },
+  CONTESTADO:  { texto: 'Contestado',   color: '#065F46', fondo: '#D1FAE5' },
   RECHAZADO:   { texto: 'No le compete',  color: '#B45309', fondo: '#FEF3C7' },
   CANCELADO:   { texto: 'Cancelada',      color: theme.colors.textSecondary, fondo: '#F3F4F6' },
 };
@@ -140,7 +141,7 @@ export const DelegatoriosPanel: React.FC<{
       {error && (
         <div role="alert" onClick={() => setError(null)}
           style={{ marginBottom: '10px', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.78rem', cursor: 'pointer' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
 

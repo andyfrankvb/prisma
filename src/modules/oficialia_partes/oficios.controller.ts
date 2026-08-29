@@ -984,6 +984,13 @@ export async function listarOficios(
       query = query.andWhereRaw(`(${BANDEJA_ID}) = ?`, [Number(req.query.en_bandeja_de)]);
     }
 
+    // Se devuelve también quién tiene hoy el oficio. Hasta ahora esa persona solo
+    // existía como nombre para mostrar en la columna «En bandeja de», y las
+    // acciones se decidían por área: quien respondía por el área veía «Asignar» o
+    // «Reasignar» sobre oficios que estaban en la bandeja de otra persona.
+    // Con el id se puede exigir que quien actúa sea quien lo tiene.
+    query = query.select(db.raw(`(${BANDEJA_ID}) AS bandeja_usuario_id`));
+
     // ── Filtro por situación ──────────────────────────────────────────────────
     //
     // Va aparte del estatus y no mezclado con él, porque son cosas distintas: un
@@ -1133,6 +1140,17 @@ export async function listarOficios(
       estatus:  'oficios.estatus %DIR%',      // el enum ya va en el orden del flujo
       bandeja:  `(${ORDEN_BANDEJA}) %DIR% NULLS LAST`,
       sistemas: ORDEN_SISTEMAS,
+      // Texto capturado por personas. Se ordena con la intercalación española:
+      // la de la base es en_US.utf8, que manda los acentos al final —«Álvarez» y
+      // «Ñeco» caían después de «Zuñiga»— y la lista parecía mal ordenada.
+      // `es-MX-x-icu` viene con PostgreSQL, así que no hace falta instalar
+      // extensiones ni migrar nada.
+      origen:     'oficios.numero_oficio_origen COLLATE "es-MX-x-icu" %DIR% NULLS LAST',
+      remitente:  'oficios.remitente COLLATE "es-MX-x-icu" %DIR% NULLS LAST',
+      delegacion: 'dir_cu.nombre COLLATE "es-MX-x-icu" %DIR% NULLS LAST',
+      // «Qué sigue» sale de un CASE calculado; se reutiliza tal cual para que el
+      // orden coincida con lo que la columna muestra.
+      paso:       `(${MI_PASO}) %DIR% NULLS LAST`,
     };
     const clausula = ORDENES[String(req.query.orden ?? '')];
     const sentido  = String(req.query.dir ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -1215,6 +1233,26 @@ export async function listarOficios(
        */
       const es_de_mi_area = o.dirigido_a_id === user.id
         || unidadesEncargado.includes(o.dirigido_a_unidad_id);
+
+      /**
+       * ¿Tengo yo el oficio en este momento?
+       *
+       * `es_de_mi_area` responde algo distinto —«¿responde mi área por él?»— y con
+       * eso se ofrecían acciones sobre oficios que estaban con otra persona. El
+       * caso que lo destapó: quien figura como «Dirigido a» veía «Asignar» y
+       * «Reasignar» sobre oficios que vivían en la bandeja del encargado de esa
+       * unidad, que es quien de verdad los tiene.
+       */
+      const en_mi_bandeja = Number((o as any).bandeja_usuario_id) === user.id;
+
+      /**
+       * Excepción deliberada a la regla anterior: el encargado de la unidad puede
+       * reasignar oficios de su propia área aunque estén en la bandeja de alguien
+       * de su equipo. Sin esto, repartir el trabajo dejaría de ser posible en
+       * cuanto el oficio se asigna, y bastaría una incapacidad o unas vacaciones
+       * para dejarlo atorado sin que nadie pueda recuperarlo.
+       */
+      const soy_encargado_del_area = unidadesEncargado.includes(o.dirigido_a_unidad_id);
 
       let en_bandeja_de: string | null;
       switch (o.estatus) {
@@ -1409,6 +1447,8 @@ export async function listarOficios(
         bloqueo,
         puede_de_conocimiento,
         es_de_mi_area,
+        en_mi_bandeja,
+        soy_encargado_del_area,
         puede_turnar,
         puede_solicitar,
         puede_aceptar_turno,
@@ -1792,15 +1832,22 @@ export async function actualizarSistemas(
 
 // ─── PATCH /oficios/:id/testamento ───────────────────────────────────────────
 
-/** Plazo de cada etapa, en días hábiles. */
-const TESTAMENTO_DIAS_DELEGACIONES = 5;
-const TESTAMENTO_DIAS_TOTAL        = 10;
+/**
+ * Plazo de cada etapa, en días hábiles.
+ *
+ * TOTAL es acumulado desde que se marca, no adicional: la Dirección General se
+ * queda con la diferencia entre ambos. Hoy son 2 días para las delegaciones y 1
+ * para la Dirección General, 3 en total.
+ */
+const TESTAMENTO_DIAS_DELEGACIONES = 2;
+const TESTAMENTO_DIAS_TOTAL        = 3;
 
 /**
  * Marca el oficio como búsqueda de testamentos y arranca sus plazos.
  *
- * Son dos etapas de 5 días hábiles: primero las delegaciones seleccionadas
- * buscan y entregan, después el encargado arma el proyecto de contestación.
+ * Son dos etapas: 2 días hábiles para que las delegaciones seleccionadas busquen
+ * y entreguen, y 1 más para que la Dirección General arme el proyecto de
+ * contestación — 3 en total.
  * Los plazos son FIJOS: si una delegación contesta antes, quien sigue puede
  * adelantarse pero no pierde sus días.
  *
@@ -3143,29 +3190,40 @@ export async function getCandidatosAsignacion(
   try {
     const user = req.user!;
 
-    // Quién puede recibir un oficio para trabajarlo (el «analista jurídico» del
-    // área). No hay un rol capturado para esto: se deduce por exclusión, con las
-    // piezas que ya se administran hoy.
+    // Quién puede recibir un oficio para trabajarlo: quien esté DESIGNADO como
+    // analista jurídico de esta área en Configuración de Flujos.
     //
-    //   · De la misma área que el encargado y con el módulo habilitado.
-    //   · Rol OPERATIVO o JURIDICO — deja fuera al titular (DIRECTOR) y a perfiles
-    //     ajenos al trámite, como PARTICULAR.
-    //   · Que no sea oficial de partes ni encargado: esos capturan y distribuyen,
-    //     no elaboran el proyecto de contestación.
+    // Antes se deducía —misma unidad, módulo habilitado, rol operativo y no ser
+    // oficial ni encargado—, así que bastaba habilitarle el módulo a alguien para
+    // que empezara a aparecer en el reparto, y la función capturada no cambiaba
+    // nada. Ahora la designación es explícita y por unidad: si el desplegable sale
+    // vacío es que a esa área todavía no se le han designado analistas.
+    //
+    // Ser oficial de partes NO excluye: una misma persona puede recepcionar y
+    // además trabajar expedientes, que en las delegaciones chicas pasa a diario.
+    // Sí se excluye al encargado, que reparte el trabajo en vez de recibirlo.
     const candidatos = await db('usuarios as u')
+      .join('configuracion_flujos as cf', function () {
+        this.on('cf.usuario_id', 'u.id')
+            .andOnVal('cf.modulo_clave', 'oficialia_partes')
+            .andOnVal('cf.rol_flujo', 'JURIDICO');
+      })
+      // El módulo habilitado sigue siendo requisito, aunque la designación sea
+      // explícita: sin acceso al módulo la persona no puede abrir el oficio, y
+      // asignárselo lo dejaría varado sin que nadie lo note.
       .join('usuario_modulos as um', 'um.usuario_id', 'u.id')
-      .join('modulos as m', 'm.id', 'um.modulo_id')
-      .where('u.unidad_id', user.oficina_id)
+      .join('modulos as m', function () {
+        this.on('m.id', 'um.modulo_id').andOnVal('m.clave', 'oficialia_partes');
+      })
+      .where('cf.unidad_id', user.oficina_id)
       .andWhere('u.activo', true)
-      .andWhere('m.clave', 'oficialia_partes')
       .andWhereNot('u.id', user.id)
-      .whereIn('u.rol', ['OPERATIVO', 'JURIDICO'])
       .whereNotExists(function () {
         this.select('*')
-          .from('configuracion_flujos as cf')
-          .whereRaw('cf.usuario_id = u.id')
-          .andWhere('cf.modulo_clave', 'oficialia_partes')
-          .whereIn('cf.rol_flujo', ['OFICIAL', 'ENCARGADO']);
+          .from('configuracion_flujos as cf2')
+          .whereRaw('cf2.usuario_id = u.id')
+          .andWhere('cf2.modulo_clave', 'oficialia_partes')
+          .where('cf2.rol_flujo', 'ENCARGADO');
       })
       .distinct('u.id', 'u.nombre', 'u.cargo', 'u.email')
       .orderBy('u.nombre', 'asc');

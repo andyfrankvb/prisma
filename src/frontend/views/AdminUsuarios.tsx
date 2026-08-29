@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
 import { theme }   from '../theme';
 import { Modal }   from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
@@ -37,9 +38,9 @@ const ROL_COLOR: Record<RolUsuario, { bg: string; text: string }> = {
   OFICIAL:    { bg: '#FEF3C7', text: '#92400E' },
   ENCARGADO:  { bg: '#FDE8EF', text: '#AB0A3D' },
   JURIDICO:   { bg: '#D1FAE5', text: '#065F46' },
-  SECRETARIA: { bg: '#DBEAFE', text: '#1E40AF' },
+  SECRETARIA: { bg: '#EFEDEA', text: '#3D3935' },
   DIRECTOR:   { bg: '#EDE9E4', text: '#3D3935' },
-  SUPERADMIN: { bg: '#4C1D95', text: '#fff'    },
+  SUPERADMIN: { bg: '#440412', text: '#fff'    },
 };
 
 const FORM_EMPTY = {
@@ -219,7 +220,7 @@ export const AdminUsuarios: React.FC = () => {
       {/* Feedback */}
       {actionMsg && (
         <div role="status" style={{ ...alertSuccess, marginBottom: '16px', cursor: 'pointer' }} onClick={() => setActionMsg(null)}>
-          ✓ {actionMsg} <span style={{ opacity: 0.6, fontSize: '0.75rem' }}>(clic para cerrar)</span>
+          <Icono nombre="check" inline />{actionMsg} <span style={{ opacity: 0.6, fontSize: '0.75rem' }}>(clic para cerrar)</span>
         </div>
       )}
 
@@ -244,7 +245,7 @@ export const AdminUsuarios: React.FC = () => {
         </select>
         {(filterRol || filterActivo !== 'all' || search) && (
           <button onClick={() => { setFilterRol(''); setFilterActivo('all'); setSearch(''); setSearchDeb(''); setPage(1); }} style={btnSecondary}>
-            ✕ Limpiar
+            <Icono nombre="cerrar" inline />Limpiar
           </button>
         )}
       </div>
@@ -287,14 +288,14 @@ export const AdminUsuarios: React.FC = () => {
                     </span>
                   </td>
                   <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                    <button style={{ ...btnAction, backgroundColor: theme.colors.gold }} onClick={() => openEdit(u)} title="Editar">✏ Editar</button>
-                    <button style={{ ...btnAction, backgroundColor: '#6366F1' }} onClick={() => openReset(u)} title="Contraseña">🔑</button>
+                    <button style={{ ...btnAction, backgroundColor: theme.colors.gold }} onClick={() => openEdit(u)} title="Editar"><Icono nombre="editar" inline />Editar</button>
+                    <button style={{ ...btnAction, backgroundColor: '#3D3935' }} onClick={() => openReset(u)} title="Contraseña"><Icono nombre="candado" size={14} /></button>
                     <button
                       style={{ ...btnAction, backgroundColor: u.activo ? theme.colors.alert.red : theme.colors.alert.green }}
                       onClick={() => handleToggle(u)}
                       title={u.activo ? 'Deshabilitar' : 'Habilitar'}
                     >
-                      {u.activo ? '⊘' : '✓'}
+                      {u.activo ? <Icono nombre="tache" size={14} /> : <Icono nombre="check" size={14} />}
                     </button>
                   </td>
                 </tr>
@@ -335,7 +336,7 @@ export const AdminUsuarios: React.FC = () => {
           <div style={modalFooter}>
             <button type="button" onClick={() => setShowEdit(false)} style={btnSecondary}>Cancelar</button>
             <button type="submit" disabled={editing || !editForm.nombre || !editForm.email} style={btnPrimary}>
-              {editing ? 'Guardando…' : '✓ Guardar Cambios'}
+              {editing ? 'Guardando…' : 'Guardar Cambios'}
             </button>
           </div>
         </form>
@@ -344,8 +345,8 @@ export const AdminUsuarios: React.FC = () => {
       {/* ── Modal: Reset Password ─────────────────────────── */}
       <Modal open={showReset} title={`Resetear Contraseña — ${resetTarget?.nombre}`} onClose={() => setShowReset(false)} width={420}>
         <form onSubmit={handleReset} noValidate>
-          <div style={{ padding: '12px 14px', backgroundColor: '#EFF6FF', border: `1px solid #BFDBFE`, borderLeft: `3px solid #3B82F6`, borderRadius: '8px', marginBottom: '20px', fontSize: '0.82rem', color: '#1E40AF' }}>
-            <p style={{ margin: 0, fontWeight: 700 }}>🔑 Nueva contraseña para {resetTarget?.nombre}</p>
+          <div style={{ padding: '12px 14px', backgroundColor: '#F5F4F2', border: `1px solid #E2DDD8`, borderLeft: `3px solid #3B82F6`, borderRadius: '8px', marginBottom: '20px', fontSize: '0.82rem', color: '#3D3935' }}>
+            <p style={{ margin: 0, fontWeight: 700 }}><Icono nombre="candado" inline />Nueva contraseña para {resetTarget?.nombre}</p>
             <p style={{ margin: '4px 0 0' }}>El usuario deberá usar esta contraseña en su próximo inicio de sesión.</p>
           </div>
           <div style={{ marginBottom: '16px' }}>
@@ -356,8 +357,8 @@ export const AdminUsuarios: React.FC = () => {
           {resetError && <div role="alert" style={alertError}>{resetError}</div>}
           <div style={modalFooter}>
             <button type="button" onClick={() => setShowReset(false)} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={resetting || newPassword.length < 8} style={{ ...btnPrimary, backgroundColor: resetting || newPassword.length < 8 ? theme.colors.grayMid : '#6366F1' }}>
-              {resetting ? 'Actualizando…' : '🔑 Actualizar Contraseña'}
+            <button type="submit" disabled={resetting || newPassword.length < 8} style={{ ...btnPrimary, backgroundColor: resetting || newPassword.length < 8 ? theme.colors.grayMid : '#3D3935' }}>
+              {resetting ? 'Actualizando…' : 'Actualizar Contraseña'}
             </button>
           </div>
         </form>
@@ -394,7 +395,7 @@ const UserFormFields: React.FC<{ form: FormState; onChange: (p: Partial<FormStat
       </select>
     </div>
     <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary, backgroundColor: '#F9FAFB', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.colors.border}` }}>
-      ℹ️ El rol del usuario se asigna desde <strong>Configuración de Flujos</strong>.
+      <Icono nombre="informacion" inline />El rol del usuario se asigna desde <strong>Configuración de Flujos</strong>.
     </p>
   </div>
 );

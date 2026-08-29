@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 import { inputStyle, selectStyle, btnSecondary } from '../styles';
 import { ESTATUS_META } from './oficiosEstatus';
@@ -77,7 +78,7 @@ export const FiltrosOficios: React.FC<{
 
       {/* Búsqueda */}
       <div style={{ flex: '1 1 260px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '9px', padding: '7px 12px' }}>
-        <span style={{ color: theme.colors.textSecondary }}>🔍</span>
+        <Icono nombre="buscar" size={15} color={theme.colors.textSecondary} />
         <input
           type="text"
           value={search}

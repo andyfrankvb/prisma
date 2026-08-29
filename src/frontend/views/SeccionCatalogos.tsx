@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import {
   getDependencias, crearDependencia, editarDependencia, eliminarDependencia,
@@ -97,7 +98,7 @@ const Columna: React.FC<ColumnaProps> = ({
             <input
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="🔍 Buscar…"
+              placeholder="Buscar…"
               style={{ ...input, marginBottom: '10px' }}
             />
           )}
@@ -116,8 +117,8 @@ const Columna: React.FC<ColumnaProps> = ({
                       <>
                         <input autoFocus value={editVal} onChange={(e) => setEditVal(normEntrada(e.target.value))} style={{ ...input, padding: '4px 6px', ...estiloCaja }}
                           onKeyDown={(e) => { if (e.key === 'Enter') guardar(it); if (e.key === 'Escape') setEditId(null); }} />
-                        <button onClick={() => guardar(it)} title="Guardar" style={btnSave}>✓</button>
-                        <button onClick={() => setEditId(null)} title="Cancelar" style={btnDel}>✕</button>
+                        <button onClick={() => guardar(it)} title="Guardar" style={btnSave}><Icono nombre="check" size={14} /></button>
+                        <button onClick={() => setEditId(null)} title="Cancelar" style={btnDel}><Icono nombre="cerrar" size={14} /></button>
                       </>
                     ) : (
                       <>
@@ -129,8 +130,8 @@ const Columna: React.FC<ColumnaProps> = ({
                         {onMover && (
                           <button onClick={() => onMover(it)} title="Reorganizar (mover de nivel)" style={btnMove}>⇄</button>
                         )}
-                        <button onClick={() => { setEditId(it.id); setEditVal(it.nombre); }} title="Editar" style={btnEdit}>✏️</button>
-                        <button onClick={() => quitar(it)} title="Eliminar" style={btnDel}>✕</button>
+                        <button onClick={() => { setEditId(it.id); setEditVal(it.nombre); }} title="Editar" style={btnEdit}><Icono nombre="editar" size={14} /></button>
+                        <button onClick={() => quitar(it)} title="Eliminar" style={btnDel}><Icono nombre="papelera" size={14} /></button>
                       </>
                     )}
                   </div>
@@ -250,7 +251,7 @@ export const SeccionCatalogos: React.FC = () => {
               .catch(() => setHallazgos([]))
               .finally(() => setBuscando(false));
           }}
-          placeholder="🔍 Escribe al menos 3 letras…"
+          placeholder="Escribe al menos 3 letras…"
           style={{ ...input, width: '100%' }}
         />
 
@@ -279,7 +280,7 @@ export const SeccionCatalogos: React.FC = () => {
 
       {error && (
         <div role="alert" style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setError(null)}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
 
@@ -352,7 +353,7 @@ export const SeccionCatalogos: React.FC = () => {
               <input
                 value={buscaDest}
                 onChange={(e) => setBuscaDest(e.target.value)}
-                placeholder="🔍 Buscar dependencia destino…"
+                placeholder="Buscar dependencia destino…"
                 style={{ ...input, width: '100%', marginBottom: '8px' }}
               />
               <div style={{ maxHeight: '190px', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderRadius: '6px' }}>
@@ -398,7 +399,7 @@ export const SeccionCatalogos: React.FC = () => {
           onClick={() => setAviso(null)}
           style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 1100, padding: '12px 16px', backgroundColor: '#D1FAE5', color: '#065F46', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, boxShadow: theme.shadow.lg, cursor: 'pointer' }}
         >
-          ✓ {aviso}
+          <Icono nombre="check" inline />{aviso}
         </div>
       )}
     </div>
@@ -408,7 +409,7 @@ export const SeccionCatalogos: React.FC = () => {
 // ── estilos ──────────────────────────────────────────────
 const ETIQUETA_TIPO: Record<string, React.CSSProperties> = {
   DEPENDENCIA: { backgroundColor: '#FDE8EF', color: '#9F2241' },
-  SUBUNIDAD:   { backgroundColor: '#DBEAFE', color: '#1E40AF' },
+  SUBUNIDAD:   { backgroundColor: '#EFEDEA', color: '#3D3935' },
   REMITENTE:   { backgroundColor: '#D1FAE5', color: '#065F46' },
   CORREO:      { backgroundColor: '#E0F2FE', color: '#075985' },
 };

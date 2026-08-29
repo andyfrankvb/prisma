@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import type { ResumenModulo } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -157,7 +158,7 @@ const TarjetaModulo: React.FC<{ resumen: ResumenModulo }> = ({ resumen }) => {
       <div style={{ padding: '16px 18px' }}>
         {hasError ? (
           <div style={{ padding: '10px 12px', backgroundColor: '#FEF2F2', borderRadius: '6px', fontSize: '0.8rem', color: theme.colors.alert.red }}>
-            <strong>⚠ Error:</strong> {resumen.error}
+            <strong><Icono nombre="alerta" inline />Error:</strong> {resumen.error}
           </div>
         ) : (
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between' }}>

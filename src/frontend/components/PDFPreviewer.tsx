@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 
 interface Props {
@@ -133,12 +134,12 @@ export const PDFPreviewer: React.FC<Props> = ({
         alignItems:      'center',
         justifyContent:  'space-between',
         padding:         '8px 16px',
-        backgroundColor: theme.colors.primary,
+        backgroundColor: theme.colors.charcoal,
         color:           theme.colors.white,
         fontSize:        '0.85rem',
         fontWeight:      600,
       }}>
-        <span>{isWord ? '📝' : '📄'} {title}</span>
+        <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>{title}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           {blobUrl && !isWord && (
             <button
@@ -159,7 +160,7 @@ export const PDFPreviewer: React.FC<Props> = ({
               download={title}
               style={{ color: theme.colors.white, fontSize: '0.8rem', textDecoration: 'underline' }}
             >
-              ⬇ Descargar
+              <Icono nombre="descargar" inline />Descargar
             </a>
           )}
         </span>
@@ -176,7 +177,7 @@ export const PDFPreviewer: React.FC<Props> = ({
       {!loading && error && (
         <div style={{ padding: '32px', textAlign: 'center' }}>
           <p style={{ color: theme.colors.alert.yellow, fontSize: '0.875rem', margin: '0 0 8px', fontWeight: 600 }}>
-            📂 Documento no disponible
+            <Icono nombre="carpeta" inline />Documento no disponible
           </p>
           <p style={{ color: theme.colors.textSecondary, fontSize: '0.8rem', margin: 0 }}>
             {error}
@@ -193,16 +194,16 @@ export const PDFPreviewer: React.FC<Props> = ({
             alignItems:      'center',
             gap:             '10px',
             padding:         '10px 16px',
-            backgroundColor: '#EFF6FF',
-            borderBottom:    `1px solid #BFDBFE`,
+            backgroundColor: '#F5F4F2',
+            borderBottom:    `1px solid #E2DDD8`,
             fontSize:        '0.78rem',
-            color:           '#1E40AF',
+            color:           '#3D3935',
           }}>
-            <span style={{ fontSize: '1.1rem' }}>📝</span>
+            <Icono nombre="editar" size={17} />
             <div>
               <strong>Archivo Word</strong> — no se puede previsualizar directamente.
               {downloadUrl && (
-                <> Usa el botón <strong>⬇ Descargar</strong> para abrirlo en tu equipo.</>
+                <> Usa el botón <strong><Icono nombre="descargar" inline />Descargar</strong> para abrirlo en tu equipo.</>
               )}
             </div>
           </div>
@@ -222,7 +223,7 @@ export const PDFPreviewer: React.FC<Props> = ({
                 letterSpacing:   '0.05em',
                 textTransform:   'uppercase',
               }}>
-                <span>📄 Texto extraído del documento</span>
+                <span><Icono nombre="documento" inline />Texto extraído del documento</span>
                 <span style={{ backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 400 }}>
                   {textoWord.length} caracteres
                 </span>
@@ -248,7 +249,7 @@ export const PDFPreviewer: React.FC<Props> = ({
                 fontSize:        '0.7rem',
                 color:           theme.colors.textSecondary,
               }}>
-                💡 Texto seleccionable extraído automáticamente del archivo Word
+                <Icono nombre="informacion" inline />Texto seleccionable extraído automáticamente del archivo Word
               </div>
             </div>
           ) : (
@@ -274,7 +275,7 @@ export const PDFPreviewer: React.FC<Props> = ({
                     fontSize:        '0.875rem',
                   }}
                 >
-                  ⬇ Descargar archivo Word
+                  <Icono nombre="descargar" inline />Descargar archivo Word
                 </a>
               )}
             </div>

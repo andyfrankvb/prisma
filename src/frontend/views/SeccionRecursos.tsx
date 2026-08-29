@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import {
   getRecursosConfig, guardarRecurso, subirArchivoRecurso,
@@ -51,13 +52,13 @@ export const SeccionRecursos: React.FC = () => {
       {error && (
         <div role="alert" onClick={() => setError(null)}
           style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.82rem', cursor: 'pointer' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
       {aviso && (
         <div role="status"
           style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#D1FAE5', color: '#065F46', fontSize: '0.82rem', fontWeight: 600 }}>
-          ✓ {aviso}
+          <Icono nombre="check" inline />{aviso}
         </div>
       )}
 
@@ -169,7 +170,7 @@ const Apartado: React.FC<{
           <div style={{ marginTop: '9px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             {valor.tieneArchivo ? (
               <>
-                <span style={{ fontSize: '0.78rem', color: '#065F46', fontWeight: 700 }}>✓ Archivo cargado</span>
+                <span style={{ fontSize: '0.78rem', color: '#065F46', fontWeight: 700 }}><Icono nombre="check" inline />Archivo cargado</span>
                 <a href={urlArchivoRecurso(n)} target="_blank" rel="noopener noreferrer" style={btnSec}>Ver actual</a>
                 <button onClick={retirar} style={{ ...btnSec, color: '#B91C1C', borderColor: '#B91C1C' }}>Retirar</button>
               </>

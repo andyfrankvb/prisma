@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import type { UsuarioDisponible } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -298,7 +299,7 @@ export const ConfiguracionFlujos: React.FC = () => {
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px', fontFamily: theme.font.family, maxWidth: '960px', margin: '0 auto' }}>
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: theme.colors.textPrimary }}>⚙️ Configuración de Flujos</h2>
+        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: theme.colors.textPrimary }}><Icono nombre="engranaje" inline />Configuración de Flujos</h2>
         <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: theme.colors.textSecondary }}>
           Asigna qué usuario desempeña cada rol dentro del flujo de trabajo de cada módulo.
         </p>
@@ -376,7 +377,7 @@ export const ConfiguracionFlujos: React.FC = () => {
 
                 {/* Formulario agregar nueva entrada */}
                 {addState?.moduloClave === modulo.modulo_clave && addState?.rolFlujo === rol.rol_flujo && (
-                  <div style={{ padding: '12px 20px', backgroundColor: '#EFF6FF', borderTop: `1px solid ${theme.colors.border}`, display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ padding: '12px 20px', backgroundColor: '#F5F4F2', borderTop: `1px solid ${theme.colors.border}`, display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                     {!addState.sinOficina && (
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: theme.colors.charcoal, marginBottom: '4px' }}>Oficina</label>
@@ -430,7 +431,7 @@ export const ConfiguracionFlujos: React.FC = () => {
                           || (!addState.sinOficina && addState.unidadId === '')}
                         style={{ padding: '6px 14px', background: theme.colors.alert.green, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
                       >
-                        {addState.saving ? 'Guardando…' : '✓ Guardar'}
+                        {addState.saving ? 'Guardando…' : 'Guardar'}
                       </button>
                       <button
                         onClick={() => setAddState(null)}
@@ -455,7 +456,7 @@ export const ConfiguracionFlujos: React.FC = () => {
                     <div key={grupo.clave} style={{ borderTop: `1px solid ${theme.colors.border}` }}>
                       <div style={{ padding: '8px 20px 2px' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.colors.primary }}>
-                          🏛 {grupo.nombre}
+                          <Icono nombre="edificio" inline />{grupo.nombre}
                           {grupo.items.length > 1 && (
                             <span style={{ marginLeft: '8px', fontSize: '0.68rem', fontWeight: 600, color: theme.colors.textSecondary }}>
                               {grupo.items.length} personas
@@ -482,11 +483,10 @@ export const ConfiguracionFlujos: React.FC = () => {
                                 ))}
                               </select>
                               <button onClick={guardarEdicion} disabled={editEntry.saving || editEntry.selected === ''} style={{ padding: '5px 12px', background: theme.colors.alert.green, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
-                                {editEntry.saving ? 'Guardando…' : '✓'}
+                                {editEntry.saving ? 'Guardando…' : <Icono nombre="check" size={14} />}
                               </button>
                               <button onClick={() => setEditEntry(null)} style={{ padding: '5px 8px', background: 'transparent', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.75rem' }}>
-                                ✕
-                              </button>
+                                <Icono nombre="cerrar" inline />                              </button>
                               {editEntry.error && <span style={{ fontSize: '0.72rem', color: theme.colors.alert.red }}>{editEntry.error}</span>}
                             </div>
                           ) : (
@@ -508,15 +508,14 @@ export const ConfiguracionFlujos: React.FC = () => {
                               onClick={() => abrirEditar(modulo.modulo_clave, rol.rol_flujo, cfg.unidad_id)}
                               style={{ padding: '5px 10px', background: theme.colors.primary, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
                             >
-                              ✏️ Editar
+                              <Icono nombre="editar" inline />Editar
                             </button>
                             {cfg.unidad_id !== null && (
                               <button
                                 onClick={() => eliminarEntrada(modulo.modulo_clave, rol.rol_flujo, cfg.unidad_id!, cfg.usuario_id)}
                                 style={{ padding: '5px 10px', background: theme.colors.alert.red, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
                               >
-                                🗑
-                              </button>
+                                <Icono nombre="papelera" inline />                              </button>
                             )}
                           </div>
                         )}
@@ -546,7 +545,7 @@ export const ConfiguracionFlujos: React.FC = () => {
           {delegaciones.map((d, i) => (
             <div key={d.id} style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', borderTop: i === 0 ? 'none' : `1px solid ${theme.colors.border}` }}>
               <div style={{ flex: 1, minWidth: '200px' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primary }}>🏛 {d.nombre}</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primary }}><Icono nombre="edificio" inline />{d.nombre}</p>
                 <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
                   {d.tipo === 'DIRECCION' ? 'Director' : 'Delegado'}: {d.delegado_nombre ?? '—'} · Encargado: {d.encargado_nombre ?? '—'}
                 </p>

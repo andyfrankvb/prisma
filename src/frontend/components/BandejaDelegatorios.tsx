@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 import {
   getBandejaDelegatorios, getCandidatosAsignacion, asignarDelegatorio,
@@ -147,12 +148,12 @@ export const BandejaDelegatorios: React.FC<{
       {error && (
         <div role="alert" onClick={() => setError(null)}
           style={{ marginBottom: '10px', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: '0.78rem', cursor: 'pointer' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
       {aviso && (
         <div role="status" style={{ marginBottom: '10px', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#D1FAE5', color: '#065F46', fontSize: '0.78rem', fontWeight: 600 }}>
-          ✓ {aviso}
+          <Icono nombre="check" inline />{aviso}
         </div>
       )}
 

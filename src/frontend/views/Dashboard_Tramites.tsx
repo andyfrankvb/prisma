@@ -5,6 +5,8 @@
  */
 
 import React, { useState, useEffect, useCallback, FormEvent } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { useAuth } from '../context/AuthContext';
 import { theme }   from '../theme';
 import { Modal }   from '../components/Modal';
@@ -66,7 +68,7 @@ type EstatusTramite =
 const TIPOS_TRAMITE = ['Convenio', 'Contrato', 'Consulta Jurídica', 'Acuerdo', 'Resolución', 'Otro'];
 
 const ESTATUS_CFG: Record<EstatusTramite, { bg: string; text: string; label: string }> = {
-  NUEVO:              { bg: '#DBEAFE', text: '#1E40AF', label: 'Nuevo'                },
+  NUEVO:              { bg: '#EFEDEA', text: '#3D3935', label: 'Nuevo'                },
   EN_REVISION:        { bg: '#FEF3C7', text: '#92400E', label: 'En Revisión'          },
   EN_PROCESO:         { bg: '#D1FAE5', text: '#065F46', label: 'En Proceso'           },
   FINALIZADO:         { bg: '#F3F4F6', text: '#374151', label: 'Finalizado'           },
@@ -157,28 +159,28 @@ type Categoria = 'ingresados' | 'en_proceso' | 'cerrados';
 
 const CATEGORIA_CFG: Record<Categoria, {
   label:   string;
-  icon:    string;
+  icon:    NombreIcono;
   header:  string;
   bg:      string;
   estados: EstatusTramite[];
 }> = {
   ingresados: {
     label:   'Ingresados',
-    icon:    '📥',
+    icon:    'descargar',
     header:  'rgb(255, 0, 50)',
     bg:      '#FFF0F3',
     estados: ['NUEVO', 'EN_REVISION', 'DEVUELTO_DELEGADO'],
   },
   en_proceso: {
     label:   'En Proceso',
-    icon:    '⚙️',
+    icon:    'engranaje',
     header:  'rgb(0, 122, 255)',
-    bg:      '#EFF6FF',
+    bg:      '#F5F4F2',
     estados: ['EN_PROCESO', 'DEVUELTO_JURIDICO'],
   },
   cerrados: {
     label:   'Cerrados',
-    icon:    '✅',
+    icon:    'checkCirculo',
     header:  'rgb(52, 199, 89)',
     bg:      '#F0FDF4',
     estados: ['FINALIZADO', 'RECHAZADO'],
@@ -525,7 +527,7 @@ export const Dashboard_Tramites: React.FC = () => {
       <div style={{ padding: `20px ${padX} 0`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '1.5rem' }}>🎫</span>
+            <Icono nombre="documento" size={22} />
             <h2 style={{ margin: 0, color: theme.colors.primary, fontSize: '1.2rem', fontWeight: 700 }}>
               Seguimiento de Resoluciones
             </h2>
@@ -554,7 +556,7 @@ export const Dashboard_Tramites: React.FC = () => {
             backgroundColor: '#EAF7EE', color: '#1B7A3D',
             fontSize: '0.72rem', fontWeight: 500,
           }}>
-            <span aria-hidden>📉</span>{avisoCompresion}
+            <Icono nombre="tendenciaBaja" size={14} style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: '4px' }} />{avisoCompresion}
           </div>
         </div>
       )}
@@ -562,11 +564,11 @@ export const Dashboard_Tramites: React.FC = () => {
       {/* Tarjetas de resumen — estilo minimalista con ícono (clic para filtrar) */}
       <div style={{ padding: `16px ${padX} 0`, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px' }}>
         {([
-          { cat: '',           label: 'Total',      count: tramites.length,          color: 'rgb(33,37,41)',  icon: '📄' },
-          { cat: 'ingresados', label: 'Ingresados', count: grupos.ingresados.length, color: 'rgb(255,0,50)',  icon: '＋' },
-          { cat: 'en_proceso', label: 'En Proceso', count: grupos.en_proceso.length, color: 'rgb(0,122,255)', icon: '🕐' },
-          { cat: 'cerrados',   label: 'Cerrados',   count: grupos.cerrados.length,   color: 'rgb(52,199,89)', icon: '✓' },
-        ] as { cat: '' | Categoria; label: string; count: number; color: string; icon: string }[]).map(c => {
+          { cat: '',           label: 'Total',      count: tramites.length,          color: 'rgb(33,37,41)',  icon: 'documento' },
+          { cat: 'ingresados', label: 'Ingresados', count: grupos.ingresados.length, color: 'rgb(255,0,50)',  icon: 'mas' },
+          { cat: 'en_proceso', label: 'En Proceso', count: grupos.en_proceso.length, color: 'rgb(0,122,255)', icon: 'reloj' },
+          { cat: 'cerrados',   label: 'Cerrados',   count: grupos.cerrados.length,   color: 'rgb(52,199,89)', icon: 'check' },
+        ] as { cat: '' | Categoria; label: string; count: number; color: string; icon: NombreIcono }[]).map(c => {
           const activa = filtroCat === c.cat;
           return (
             <button
@@ -587,7 +589,7 @@ export const Dashboard_Tramites: React.FC = () => {
                 <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: 0.92 }}>{c.label}</div>
                 <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1.15 }}>{c.count}</div>
               </div>
-              <span style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.35rem', flexShrink: 0 }}>{c.icon}</span>
+              <span style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icono nombre={c.icon} size={22} color="#fff" /></span>
             </button>
           );
         })}
@@ -614,7 +616,7 @@ export const Dashboard_Tramites: React.FC = () => {
         <div style={{ padding: `16px ${padX} 0` }}>
           <div style={{ backgroundColor: '#fff', border: `1px solid ${theme.colors.border}`, borderRadius: '14px', boxShadow: theme.shadow.sm, padding: '14px 16px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 320px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F3F4F6', borderRadius: '10px', padding: '9px 14px' }}>
-              <span style={{ color: theme.colors.textSecondary }}>🔍</span>
+              <Icono nombre="buscar" size={15} color={theme.colors.textSecondary} />
               <input
                 type="text"
                 value={busqueda}
@@ -701,7 +703,7 @@ export const Dashboard_Tramites: React.FC = () => {
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               <button onClick={() => abrirDetalle(t)} style={{ ...btnSecondary, padding: '5px 12px', fontSize: '0.75rem' }}>Ver detalle</button>
                               {corregir && (
-                                <button onClick={() => abrirCorregir(t)} style={{ ...btnPrimary, padding: '5px 12px', fontSize: '0.75rem', backgroundColor: '#D97706' }}>✏ Corregir</button>
+                                <button onClick={() => abrirCorregir(t)} style={{ ...btnPrimary, padding: '5px 12px', fontSize: '0.75rem', backgroundColor: '#D97706' }}><Icono nombre="editar" inline />Corregir</button>
                               )}
                             </div>
                           </td>
@@ -859,7 +861,7 @@ export const Dashboard_Tramites: React.FC = () => {
           {errorReenviarJuridico && <div style={alertStyle}>{errorReenviarJuridico}</div>}
           <div style={modalFooter}>
             <button type="button" onClick={() => setShowReenviarJuridico(false)} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={reenviandoJuridico || !comentReenviarJuridico.trim()} style={{ ...btnPrimary, backgroundColor: '#2563EB' }}>
+            <button type="submit" disabled={reenviandoJuridico || !comentReenviarJuridico.trim()} style={{ ...btnPrimary, backgroundColor: '#3D3935' }}>
               {reenviandoJuridico ? 'Subsanando...' : 'Subsanar'}
             </button>
           </div>
@@ -880,7 +882,7 @@ export const Dashboard_Tramites: React.FC = () => {
           <div style={modalFooter}>
             <button type="button" onClick={() => setShowCerrar(false)} style={btnSecondary}>Cancelar</button>
             <button type="submit" disabled={cerrando || !comentCierre.trim()} style={{ ...btnPrimary, backgroundColor: '#374151' }}>
-              {cerrando ? 'Cerrando…' : '🔒 Cerrar Proceso'}
+              {cerrando ? 'Cerrando…' : 'Cerrar Proceso'}
             </button>
           </div>
         </form>
@@ -915,7 +917,7 @@ export const Dashboard_Tramites: React.FC = () => {
               .find(a => a.estado_nuevo === 'DEVUELTO_DELEGADO' && a.comentario);
             return comentRevision ? (
               <div style={{ backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px' }}>
-                <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '0.78rem', color: '#92400E' }}>📋 Comentario del Revisor:</p>
+                <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '0.78rem', color: '#92400E' }}><Icono nombre="lista" inline />Comentario del Revisor:</p>
                 <p style={{ margin: 0, fontSize: '0.82rem', color: '#78350F', lineHeight: 1.5 }}>{comentRevision.comentario}</p>
               </div>
             ) : null;
@@ -964,7 +966,7 @@ export const Dashboard_Tramites: React.FC = () => {
 
       {/* ── Modal: Detalle ────────────────────────────────── */}
       <Modal open={showDetalle} title={detalle ? `${detalle.folio}` : 'Cargando…'} onClose={() => setShowDetalle(false)} width={700}>
-        {detalleLoading && <p style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}>⏳ Cargando…</p>}
+        {detalleLoading && <p style={{ textAlign: 'center', padding: '32px', color: theme.colors.textSecondary }}><Icono nombre="reloj" inline />Cargando…</p>}
         {!detalleLoading && detalle && (
           <DetallePanel
             detalle={detalle}
@@ -1043,19 +1045,19 @@ const TramiteCard: React.FC<TramiteCardProps> = ({
 
       {/* Delegación */}
       <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary, flex: 1, minWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        🏛 {tramite.unidad_nombre}
+        <Icono nombre="edificio" inline />{tramite.unidad_nombre}
       </span>
 
       {/* Fecha */}
       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, whiteSpace: 'nowrap', flexShrink: 0 }}>
-        📅 {new Date(tramite.fecha_creacion).toLocaleDateString('es-MX')}
+        <Icono nombre="calendario" inline />{new Date(tramite.fecha_creacion).toLocaleDateString('es-MX')}
       </span>
 
       {/* Acciones */}
       <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onVerDetalle} style={{ ...btnSecondary, padding: '3px 10px', fontSize: '0.7rem' }}>Ver detalle</button>
         {puedeCorregir && (
-          <button onClick={onCorregir} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#D97706' }}>✏ Corregir</button>
+          <button onClick={onCorregir} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#D97706' }}><Icono nombre="editar" inline />Corregir</button>
         )}
         {puedeAccionRevisor && (
           <>
@@ -1065,13 +1067,13 @@ const TramiteCard: React.FC<TramiteCardProps> = ({
           </>
         )}
         {puedeReenviarJuridico && (
-          <button onClick={onReenviarJuridico} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#2563EB' }}>Subsanar</button>
+          <button onClick={onReenviarJuridico} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#3D3935' }}>Subsanar</button>
         )}
         {puedeCerrar && (
-          <button onClick={onCerrar} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#374151' }}>🔒 Cerrar</button>
+          <button onClick={onCerrar} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#374151' }}><Icono nombre="candado" inline />Cerrar</button>
         )}
         {puedeDevolverJuridico && (
-          <button onClick={onDevolverJuridico} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#EA580C' }}>↩ Jurídico</button>
+          <button onClick={onDevolverJuridico} style={{ ...btnPrimary, padding: '3px 10px', fontSize: '0.7rem', backgroundColor: '#EA580C' }}><Icono nombre="regresarIzq" inline />Jurídico</button>
         )}
       </div>
     </div>
@@ -1122,11 +1124,11 @@ const DetallePanel: React.FC<DetallePanelProps> = ({
       {/* Datos del solicitante */}
       {detalle.nombre_solicitante && (
         <div style={{ backgroundColor: '#F9FAFB', borderRadius: '8px', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.78rem', color: theme.colors.charcoal }}>👤 Datos del solicitante</p>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.78rem', color: theme.colors.charcoal }}><Icono nombre="persona" inline />Datos del solicitante</p>
           <p style={{ margin: 0, fontSize: '0.82rem', color: theme.colors.textPrimary }}>{detalle.nombre_solicitante}</p>
-          {detalle.correo_solicitante && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}>✉ {detalle.correo_solicitante}</p>}
-          {detalle.telefono_solicitante && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}>📞 {detalle.telefono_solicitante}</p>}
-          {detalle.numero_ticket && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}>🎫 Ticket: {detalle.numero_ticket}</p>}
+          {detalle.correo_solicitante && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}><Icono nombre="correo" inline />{detalle.correo_solicitante}</p>}
+          {detalle.telefono_solicitante && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}><Icono nombre="persona" inline />{detalle.telefono_solicitante}</p>}
+          {detalle.numero_ticket && <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.textSecondary }}><Icono nombre="documento" inline />Ticket: {detalle.numero_ticket}</p>}
         </div>
       )}
 
@@ -1136,15 +1138,15 @@ const DetallePanel: React.FC<DetallePanelProps> = ({
 
       {/* Fechas */}
       <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: theme.colors.textSecondary, flexWrap: 'wrap' }}>
-        <span>📅 Creado: {new Date(detalle.fecha_creacion).toLocaleDateString('es-MX')}</span>
-        {detalle.fecha_compromiso && <span style={{ color: theme.colors.primary }}>🤝 Compromiso: {detalle.fecha_compromiso}</span>}
-        {detalle.fecha_cierre && <span style={{ color: theme.colors.alert.green }}>✅ Cerrado: {new Date(detalle.fecha_cierre).toLocaleDateString('es-MX')}</span>}
+        <span><Icono nombre="calendario" inline />Creado: {new Date(detalle.fecha_creacion).toLocaleDateString('es-MX')}</span>
+        {detalle.fecha_compromiso && <span style={{ color: theme.colors.primary }}><Icono nombre="personas" inline />Compromiso: {detalle.fecha_compromiso}</span>}
+        {detalle.fecha_cierre && <span style={{ color: theme.colors.alert.green }}><Icono nombre="checkCirculo" inline />Cerrado: {new Date(detalle.fecha_cierre).toLocaleDateString('es-MX')}</span>}
       </div>
 
       {/* Documentos */}
       {detalle.documentos.length > 0 && (
         <div>
-          <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal }}>📎 Documentos adjuntos</p>
+          <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.8rem', color: theme.colors.charcoal }}>Documentos adjuntos</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {detalle.documentos.map(d => (
               <a key={d.id} href={`/files${d.archivo_url}`} target="_blank" rel="noreferrer"
@@ -1161,26 +1163,26 @@ const DetallePanel: React.FC<DetallePanelProps> = ({
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '4px', borderTop: `1px solid ${theme.colors.border}` }}>
           <button onClick={onTurnar}           style={{ ...btnPrimary, backgroundColor: theme.colors.alert.green }}>Procesar</button>
           <button onClick={onDevolverDelegado} style={{ ...btnPrimary, backgroundColor: '#D97706' }}>Observar</button>
-          <button onClick={onRechazar}         style={{ ...btnPrimary, backgroundColor: theme.colors.alert.red }}>✗ Rechazar</button>
+          <button onClick={onRechazar}         style={{ ...btnPrimary, backgroundColor: theme.colors.alert.red }}><Icono nombre="tache" inline />Rechazar</button>
         </div>
       )}
 
       {/* Acción revisor — DEVUELTO_JURIDICO */}
       {puedeReenviarJuridico && (
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '4px', borderTop: `1px solid ${theme.colors.border}` }}>
-          <button onClick={onReenviarJuridico} style={{ ...btnPrimary, backgroundColor: '#2563EB' }}>Subsanar</button>
+          <button onClick={onReenviarJuridico} style={{ ...btnPrimary, backgroundColor: '#3D3935' }}>Subsanar</button>
         </div>
       )}
 
       {/* Acciones del finalizador */}
       {(puedeCerrar || puedeDevolverJuridico) && (
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '4px', borderTop: `1px solid ${theme.colors.border}` }}>
-          {puedeCerrar           && <button onClick={onCerrar}           style={{ ...btnPrimary, backgroundColor: '#374151' }}>🔒 Cerrar Proceso</button>}
-          {puedeDevolverJuridico && <button onClick={onDevolverJuridico} style={{ ...btnPrimary, backgroundColor: '#EA580C' }}>↩ Devolver a Jurídico</button>}
+          {puedeCerrar           && <button onClick={onCerrar}           style={{ ...btnPrimary, backgroundColor: '#374151' }}><Icono nombre="candado" inline />Cerrar Proceso</button>}
+          {puedeDevolverJuridico && <button onClick={onDevolverJuridico} style={{ ...btnPrimary, backgroundColor: '#EA580C' }}><Icono nombre="regresarIzq" inline />Devolver a Jurídico</button>}
         </div>
       )}
 
-      {/* Línea de tiempo unificada: movimientos (🔄) + comentarios (💬) */}
+      {/* Línea de tiempo unificada: movimientos + comentarios */}
       <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: '12px' }}>
         <SeguimientoTramite
           tramiteId={detalle.id}

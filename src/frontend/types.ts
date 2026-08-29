@@ -69,6 +69,10 @@ export interface Oficio {
    * que es lo que hace falta desde que un área conserva la vista de lo que mandó.
    */
   es_de_mi_area?:           boolean;
+  /** ¿El oficio está en la bandeja de quien consulta, ahora mismo? */
+  en_mi_bandeja?:           boolean;
+  /** ¿Quien consulta es el encargado configurado de la unidad destinataria? */
+  soy_encargado_del_area?:  boolean;
   /** El encargado del área que lo tiene puede turnarlo a otra. Lo calcula el servidor. */
   puede_turnar?:            boolean;
   /**
@@ -104,7 +108,7 @@ export interface Oficio {
   resolucion_en?:           string | null;
   /** true si el usuario actual puede mandarlo como resolución a la Dirección General. */
   puede_marcar_resolucion?: boolean;
-  /** Búsqueda de testamentos: plazo fijo de 10 días hábiles en dos etapas. */
+  /** Búsqueda de testamentos: plazo fijo de 3 días hábiles en dos etapas. */
   testamento?:              boolean;
   testamento_en?:           string | null;
   testamento_vence_delegaciones?: string | null;

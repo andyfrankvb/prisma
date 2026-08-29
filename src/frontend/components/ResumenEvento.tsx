@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 import type { EventoResumen, EventoDetalle, EstadoTarea } from '../types';
 
@@ -30,9 +31,9 @@ function formatFecha(iso: string | null | undefined, conHora = false): string {
 
 const ESTADO_TAREA_CFG: Record<string, { bg: string; text: string; label: string }> = {
   PENDIENTE:      { bg: '#FEF3C7', text: '#92400E', label: 'Pendiente'      },
-  EN_PROGRESO:    { bg: '#DBEAFE', text: '#1E40AF', label: 'En Progreso'    },
+  EN_PROGRESO:    { bg: '#EFEDEA', text: '#3D3935', label: 'En Progreso'    },
   EN_REVISION:    { bg: '#FEF3C7', text: '#92400E', label: 'En Revisión'    },
-  EN_REVISION_DG: { bg: '#EDE9FE', text: '#5B21B6', label: 'En Revisión DG' },
+  EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
   COMPLETADA:     { bg: '#D1FAE5', text: '#065F46', label: 'Completada'     },
@@ -118,7 +119,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
 
   const stats = [
     { label: 'Finalizadas', valor: resumen.tareas_completada,  bg: '#D1FAE5', text: '#065F46' },
-    { label: 'En progreso', valor: resumen.tareas_en_progreso, bg: '#DBEAFE', text: '#1E40AF' },
+    { label: 'En progreso', valor: resumen.tareas_en_progreso, bg: '#EFEDEA', text: '#3D3935' },
     { label: 'Pendientes',  valor: resumen.tareas_pendiente,   bg: '#FEF3C7', text: '#92400E' },
     { label: 'Vencidas',    valor: resumen.tareas_vencidas,    bg: '#FEE2E2', text: '#991B1B' },
     { label: 'Por vencer',  valor: resumen.tareas_proximas,    bg: '#FFEDD5', text: '#9A3412' },
@@ -143,7 +144,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                 {resumen.estado === 'ABIERTO' ? '● Abierto' : '● Cerrado'}
               </span>
               {resumen.fecha_programada && (
-                <span style={{ fontSize: '0.75rem', color: theme.colors.primary, fontWeight: 600 }}>📅 Fecha límite: {resumen.fecha_programada}</span>
+                <span style={{ fontSize: '0.75rem', color: theme.colors.primary, fontWeight: 600 }}><Icono nombre="calendario" inline />Fecha límite: {resumen.fecha_programada}</span>
               )}
             </div>
           </div>
@@ -180,15 +181,15 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
 
           {/* Fechas */}
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', fontSize: '0.8rem', color: theme.colors.textSecondary, marginBottom: '20px' }}>
-            <span>🗓️ Creado: <strong style={{ color: theme.colors.textPrimary }}>{formatFecha(resumen.fecha_creacion)}</strong></span>
-            <span>📅 Fecha límite: <strong style={{ color: theme.colors.textPrimary }}>{resumen.fecha_programada || '—'}</strong></span>
-            {resumen.fecha_cierre && <span>🔒 Cerrado: <strong style={{ color: theme.colors.textPrimary }}>{formatFecha(resumen.fecha_cierre)}</strong></span>}
+            <span><Icono nombre="calendario" inline />Creado: <strong style={{ color: theme.colors.textPrimary }}>{formatFecha(resumen.fecha_creacion)}</strong></span>
+            <span><Icono nombre="calendario" inline />Fecha límite: <strong style={{ color: theme.colors.textPrimary }}>{resumen.fecha_programada || '—'}</strong></span>
+            {resumen.fecha_cierre && <span><Icono nombre="candado" inline />Cerrado: <strong style={{ color: theme.colors.textPrimary }}>{formatFecha(resumen.fecha_cierre)}</strong></span>}
           </div>
 
           {/* Cierre del evento — justificación, quién y cuándo */}
           {(resumen.estado === 'CERRADO' || detalle?.fecha_cierre) && (
             <div style={{ marginBottom: '20px', padding: '12px 14px', backgroundColor: '#F9FAFB', border: `1px solid ${theme.colors.border}`, borderLeft: '4px solid #374151', borderRadius: '8px' }}>
-              <p style={{ margin: '0 0 8px', fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>🔒 Cierre del evento</p>
+              <p style={{ margin: '0 0 8px', fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}><Icono nombre="candado" inline />Cierre del evento</p>
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.78rem', color: theme.colors.textSecondary, marginBottom: '6px' }}>
                 <span>Cerrado por: <strong style={{ color: theme.colors.textPrimary }}>{detalle?.cerrado_por_nombre ?? '—'}</strong></span>
                 <span>Fecha y hora: <strong style={{ color: theme.colors.textPrimary }}>{formatFecha(detalle?.fecha_cierre ?? resumen.fecha_cierre, true)}</strong></span>
@@ -214,8 +215,8 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                 {(detalle?.directores_participantes ?? []).map((p) => {
                   const esResp = p.id === responsableId;
                   return (
-                    <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: esResp ? '#EDE9FE' : '#F3F4F6', color: esResp ? '#5B21B6' : theme.colors.textPrimary, border: esResp ? '1px solid #C4B5FD' : `1px solid ${theme.colors.border}` }}>
-                      {esResp ? '⭐ ' : '👤 '}{p.nombre}{esResp ? ' · Responsable' : ''}
+                    <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: esResp ? '#FDE8EF' : '#F3F4F6', color: esResp ? '#8A0730' : theme.colors.textPrimary, border: esResp ? '1px solid #F2C9D6' : `1px solid ${theme.colors.border}` }}>
+                      <Icono nombre={esResp ? 'etiqueta' : 'persona'} size={12} />{p.nombre}{esResp ? ' · Responsable' : ''}
                     </span>
                   );
                 })}
@@ -225,7 +226,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
             {/* Cambiar el director responsable — solo aquí, dentro del Abrir */}
             {puedeGestionar && resumen.estado !== 'CERRADO' && (
               <div style={{ marginTop: '12px', padding: '10px 12px', backgroundColor: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#5B21B6' }}>👤 Director responsable:</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#8A0730' }}><Icono nombre="persona" inline />Director responsable:</span>
                 <select
                   value={responsableId ?? ''}
                   onChange={(e) => cambiarResponsable(e.target.value ? Number(e.target.value) : null)}
@@ -266,10 +267,10 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                     disabled={!nuevoParticipante || agregando}
                     style={{ padding: '7px 14px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: (!nuevoParticipante || agregando) ? 'not-allowed' : 'pointer', opacity: (!nuevoParticipante || agregando) ? 0.5 : 1, fontFamily: theme.font.family }}
                   >
-                    {agregando ? 'Agregando…' : '➕ Incorporar'}
+                    {agregando ? 'Agregando…' : 'Incorporar'}
                   </button>
                 </div>
-                {errorPart && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}>⚠ {errorPart}</p>}
+                {errorPart && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorPart}</p>}
                 <p style={{ margin: 0, fontSize: '0.7rem', color: theme.colors.textSecondary }}>
                   Puedes sumar a otro director al evento aunque ya tenga actividades.
                 </p>
@@ -295,13 +296,13 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 700, fontSize: '0.85rem', color: theme.colors.textPrimary }}>{t.titulo}</span>
                         <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: '20px', fontSize: '0.64rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, textTransform: 'uppercase' }}>{cfg.label}</span>
-                        {t.vencida && <span style={{ fontSize: '0.64rem', fontWeight: 700, color: theme.colors.alert.red, backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}>⚠ Vencida</span>}
-                        {!t.vencida && t.proxima_a_vencer && <span style={{ fontSize: '0.64rem', fontWeight: 700, color: '#9A3412', backgroundColor: '#FFEDD5', padding: '2px 8px', borderRadius: '20px' }}>⏳ Por vencer</span>}
+                        {t.vencida && <span style={{ fontSize: '0.64rem', fontWeight: 700, color: theme.colors.alert.red, backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}><Icono nombre="alerta" inline />Vencida</span>}
+                        {!t.vencida && t.proxima_a_vencer && <span style={{ fontSize: '0.64rem', fontWeight: 700, color: '#9A3412', backgroundColor: '#FFEDD5', padding: '2px 8px', borderRadius: '20px' }}><Icono nombre="reloj" inline />Por vencer</span>}
                       </div>
                       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '6px', fontSize: '0.74rem', color: theme.colors.textSecondary }}>
-                        <span>👤 {t.reasignado_a_nombre || t.asignado_a_nombre}</span>
-                        <span>📅 Programada: {t.fecha_programada}</span>
-                        <span>🤝 Compromiso: {t.fecha_compromiso || 'sin definir'}</span>
+                        <span><Icono nombre="persona" inline />{t.reasignado_a_nombre || t.asignado_a_nombre}</span>
+                        <span><Icono nombre="calendario" inline />Programada: {t.fecha_programada}</span>
+                        <span><Icono nombre="personas" inline />Compromiso: {t.fecha_compromiso || 'sin definir'}</span>
                       </div>
                     </div>
                   );

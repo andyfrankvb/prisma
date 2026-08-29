@@ -3,13 +3,14 @@
  * File: src/frontend/components/SeguimientoTramite.tsx
  *
  * Fusiona en UNA sola línea temporal, ordenada por fecha:
- *   · MOVIMIENTOS — cambios de estado (auditoría), con 🔄 y color según el estado.
- *   · COMENTARIOS — mensajes enviados, con 💬 en morado (marca distintiva).
+ *   · MOVIMIENTOS — cambios de estado (auditoría), y color según el estado.
+ *   · COMENTARIOS — mensajes enviados, en morado (marca distintiva).
  *
  * Recibe la auditoría ya cargada en el detalle y trae los comentarios por su cuenta.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
@@ -69,7 +70,7 @@ const ESTADO_LABEL: Record<string, string> = {
   DEVUELTO_DELEGADO: 'Devuelto al Delegado', DEVUELTO_JURIDICO: 'Devuelto a Jurídico',
 };
 const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = {
-  NUEVO:             { dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
+  NUEVO:             { dot: '#3D3935', bg: '#EFEDEA', text: '#3D3935' },
   EN_REVISION:       { dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
   EN_PROCESO:        { dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
   FINALIZADO:        { dot: '#374151', bg: '#F3F4F6', text: '#374151' },
@@ -78,7 +79,7 @@ const ESTADO_STYLE: Record<string, { dot: string; bg: string; text: string }> = 
   DEVUELTO_JURIDICO: { dot: '#DC2626', bg: '#FEE2E2', text: '#991B1B' },
 };
 const ESTADO_FALLBACK = { dot: '#6B7280', bg: '#F3F4F6', text: '#374151' };
-const COMENTARIO_STYLE = { dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' };
+const COMENTARIO_STYLE = { dot: '#AB0A3D', bg: '#FDE8EF', text: '#8A0730' };
 
 interface TimelineItem {
   key:            string;
@@ -148,7 +149,7 @@ export const SeguimientoTramite: React.FC<Props> = ({ tramiteId, auditoria, pued
       </p>
 
       {loading && items.length === 0 && (
-        <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>⏳ Cargando…</p>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}><Icono nombre="reloj" inline />Cargando…</p>
       )}
 
       {items.length === 0 && !loading && (
@@ -182,7 +183,7 @@ export const SeguimientoTramite: React.FC<Props> = ({ tramiteId, auditoria, pued
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: st.bg, color: st.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                        {esComentario ? '💬 Comentario' : `🔄 ${estadoLbl}`}
+                        {esComentario ? 'Comentario' : `${estadoLbl}`}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.fecha)}</span>
@@ -212,7 +213,7 @@ export const SeguimientoTramite: React.FC<Props> = ({ tramiteId, auditoria, pued
       {puedeEscribir && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '14px' }}>
           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
-            💬 Agregar comentario
+            <Icono nombre="comentario" inline />Agregar comentario
           </p>
           <textarea
             value={nuevoComentario}
@@ -222,7 +223,7 @@ export const SeguimientoTramite: React.FC<Props> = ({ tramiteId, auditoria, pued
             disabled={enviando}
             style={{ padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: theme.font.family, resize: 'vertical', width: '100%', boxSizing: 'border-box' as const }}
           />
-          {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}>⚠ {envioError}</p>}
+          {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{envioError}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               onClick={enviar}

@@ -128,7 +128,10 @@ export function getRolesConfigurables(moduloClave: string): string[] {
 
 /** Roles que se configuran POR UNIDAD (un actor por delegación). Exigen unidad. */
 const ROLES_POR_UNIDAD: Record<string, string[]> = {
-  oficialia_partes: ['OFICIAL', 'ENCARGADO'],
+  // JURIDICO se capturaba sin unidad y no gobernaba nada: quién podía recibir un
+  // expediente se deducía de tener el módulo habilitado. Ahora se designa por
+  // área, que es lo que permite decidir quién es analista en cada delegación.
+  oficialia_partes: ['OFICIAL', 'ENCARGADO', 'JURIDICO'],
 };
 
 /** Roles GLOBALES (un solo actor, sin unidad). */
@@ -154,7 +157,10 @@ const ROLES_GLOBALES: Record<string, string[]> = {
  * volverían impredecible esa resolución.
  */
 const ROLES_MULTIPLES: Record<string, string[]> = {
-  oficialia_partes: ['OFICIAL', 'SECRETARIA'],
+  // JURIDICO también: un área tiene varios abogados trabajando expedientes a la
+  // vez, y de ellos no se deduce a quién le cae nada —el encargado asigna
+  // expresamente—, así que tener varios no vuelve ambiguo ningún reparto.
+  oficialia_partes: ['OFICIAL', 'SECRETARIA', 'JURIDICO'],
 };
 
 export function esRolPorUnidad(moduloClave: string, rolFlujo: string): boolean {

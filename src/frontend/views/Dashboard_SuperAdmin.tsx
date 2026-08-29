@@ -5,6 +5,8 @@
  */
 
 import React, { useState } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { theme } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -20,19 +22,19 @@ type ModuloKey = 'usuarios' | 'modulos' | 'flujos' | 'catalogos' | 'correos' | '
 
 interface NavItem {
   key:      ModuloKey;
-  icon:     string;
+  icon:     NombreIcono;
   label:    string;
   sublabel: string;
   color:    string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'usuarios', icon: '🛡',  label: 'Administración', sublabel: 'Usuarios del sistema', color: '#4C1D95' },
-  { key: 'modulos',  icon: '🧩',  label: 'Módulos',        sublabel: 'Gestión de acceso',    color: '#4C1D95' },
-  { key: 'flujos',   icon: '⚙️',  label: 'Flujos',         sublabel: 'Configuración de actores', color: '#4C1D95' },
-  { key: 'catalogos', icon: '📇', label: 'Catálogos',      sublabel: 'Dependencias y remitentes', color: '#4C1D95' },
-  { key: 'correos',   icon: '✉️', label: 'Mis correos',    sublabel: 'Cuentas que usas al registrar', color: '#4C1D95' },
-  { key: 'recursos',  icon: '🔗', label: 'Recursos',       sublabel: 'Video y manual del login', color: '#4C1D95' },
+  { key: 'usuarios', icon: 'personas',  label: 'Administración', sublabel: 'Usuarios del sistema', color: '#440412' },
+  { key: 'modulos',  icon: 'lista',  label: 'Módulos',        sublabel: 'Gestión de acceso',    color: '#440412' },
+  { key: 'flujos',   icon: 'engranaje',  label: 'Flujos',         sublabel: 'Configuración de actores', color: '#440412' },
+  { key: 'catalogos', icon: 'lista', label: 'Catálogos',      sublabel: 'Dependencias y remitentes', color: '#440412' },
+  { key: 'correos',   icon: 'correo', label: 'Mis correos',    sublabel: 'Cuentas que usas al registrar', color: '#440412' },
+  { key: 'recursos',  icon: 'etiqueta', label: 'Recursos',       sublabel: 'Video y manual del login', color: '#440412' },
 ];
 
 export const Dashboard_SuperAdmin: React.FC = () => {
@@ -67,14 +69,14 @@ export const Dashboard_SuperAdmin: React.FC = () => {
             width:           '40px',
             height:          '40px',
             borderRadius:    '50%',
-            backgroundColor: '#4C1D95',
+            backgroundColor: '#440412',
             display:         'flex',
             alignItems:      'center',
             justifyContent:  'center',
             fontSize:        '1.2rem',
             marginBottom:    '10px',
           }}>
-            🛡
+            
           </div>
           <p style={{ margin: 0, color: '#fff', fontWeight: 700, fontSize: '0.82rem', lineHeight: 1.3 }}>
             {user?.nombre}
@@ -118,7 +120,7 @@ export const Dashboard_SuperAdmin: React.FC = () => {
                 onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)'; }}
                 onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'transparent'; }}
               >
-                <span style={{ fontSize: '1.1rem', flexShrink: 0, lineHeight: 1 }}>{item.icon}</span>
+                <Icono nombre={item.icon} size={17} />
                 <div style={{ overflow: 'hidden' }}>
                   <p style={{ margin: 0, color: active ? '#fff' : 'rgba(255,255,255,0.75)', fontWeight: active ? 700 : 500, fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.label}
@@ -159,7 +161,7 @@ export const Dashboard_SuperAdmin: React.FC = () => {
         }}>
           <span style={{ color: 'rgba(171,10,61,0.5)' }}>Super Admin</span>
           <span>›</span>
-          <span style={{ fontWeight: 700, color: current.color }}>{current.icon} {current.label}</span>
+          <span style={{ fontWeight: 700, color: current.color, display: 'inline-flex', alignItems: 'center', gap: '6px' }}><Icono nombre={current.icon} size={15} /> {current.label}</span>
           <span style={{ marginLeft: 'auto', color: theme.colors.textSecondary }}>{current.sublabel}</span>
         </div>
 

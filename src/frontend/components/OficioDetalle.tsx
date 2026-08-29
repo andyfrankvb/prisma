@@ -3,7 +3,7 @@
  * Inspirado en la ficha del sistema registral: bloques claros en lugar de pestañas.
  *
  *   · Datos generales
- *   · Documentos requisitos (tabla con el catálogo completo ✓/faltante + Ver/Descargar)
+ *   · Documentos requisitos (tabla con el catálogo completo entregado/faltante + Ver/Descargar)
  *   · Vista previa del documento seleccionado
  *   · Identidad de la solicitud (control interno SIQROO, ingreso, estatus, delegación)
  *   · Usuarios del oficio (ingresado, asignado, visto bueno, en bandeja)
@@ -14,6 +14,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { Icono } from './Icono';
 import { theme } from '../theme';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { StatusBadge } from './StatusBadge';
@@ -98,6 +99,28 @@ const gridCampos: React.CSSProperties = {
   gap:                 '14px 20px',
 };
 
+/**
+ * Íconos de línea para Ver / Descargar, del mismo trazo que la campana.
+ * En dorado (Pantone 125C): destaca la acción sin repetir el guinda del texto,
+ * y sustituye a los emoticones, que cada sistema operativo dibujaba distinto.
+ */
+const IcoVer = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.colors.gold}
+       strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const IcoDescargar = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.colors.gold}
+       strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3v12" />
+    <polyline points="7 11 12 16 17 11" />
+    <path d="M4 20h16" />
+  </svg>
+);
+
 export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onCambio, accionesFinales }) => {
   const isMobile = useIsMobile();
   const [documentos, setDocumentos] = useState<OficioDocumento[]>([]);
@@ -142,7 +165,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
     return m;
   }, [documentos]);
 
-  // El visor NO se abre solo: solo aparece cuando el usuario da clic en 👁️ Ver.
+  // El visor NO se abre solo: solo aparece cuando el usuario da clic en «Ver».
 
   const verDocEstatico = (d: OficioDocumento, nombre: string) =>
     setPreview({ url: `/files${d.archivo_url}`, title: nombre, esImagen: esImagenUrl(d.archivo_url), mostrarOcr: d.tipo === 'oficio' });
@@ -161,7 +184,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
 
   // Resumen de los dos sistemas para el bloque de datos generales.
   const sistemaTexto = (aplica?: boolean, nci?: string | null) =>
-    !aplica ? 'No aplica' : nci ? `✓ ${nci}` : '🚩 Pendiente por completar';
+    !aplica ? 'No aplica' : nci ? `${nci}` : 'Pendiente por completar';
 
   // Filas extra (proyecto / firmado) que no viven en oficio_documentos.
   const filasExtra: { entregado: boolean; nombre: string; archivo: string | null; onVer?: () => void }[] = [];
@@ -174,7 +197,12 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
     onVer: () => verEndpoint('firmado', 'Contestación firmada'),
   });
 
-  const linkStyle: React.CSSProperties = { color: theme.colors.primary, fontWeight: 600, fontSize: '0.78rem', textDecoration: 'none', whiteSpace: 'nowrap' };
+  const linkStyle: React.CSSProperties = {
+    color: theme.colors.primary, fontWeight: 600, fontSize: '0.78rem',
+    textDecoration: 'none', whiteSpace: 'nowrap',
+    // Los íconos van alineados con el texto en lugar de pegados a él.
+    display: 'inline-flex', alignItems: 'center', gap: '5px',
+  };
   const tdStyle:   React.CSSProperties = { padding: '8px 10px', borderBottom: `1px solid ${theme.colors.border}`, fontSize: '0.82rem', verticalAlign: 'middle' };
   const thStyle:   React.CSSProperties = { padding: '8px 10px', textAlign: 'left' as const, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: theme.colors.textSecondary, borderBottom: `2px solid ${theme.colors.border}` };
 
@@ -193,7 +221,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
             cursor: 'pointer', fontFamily: theme.font.family,
           }}
         >
-          🕑 Ver historial
+          <Icono nombre="historial" inline />Ver historial
         </button>
       </div>
 
@@ -252,7 +280,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
                   <tr key={tipo} style={{ opacity: entregado ? 1 : 0.55 }}>
                     <td style={{ ...tdStyle, textAlign: 'center' as const, fontWeight: 700 }}>
                       {entregado
-                        ? <span style={{ color: theme.colors.alert.green }}>✓</span>
+                        ? <Icono nombre="check" size={15} color={theme.colors.alert.green} />
                         : <span style={{ color: theme.colors.textSecondary }}>—</span>}
                     </td>
                     <td style={tdStyle}>{nombre}</td>
@@ -262,8 +290,8 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
                     <td style={tdStyle}>
                       {entregado && (
                         <span style={{ display: 'flex', gap: '12px' }}>
-                          <button onClick={() => verDocEstatico(d, nombre)} style={{ ...linkStyle, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>👁️ Ver</button>
-                          <a href={`/files${d.archivo_url}`} download={d.nombre_original ?? undefined} style={linkStyle}>⬇️ Descargar</a>
+                          <button onClick={() => verDocEstatico(d, nombre)} style={{ ...linkStyle, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{IcoVer} Ver</button>
+                          <a href={`/files${d.archivo_url}`} download={d.nombre_original ?? undefined} style={linkStyle}>{IcoDescargar} Descargar</a>
                         </span>
                       )}
                     </td>
@@ -291,9 +319,9 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
                 {filasExtra.map((f) => (
                   <tr key={f.archivo}>
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{f.nombre}</td>
-                    <td style={{ ...tdStyle, color: theme.colors.alert.green, fontWeight: 700 }}>✓ Disponible</td>
+                    <td style={{ ...tdStyle, color: theme.colors.alert.green, fontWeight: 700 }}><Icono nombre="check" inline />Disponible</td>
                     <td style={tdStyle}>
-                      <button onClick={f.onVer} style={{ ...linkStyle, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>👁️ Ver</button>
+                      <button onClick={f.onVer} style={{ ...linkStyle, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{IcoVer} Ver</button>
                     </td>
                   </tr>
                 ))}
@@ -307,49 +335,105 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
       {preview && (
         <div style={{
           position:        'fixed',
-          top:             0,
-          bottom:          0,
-          left:            0,
-          width:           isMobile ? '100%' : '46vw',
-          maxWidth:        isMobile ? '100%' : '760px',
+          // En escritorio el panel se separa del borde para leerse como una
+          // tarjeta flotante; en móvil va a sangre, donde el margen solo restaría
+          // espacio de lectura.
+          //
+          // El 70 = 58 px del encabezado de la aplicación + los 12 de margen que
+          // usa el panel del expediente. Sin ese desplazamiento el visor se monta
+          // sobre la barra superior y tapa el logo, y además arranca más arriba
+          // que el expediente, así que los dos paneles se ven desalineados.
+          top:             isMobile ? 0 : 70,
+          bottom:          isMobile ? 0 : 12,
+          left:            isMobile ? 0 : 12,
+          // El visor toma todo el espacio libre hasta el panel del expediente en
+          // vez de un ancho fijo: leer un oficio escaneado en una franja angosta
+          // obligaba a ampliar cada vez. El cálculo es el ancho del expediente
+          // —min(45vw, 760px), su propio tope— más sus 12 px de margen derecho y
+          // otros 12 de canal entre las dos ventanas.
+          right:           isMobile ? 0 : 'calc(min(45vw, 760px) + 24px)',
+          width:           isMobile ? '100%' : 'auto',
           zIndex:          1100,
           backgroundColor: theme.colors.surface,
-          boxShadow:       '4px 0 28px rgba(0,0,0,0.22)',
+          borderRadius:    isMobile ? 0 : '12px',
+          overflow:        'hidden',
+          boxShadow:       '0 2px 8px rgba(61,57,53,0.10), 0 16px 44px rgba(61,57,53,0.24)',
           display:         'flex',
           flexDirection:   'column',
         }}>
-          {/* Encabezado del visor */}
+          {/* Encabezado del visor — Pantone 125C */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '12px 16px', backgroundColor: theme.colors.primary, color: '#fff',
+            padding: '9px 18px',
+            background: `linear-gradient(135deg, ${theme.colors.goldLight} 0%, ${theme.colors.gold} 100%)`,
+            color: '#fff',
             flexShrink: 0,
           }}>
-            <span style={{ fontSize: '0.9rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              👁️ {preview.title}
+            <span style={{
+              fontSize:      '0.9rem',
+              fontWeight:    700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              overflow:      'hidden',
+              textOverflow:  'ellipsis',
+              whiteSpace:    'nowrap',
+            }}>
+              {preview.title}
             </span>
             <button
               onClick={() => setPreview(null)}
               aria-label="Cerrar visor"
-              style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
+              style={{
+                background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff',
+                fontSize: '1.05rem', cursor: 'pointer', lineHeight: 1, flexShrink: 0,
+                width: '24px', height: '24px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.32)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.18)')}
             >
               ×
             </button>
           </div>
 
-          {/* Contenido */}
-          <div style={{ flex: 1, overflow: 'auto', padding: '12px', backgroundColor: '#F0F0EC' }}>
+          {/* Contenido — columna: el documento arriba con alto fijo, y la
+              transcripción abajo tomando lo que sobre. Así ninguna de las dos
+              empuja a la otra fuera del panel y no hace falta desplazar el
+              conjunto: cada una se desplaza por dentro. */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px', backgroundColor: '#F0F0EC' }}>
             {preview.esImagen ? (
-              <img src={preview.url} alt={preview.title} style={{ maxWidth: '100%', borderRadius: '8px', border: `1.5px solid ${theme.colors.border}` }} />
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                <img src={preview.url} alt={preview.title} style={{ maxWidth: '100%', borderRadius: '8px', border: `1.5px solid ${theme.colors.border}` }} />
+              </div>
             ) : (
-              <PDFPreviewer url={preview.url} title={preview.title} height={preview.mostrarOcr ? Math.round(vh * 0.5) : vh - 120} hideExtractedText={preview.ocultarTexto} />
+              <div style={{ flexShrink: 0 }}>
+                <PDFPreviewer
+                  url={preview.url}
+                  title={preview.title}
+                  height={
+                    // El panel arranca 70 px abajo y termina 12 antes del borde
+                    // (82), más su encabezado (42) y el relleno del contenido (24).
+                    // Con transcripción, el documento se queda con el 55 % del alto
+                    // y le cede el resto; sin ella, ocupa todo.
+                    preview.mostrarOcr && (oficio as any).texto_ocr
+                      ? Math.round((vh - 148) * 0.55)
+                      : vh - 148
+                  }
+                  hideExtractedText={preview.ocultarTexto}
+                />
+              </div>
             )}
 
             {/* Información extraída por OCR (solo al abrir el documento "Oficio") */}
             {preview.mostrarOcr && (oficio as any).texto_ocr && (
-              <div style={{ marginTop: '12px', border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: theme.colors.charcoal, color: '#fff' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>
-                    🤖 Información extraída del oficio
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
+                <div style={{
+                  flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', backgroundColor: theme.colors.charcoal, color: '#fff',
+                }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>
+                    Transcripción automática del documento
                   </span>
                   {(oficio as any).ocr_metodo && (
                     <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
@@ -357,11 +441,11 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
                     </span>
                   )}
                 </div>
-                <div style={{ padding: '14px 16px', backgroundColor: '#FAFAF8', maxHeight: '260px', overflowY: 'auto', fontSize: '0.82rem', lineHeight: 1.8, color: theme.colors.textPrimary, whiteSpace: 'pre-wrap', fontFamily: 'monospace', userSelect: 'text' }}>
+                <div style={{ flex: 1, minHeight: 0, padding: '14px 16px', backgroundColor: '#FAFAF8', overflowY: 'auto', fontSize: '0.82rem', lineHeight: 1.8, color: theme.colors.textPrimary, whiteSpace: 'pre-wrap', fontFamily: 'monospace', userSelect: 'text' }}>
                   {(oficio as any).texto_ocr}
                 </div>
-                <div style={{ padding: '7px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.7rem', color: theme.colors.textSecondary }}>
-                  💡 Texto reconocido automáticamente del documento escaneado
+                <div style={{ flexShrink: 0, padding: '7px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.7rem', color: theme.colors.textSecondary }}>
+                  Lectura automática del escaneo: puede contener errores de reconocimiento
                 </div>
               </div>
             )}
@@ -400,7 +484,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
           <Campo
             label="Documento firmado"
             value={tieneFirmado
-              ? `✓ Cargado${oficio.fecha_firmado ? ` — ${fmtFecha(oficio.fecha_firmado)}` : ''}`
+              ? `Cargado${oficio.fecha_firmado ? ` — ${fmtFecha(oficio.fecha_firmado)}` : ''}`
               : oficio.de_conocimiento ? 'No aplica' : 'Pendiente'}
           />
           <Campo label="En bandeja de"  value={oficio.en_bandeja_de} />

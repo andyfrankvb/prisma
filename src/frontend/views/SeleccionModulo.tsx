@@ -9,6 +9,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Icono } from '../components/Icono';
+import type { NombreIcono } from '../components/Icono';
 import { useNavigate } from 'react-router-dom';
 import { useAuth }     from '../context/AuthContext';
 import { theme }       from '../theme';
@@ -76,18 +78,41 @@ function getRutaModulo(
   }
 }
 
+/**
+ * Fondo institucional de las pantallas previas al tablero.
+ *
+ * Usa el degradado radial que la hoja de marca define como elemento propio,
+ * sobre la base de gris cálido 401C. Van tres capas, de arriba hacia abajo:
+ *
+ *   1. Un halo guinda 1945C arriba al centro, que es el punto de calidez.
+ *   2. Un asentamiento en guinda oscuro 7421C abajo, que da profundidad y evita
+ *      que el gris plano se lea apagado.
+ *   3. La base 401C.
+ *
+ * El guinda va en opacidades bajas a propósito: si sube, vuelve a competir con
+ * el guinda de las tarjetas de módulo y con la marca PRISMA.
+ */
+const FONDO_INSTITUCIONAL = [
+  `radial-gradient(115% 85% at 50% 8%, rgba(171,10,61,0.34) 0%, rgba(171,10,61,0.13) 40%, rgba(171,10,61,0) 70%)`,
+  `radial-gradient(120% 75% at 50% 108%, rgba(68,4,18,0.30) 0%, rgba(68,4,18,0) 62%)`,
+  theme.colors.grayMid,
+].join(', ');
+
 // ── Iconos y colores por módulo ───────────────────────────────
 
-const MODULO_CFG: Record<string, { icon: string; color: string; desc: string }> = {
-  oficialia_partes:     { icon: '📥', color: '#AB0A3D', desc: 'Recepción y seguimiento de oficios oficiales' },
-  supervision_eventos:  { icon: '📅', color: '#1E40AF', desc: 'Gestión de eventos operativos y tareas por área' },
-  tramites_seguimiento: { icon: '🎫', color: '#065F46', desc: 'Seguimiento de resoluciones entre delegaciones y Dirección Jurídica' },
-  tablero_direccion:    { icon: '📊', color: '#7C3AED', desc: 'Métricas, supervisión y monitoreo general de Dirección' },
-  catalogos:            { icon: '📇', color: '#B68400', desc: 'Depurar dependencias, sub-unidades, remitentes y correos' },
+// Sólo colores del toolkit (ver theme.ts): guinda 1945C, guinda oscuro 7421C,
+// dorado 125C y su variante clara, y gris carbón Black 7C. Se distinguen entre
+// sí sin salirse de la identidad institucional.
+const MODULO_CFG: Record<string, { icon: NombreIcono; color: string; desc: string }> = {
+  oficialia_partes:     { icon: 'descargar',  color: theme.colors.primary,     desc: 'Recepción y seguimiento de oficios oficiales' },
+  supervision_eventos:  { icon: 'calendario', color: theme.colors.charcoal,    desc: 'Gestión de eventos operativos y tareas por área' },
+  tramites_seguimiento: { icon: 'documento',  color: theme.colors.gold,        desc: 'Seguimiento de resoluciones entre delegaciones y Dirección Jurídica' },
+  tablero_direccion:    { icon: 'grafica',    color: theme.colors.primaryDark, desc: 'Métricas, supervisión y monitoreo general de Dirección' },
+  catalogos:            { icon: 'lista',      color: theme.colors.goldLight,   desc: 'Depurar dependencias, sub-unidades, remitentes y correos' },
 };
 
 function getModuloCfg(clave: string) {
-  return MODULO_CFG[clave] ?? { icon: '🧩', color: theme.colors.primary, desc: 'Módulo del sistema' };
+  return MODULO_CFG[clave] ?? { icon: 'lista', color: theme.colors.primary, desc: 'Módulo del sistema' };
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -168,7 +193,7 @@ export const SeleccionModulo: React.FC = () => {
     return (
       <div style={fullPage}>
         <div style={{ textAlign: 'center', color: theme.colors.textSecondary }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>⏳</div>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}><Icono nombre="reloj" size={40} color={theme.colors.grayMid} /></div>
           <p style={{ margin: 0, fontWeight: 600, fontFamily: theme.font.family }}>
             Cargando módulos…
           </p>
@@ -183,7 +208,7 @@ export const SeleccionModulo: React.FC = () => {
     return (
       <div style={fullPage}>
         <div style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}><Icono nombre="candado" size={46} color={theme.colors.grayMid} /></div>
           <h2 style={{ margin: '0 0 8px', color: theme.colors.primaryDark, fontFamily: theme.font.family, fontWeight: 900 }}>
             Sin acceso
           </h2>
@@ -217,7 +242,7 @@ export const SeleccionModulo: React.FC = () => {
     return (
       <div style={fullPage}>
         <div style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>⚠️</div>
+          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}><Icono nombre="alerta" size={40} color={theme.colors.alert.yellow} /></div>
           <p style={{ color: theme.colors.alert.red, fontWeight: 600, marginBottom: '16px', fontFamily: theme.font.family }}>
             {error}
           </p>
@@ -248,7 +273,7 @@ export const SeleccionModulo: React.FC = () => {
     <div style={{
       minHeight:      '100vh',
       display:        'flex',
-      background:     `linear-gradient(135deg, ${theme.colors.primaryDark} 0%, ${theme.colors.primary} 60%, ${theme.colors.primaryLight} 100%)`,
+      background:     FONDO_INSTITUCIONAL,
       alignItems:     'center',
       justifyContent: 'center',
       fontFamily:     theme.font.family,
@@ -264,19 +289,21 @@ export const SeleccionModulo: React.FC = () => {
       }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{
-            width:           '64px',
-            height:          '64px',
-            borderRadius:    '50%',
-            backgroundColor: theme.colors.primary,
-            display:         'flex',
-            alignItems:      'center',
-            justifyContent:  'center',
-            margin:          '0 auto 16px',
-            fontSize:        '1.8rem',
-          }}>
-            🧩
-          </div>
+          {/* El logotipo completo va sin disco detrás: es horizontal y trae su
+              propio texto, así que el círculo lo recortaba y competía con él.
+              El PNG es transparente y se apoya en el fondo claro de la tarjeta. */}
+          <img
+            src="/PRISMA1.png"
+            alt="PRISMA — Plataforma de Control y Seguimiento"
+            style={{
+              height:    isMobile ? '68px' : '92px',
+              width:     'auto',
+              maxWidth:  '100%',
+              objectFit: 'contain',
+              display:   'block',
+              margin:    '0 auto 18px',
+            }}
+          />
           <h2 style={{ margin: '0 0 6px', fontSize: '1.4rem', fontWeight: 900, color: theme.colors.primaryDark }}>
             Selecciona un módulo
           </h2>
@@ -337,10 +364,9 @@ export const SeleccionModulo: React.FC = () => {
                   display:         'flex',
                   alignItems:      'center',
                   justifyContent:  'center',
-                  fontSize:        '1.5rem',
                   flexShrink:      0,
                 }}>
-                  {isLoading ? '⏳' : cfg.icon}
+                  <Icono nombre={isLoading ? 'reloj' : cfg.icon} size={24} color={cfg.color} />
                 </div>
 
                 {/* Texto */}
@@ -386,12 +412,14 @@ export const SeleccionModulo: React.FC = () => {
 
 // ── Styles ────────────────────────────────────────────────────
 
+// Las pantallas de carga, sin acceso y de error comparten el mismo fondo que la
+// selección de módulos, para que no haya un salto visual entre ellas.
 const fullPage: React.CSSProperties = {
   minHeight:      '100vh',
   display:        'flex',
   alignItems:     'center',
   justifyContent: 'center',
-  backgroundColor: theme.colors.background,
+  background:     FONDO_INSTITUCIONAL,
   fontFamily:     theme.font.family,
   padding:        '24px',
 };

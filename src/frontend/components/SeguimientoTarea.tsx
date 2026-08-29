@@ -4,7 +4,7 @@
  *
  * Fusiona el historial (avances / devoluciones / aprobaciones) con los
  * comentarios (mensajes) en UNA sola línea temporal ordenada por fecha, con
- * una marca distintiva por tipo — el COMENTARIO se distingue en morado con 💬.
+ * una marca distintiva por tipo — el COMENTARIO se distingue en morado.
  *
  * Componente autocontenido: carga sus propios datos a partir de eventoId/tareaId.
  * Se usa en todas las vistas (directores, operativos y revisión de equipo) para
@@ -12,6 +12,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Icono } from './Icono';
+import type { NombreIcono } from './Icono';
 import { theme } from '../theme';
 import type { RegistroHistorial } from '../types';
 
@@ -67,14 +69,14 @@ interface TimelineItem {
   documento_url: string | null;
 }
 
-// Config visual por tipo — el COMENTARIO se distingue en morado con 💬
-const TIMELINE_CFG: Record<TimelineTipo, { label: string; icon: string; dot: string; bg: string; text: string }> = {
-  AVANCE:        { label: 'Avance',            icon: '📤', dot: '#2563EB', bg: '#DBEAFE', text: '#1E40AF' },
-  DEVOLUCION:    { label: 'Devolución',        icon: '↩',  dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
-  APROBACION_N1: { label: 'Aprobación (área)', icon: '✓',  dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
-  APROBACION_N2: { label: 'Aprobación (DG)',   icon: '✅', dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
-  REASIGNACION:  { label: 'Delegación',        icon: '👥', dot: '#0891B2', bg: '#CFFAFE', text: '#155E75' },
-  COMENTARIO:    { label: 'Comentario',        icon: '💬', dot: '#7C3AED', bg: '#EDE9FE', text: '#5B21B6' },
+// Config visual por tipo — el COMENTARIO se distingue en morado
+const TIMELINE_CFG: Record<TimelineTipo, { label: string; icon: NombreIcono; dot: string; bg: string; text: string }> = {
+  AVANCE:        { label: 'Avance',            icon: 'subir', dot: '#3D3935', bg: '#EFEDEA', text: '#3D3935' },
+  DEVOLUCION:    { label: 'Devolución',        icon: 'regresarIzq',  dot: '#D97706', bg: '#FEF3C7', text: '#92400E' },
+  APROBACION_N1: { label: 'Aprobación (área)', icon: 'check',  dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
+  APROBACION_N2: { label: 'Aprobación (DG)',   icon: 'checkCirculo', dot: '#059669', bg: '#D1FAE5', text: '#065F46' },
+  REASIGNACION:  { label: 'Delegación',        icon: 'personas', dot: '#B68400', bg: '#FBF3DF', text: '#7A5A00' },
+  COMENTARIO:    { label: 'Comentario',        icon: 'comentario', dot: '#AB0A3D', bg: '#FDE8EF', text: '#8A0730' },
 };
 
 interface Props {
@@ -150,7 +152,7 @@ export const SeguimientoTarea: React.FC<Props> = ({ eventoId, tareaId, puedeEscr
 
       {!loading && error && (
         <div role="alert" style={{ padding: '10px 12px', backgroundColor: '#FEE2E2', color: theme.colors.alert.red, borderRadius: '8px', fontSize: '0.82rem' }}>
-          ⚠ {error}
+          <Icono nombre="alerta" inline />{error}
         </div>
       )}
 
@@ -185,7 +187,7 @@ export const SeguimientoTarea: React.FC<Props> = ({ eventoId, tareaId, puedeEscr
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: cfg.bg, color: cfg.text, textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
-                        {cfg.icon} {cfg.label}
+                        <Icono nombre={cfg.icon} size={13} /> {cfg.label}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>{it.autor_nombre}</span>
                       <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>{formatFecha(it.creado_en)}</span>
@@ -195,8 +197,8 @@ export const SeguimientoTarea: React.FC<Props> = ({ eventoId, tareaId, puedeEscr
                     )}
                     {it.documento_url && (
                       <a href={`/files${it.documento_url}`} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#1E40AF', textDecoration: 'none', backgroundColor: '#EFF6FF', padding: '4px 10px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
-                        📎 Ver documento adjunto
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '0.75rem', fontWeight: 600, color: '#3D3935', textDecoration: 'none', backgroundColor: '#F5F4F2', padding: '4px 10px', borderRadius: '6px', border: '1px solid #E2DDD8' }}>
+                        <Icono nombre="documento" inline />Ver documento adjunto
                       </a>
                     )}
                   </div>
@@ -211,7 +213,7 @@ export const SeguimientoTarea: React.FC<Props> = ({ eventoId, tareaId, puedeEscr
       {puedeEscribir && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '14px' }}>
           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
-            💬 Agregar comentario
+            <Icono nombre="comentario" inline />Agregar comentario
           </p>
           <textarea
             value={nuevoComentario}
@@ -221,7 +223,7 @@ export const SeguimientoTarea: React.FC<Props> = ({ eventoId, tareaId, puedeEscr
             disabled={enviando}
             style={{ padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: theme.font.family, resize: 'vertical', width: '100%', boxSizing: 'border-box' as const }}
           />
-          {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}>⚠ {envioError}</p>}
+          {envioError && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{envioError}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               onClick={enviar}
