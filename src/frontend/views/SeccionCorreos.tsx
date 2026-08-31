@@ -13,8 +13,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Icono } from '../components/Icono';
 import { theme } from '../theme';
-import { getCorreos, editarCorreo, eliminarCorreo, adoptarCorreo } from '../api';
-import type { CorreoItem, TipoCorreo } from '../api';
+import { getCorreos, editarCorreo, eliminarCorreo, adoptarCorreo, getCorreosRegistrados } from '../api';
+import type { CorreoItem, TipoCorreo, CorreoRegistrado } from '../api';
 import { useDialogo } from '../context/DialogoContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -131,6 +131,187 @@ const Lista: React.FC<{
   );
 };
 
+/**
+ * Quién tiene correos dados de alta. Solo para el SuperAdmin.
+ *
+ * El resto de la pantalla es privado a propósito: cada quien ve su lista y nadie
+ * ve la de los demás. Eso deja al administrador entrando a «Mis correos», sin ver
+ * nada —ninguno es suyo— y con la impresión de que la función no guarda nada.
+ * Este bloque responde esa pregunta: quién tiene, de qué área y cuáles.
+ *
+ * Es de solo lectura. Corregir o quitar un correo sigue siendo de su dueño: son
+ * las cuentas con las que trabaja, y el administrador no tiene cómo saber cuál
+ * dejó de servirle.
+ */
+const RegistradosPorUsuario: React.FC<{ onError: (m: string) => void }> = ({ onError }) => {
+  const [filas,    setFilas]    = useState<CorreoRegistrado[] | null>(null);
+  const [editando, setEditando] = useState<number | null>(null);
+  const [borrador, setBorrador] = useState('');
+  const [busca,    setBusca]    = useState('');
+  const dialogo = useDialogo();
+
+  const cargar = useCallback(() => {
+    getCorreosRegistrados()
+      .then((r) => setFilas(r.data))
+      // Un 403 aquí no es una falla: es que quien mira no es el SuperAdmin. El
+      // bloque simplemente no se dibuja, sin avisos que no vienen al caso.
+      .catch(() => setFilas([]));
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  // El listado devuelve el tipo como lo guarda la base; las rutas lo esperan en
+  // minúscula, que es como viaja en la URL.
+  const ruta = (c: CorreoRegistrado): TipoCorreo =>
+    (c.tipo === 'ORIGEN' ? 'origen' : 'destino');
+
+  const guardar = async (c: CorreoRegistrado) => {
+    const valor = borrador.trim().toLowerCase();
+    if (!valor || valor === c.correo) { setEditando(null); return; }
+    try { await editarCorreo(ruta(c), c.id, valor); setEditando(null); cargar(); }
+    catch (e: any) { onError(e.message); }
+  };
+
+  const quitar = async (c: CorreoRegistrado) => {
+    const sigue = await dialogo.confirmar({
+      titulo:  'Quitar el correo de otra persona',
+      mensaje: `«${c.correo}» dejará de aparecerle a ${c.usuario_nombre ?? 'quien lo tenga'} al registrar. `
+             + 'Los oficios ya capturados con esa cuenta no cambian.',
+      confirmar: 'Quitar',
+      peligro:   true,
+    });
+    if (!sigue) return;
+    try { await eliminarCorreo(ruta(c), c.id); cargar(); }
+    catch (e: any) { onError(e.message); }
+  };
+
+  if (!filas || filas.length === 0) return null;
+
+  /**
+   * El buscador filtra por las tres cosas con las que se llega hasta aquí: el
+   * correo, la persona y su área. Se busca «gloria» igual que «catastro» o
+   * «cozumel», sin tener que saber en qué columna cae.
+   *
+   * Se filtra en el navegador porque la lista completa ya está cargada: son los
+   * correos de la institución, no un histórico que crezca sin freno, y una ida al
+   * servidor por cada tecla no compraría nada.
+   */
+  const q = busca.trim().toLowerCase();
+  const visibles = q
+    ? filas.filter((f) => [f.correo, f.usuario_nombre, f.unidad_nombre]
+        .some((campo) => (campo ?? '').toLowerCase().includes(q)))
+    : filas;
+
+  // Agrupado por persona, respetando el orden que ya trae el servidor: los
+  // heredados —sin dueño— quedan al final, en su propio grupo.
+  const grupos: { clave: string; nombre: string; unidad: string | null; items: CorreoRegistrado[] }[] = [];
+  for (const f of visibles) {
+    const clave = String(f.usuario_id ?? 'heredados');
+    let g = grupos.find((x) => x.clave === clave);
+    if (!g) {
+      g = {
+        clave,
+        nombre: f.usuario_nombre ?? 'Sin dueño (heredados del catálogo anterior)',
+        unidad: f.unidad_nombre ?? null,
+        items:  [],
+      };
+      grupos.push(g);
+    }
+    g.items.push(f);
+  }
+
+  return (
+    <div style={{ ...caja, marginTop: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' }}>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: theme.colors.textPrimary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Correos registrados por usuario
+        </span>
+        <span style={{ fontSize: '0.72rem', color: theme.colors.grayMid }}>
+          {q
+            ? `${visibles.length} de ${filas.length}`
+            : `${filas.length} en total · ${grupos.length} ${grupos.length === 1 ? 'lista' : 'listas'}`}
+        </span>
+      </div>
+      <p style={{ margin: '0 0 14px', fontSize: '0.76rem', color: theme.colors.textSecondary }}>
+        Se dan de alta solos cuando alguien registra un oficio recibido por correo. Desde aquí puedes
+        corregir un dedazo o quitar el que ya no sirva, aunque sea de otra persona.
+      </p>
+
+      <input
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder="Buscar por correo, persona o área…"
+        aria-label="Buscar entre los correos registrados"
+        style={{ ...input, flex: 'none', width: '100%', marginBottom: '14px' }}
+      />
+
+      {q && visibles.length === 0 && (
+        <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>
+          Ningún correo, persona o área coincide con «{busca.trim()}».
+        </p>
+      )}
+
+      <div style={{ display: 'grid', gap: '14px' }}>
+        {grupos.map((g) => (
+          <div key={g.clave}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+              <strong style={{ fontSize: '0.82rem', color: theme.colors.primaryDark }}>{g.nombre}</strong>
+              {g.unidad && (
+                <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>· {g.unidad}</span>
+              )}
+              <span style={{ fontSize: '0.72rem', color: theme.colors.grayMid }}>
+                {g.items.length} {g.items.length === 1 ? 'correo' : 'correos'}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gap: '5px' }}>
+              {g.items.map((c) => (
+                <div key={c.id} style={{ ...fila, gap: '10px' }}>
+                  <span style={{
+                    flexShrink: 0, fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.04em',
+                    padding: '2px 7px', borderRadius: '999px',
+                    backgroundColor: c.tipo === 'ORIGEN' ? '#EDE9E4' : '#F3EDE3',
+                    color: c.tipo === 'ORIGEN' ? theme.colors.charcoal : theme.colors.gold,
+                  }}>
+                    {c.tipo === 'ORIGEN' ? 'ENVÍA' : 'RECIBE'}
+                  </span>
+                  {editando === c.id ? (
+                    <>
+                      <input
+                        value={borrador}
+                        onChange={(e) => setBorrador(e.target.value.toLowerCase())}
+                        onKeyDown={(e) => { if (e.key === 'Enter') guardar(c); if (e.key === 'Escape') setEditando(null); }}
+                        autoFocus
+                        style={input}
+                      />
+                      <button onClick={() => guardar(c)} style={{ ...btn, color: theme.colors.primary }}>Guardar</button>
+                      <button onClick={() => setEditando(null)} style={btn}>Cancelar</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: '0.82rem', color: theme.colors.textPrimary, wordBreak: 'break-all' }}>
+                        {c.correo}
+                      </span>
+                      <button
+                        onClick={() => { setEditando(c.id); setBorrador(c.correo); }}
+                        title="Corregir la escritura"
+                        style={{ ...btn, color: theme.colors.primary }}
+                      >
+                        Editar
+                      </button>
+                      <button onClick={() => quitar(c)} title="Quitarlo de su lista" style={{ ...btn, color: '#B45309' }}>
+                        Quitar
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const SeccionCorreos: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const isMobile = useIsMobile();
@@ -167,6 +348,10 @@ export const SeccionCorreos: React.FC = () => {
           onError={setError}
         />
       </div>
+
+      {/* Solo se dibuja para el SuperAdmin: a los demás el servidor les responde
+          403 y el bloque se queda callado. */}
+      <RegistradosPorUsuario onError={setError} />
     </div>
   );
 };

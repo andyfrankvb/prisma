@@ -73,6 +73,8 @@ export interface Oficio {
   en_mi_bandeja?:           boolean;
   /** ¿Quien consulta es el encargado configurado de la unidad destinataria? */
   soy_encargado_del_area?:  boolean;
+  /** ¿Puede corregir los datos que capturó la oficialía? Falso si ya finalizó. */
+  puede_corregir?:          boolean;
   /** El encargado del área que lo tiene puede turnarlo a otra. Lo calcula el servidor. */
   puede_turnar?:            boolean;
   /**
@@ -183,6 +185,12 @@ export interface Abogado {
   email:  string;
   cargo?: string | null;
   oficina_nombre?: string | null;
+  /**
+   * Solo al pedir candidatos para asignar un oficio: 0 si el analista está
+   * designado en el área del oficio, 1 si viene de otra que el encargado dirige.
+   * Ordena la lista y le dice a la pantalla cuándo nombrar el área de dónde sale.
+   */
+  orden_area?: number;
 }
 
 export interface AsignacionJuridica {
@@ -197,7 +205,7 @@ export interface AsignacionJuridica {
 export interface GestionContestacion {
   id:                       number;
   oficio_id:                number;
-  proyecto_url:             string;
+  proyecto_url:             string | null;
   escaneo_firmado_url:      string | null;
   vobo_encargado:           boolean;
   fecha_vobo:               string | null;

@@ -21,6 +21,7 @@ import { StatusBadge } from './StatusBadge';
 import { TerminoTimer } from './TerminoTimer';
 import { PDFPreviewer } from './PDFPreviewer';
 import { HistorialModal } from './HistorialModal';
+import { CorregirDatosPanel } from './CorregirDatosPanel';
 import { getOficioDocumentos } from '../api';
 import type { OficioDocumento } from '../api';
 import type { Oficio, EstatusOficio } from '../types';
@@ -208,24 +209,34 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
 
   return (
     <div>
-      {/* ── Barra de acciones ───────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-        <button
-          type="button"
-          onClick={() => setHistorialOpen(true)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            padding: '7px 14px', fontSize: '0.8rem', fontWeight: 600,
-            color: theme.colors.primary, backgroundColor: '#fff',
-            border: `1px solid ${theme.colors.primary}`, borderRadius: '7px',
-            cursor: 'pointer', fontFamily: theme.font.family,
-          }}
-        >
-          <Icono nombre="historial" inline />Ver historial
-        </button>
-      </div>
-
       <HistorialModal oficio={oficio} open={historialOpen} onClose={() => setHistorialOpen(false)} />
+
+      {/* Corrección de lo que la oficialía capturó. Va aquí arriba, junto a los
+          datos que corrige, y no al final entre las acciones del flujo: no es un
+          paso del trámite, es enmendar un dato que está mal.
+          «Ver historial» viaja con él y comparte su renglón: eran las dos únicas
+          cosas que encabezaban el expediente, en dos filas, y entre ambas se
+          llevaban la primera pantalla antes de mostrar un solo dato. */}
+      <CorregirDatosPanel
+        oficio={oficio}
+        puede={!!oficio.puede_corregir}
+        onCambio={onCambio}
+        extra={
+          <button
+            type="button"
+            onClick={() => setHistorialOpen(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '5px 11px', fontSize: '0.72rem', fontWeight: 700,
+              color: theme.colors.primary, backgroundColor: '#fff',
+              border: `1px solid ${theme.colors.primary}`, borderRadius: theme.radius.sm,
+              cursor: 'pointer', fontFamily: theme.font.family, whiteSpace: 'nowrap',
+            }}
+          >
+            <Icono nombre="historial" size={13} />Ver historial
+          </button>
+        }
+      />
 
       {/* ── Datos generales ─────────────────────────── */}
       <Seccion titulo="Datos del oficio">
@@ -247,7 +258,7 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
             </>
           )}
           <Campo label="Estatus"      value={<StatusBadge estatus={oficio.estatus as EstatusOficio} turnado={!!oficio.turnos_recibidos} devuelto={!!oficio.llego_por_devolucion} deConocimiento={!!oficio.de_conocimiento} enPaseFirma={!!oficio.en_pase_firma} />} />
-          <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes} />} />
+          <Campo label="Término"      value={<TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes}  cerrado={oficio.estatus === 'FINALIZADO'} />} />
         </div>
       </Seccion>
 
@@ -378,7 +389,10 @@ export const OficioDetalle: React.FC<Props> = ({ oficio, acciones, children, onC
               textOverflow:  'ellipsis',
               whiteSpace:    'nowrap',
             }}>
-              {preview.title}
+              {/* Rótulo fijo del visor. Antes repetía el nombre del documento,
+                  que ya lo dice la barra interior: las dos decían «OFICIO» una
+                  encima de la otra. Aquí nombra la sección; abajo, el archivo. */}
+              Documentos requisito
             </span>
             <button
               onClick={() => setPreview(null)}

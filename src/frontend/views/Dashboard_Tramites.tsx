@@ -521,7 +521,7 @@ export const Dashboard_Tramites: React.FC = () => {
   });
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: theme.colors.background, fontFamily: theme.font.family }}>
+    <div style={{ minHeight: '100vh', fontFamily: theme.font.family }}>
 
       {/* Header */}
       <div style={{ padding: `20px ${padX} 0`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>

@@ -17,6 +17,7 @@ import { theme } from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
 import { Modal }        from '../components/Modal';
+import { PanelExpediente } from '../components/PanelExpediente';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SistemasChips } from '../components/SistemasPanel';
 import { AccionesOficio } from '../components/AccionesOficio';
@@ -54,6 +55,53 @@ import type { OficiosFiltros } from '../components/FiltrosOficios';
 import { ESTATUS_META } from '../components/oficiosEstatus';
 
 const LIMIT = 100;   // tope del backend; la lista se recorre con scroll (sin paginación)
+
+/**
+ * Las opciones del desplegable de analistas, agrupadas por el área que los tiene
+ * designados.
+ *
+ * Antes iban en una lista plana, y ahí se perdía un dato que sí importa: de qué
+ * equipo sale cada quien. Un encargado puede dirigir un área sin estar adscrito a
+ * ella —el de la Dirección General figura en la Dirección Jurídica—, así que al
+ * repartir un oficio de la Dirección General veía nombres de Jurídica sin nada
+ * que se lo dijera. Con el área encima queda claro que está echando mano de su
+ * otro equipo, en vez de parecer que esa gente es de ahí.
+ *
+ * El servidor ya manda primero el área del oficio, así que el orden se respeta
+ * tal cual llega.
+ *
+ * Se agrupa cuando hay más de un área, y también cuando hay una sola pero es
+ * prestada —`orden_area` lo dice—. Ese segundo caso es el de la Dirección
+ * General, que no tiene analistas propios: todos sus candidatos salen de
+ * Jurídica, así que agrupar «solo si hay varias» borraba el encabezado
+ * justamente donde más falta hace. Cuando la única área es la del propio oficio
+ * sí se omite: nombrarla no agrega nada.
+ *
+ * Vive fuera del componente y se usa en «Asignar» y en «Reasignar»: son el mismo
+ * desplegable y tienen que verse igual.
+ */
+const OpcionesAnalistas: React.FC<{ abogados: Abogado[] }> = ({ abogados }) => {
+  const areas: string[] = [];
+  for (const a of abogados) {
+    const area = a.oficina_nombre ?? 'Sin área';
+    if (!areas.includes(area)) areas.push(area);
+  }
+
+  const todosDelAreaDelOficio = abogados.every((a) => (a.orden_area ?? 0) === 0);
+  if (areas.length <= 1 && todosDelAreaDelOficio) {
+    return <>{abogados.map((a) => (
+      <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
+    ))}</>;
+  }
+
+  return <>{areas.map((area) => (
+    <optgroup key={area} label={area}>
+      {abogados
+        .filter((a) => (a.oficina_nombre ?? 'Sin área') === area)
+        .map((a) => <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>)}
+    </optgroup>
+  ))}</>;
+};
 
 export const Dashboard_Gestion: React.FC = () => {
   const { user } = useAuth();
@@ -196,7 +244,7 @@ export const Dashboard_Gestion: React.FC = () => {
    */
   const handleMandarFirma = async (o: Oficio) => {
     const sigue = await dialogo.confirmar({
-      titulo:    'Mandar a firma de la Dirección General',
+      titulo:    'Mandar a firma del Despacho',
       mensaje:   `El oficio ${o.folio} conserva su visto bueno y sigue siendo de tu área, pero lo firmará la Directora General. Se avisará a la Dirección General.`,
       confirmar: 'Mandar a firma',
     });
@@ -390,7 +438,7 @@ export const Dashboard_Gestion: React.FC = () => {
       });
     }
     if (o.puede_mandar_firma) {
-      acc.push({ label: 'Mandar a firma de la DG', descripcion: 'Lo firma la Directora General; el oficio sigue siendo de tu área.', onClick: () => handleMandarFirma(o) });
+      acc.push({ label: 'Mandar a firma del Despacho', descripcion: 'Lo firma la Titular; el oficio sigue siendo de tu área.', onClick: () => handleMandarFirma(o) });
     }
     if (o.puede_devolver_pase_firma) {
       acc.push({ label: 'Regresar sin firmar', tono: 'atencion', descripcion: 'Devuélvelo al área para que corrijan antes de firmarlo.', onClick: () => handleRegresarSinFirmar(o) });
@@ -455,15 +503,22 @@ export const Dashboard_Gestion: React.FC = () => {
     });
   }, [oficios]);
 
-  // Load candidatos when assign or reassign modal opens.
-  // Usuarios de la unidad del encargado que tienen el módulo de oficios habilitado.
+  /**
+   * Analistas a los que se puede repartir ESTE oficio: los designados en su área.
+   *
+   * Se recarga con cada oficio, no una sola vez. Antes se guardaba la primera
+   * lista y se reusaba mientras no estuviera vacía, lo que suponía que todos los
+   * oficios se reparten entre la misma gente. Un encargado de dos áreas —Óscar
+   * Gopar lo es de Jurídica y de la Dirección General— arrastraba así la lista de
+   * un área a los oficios de la otra.
+   */
   useEffect(() => {
-    if ((showAssign || showReassign) && abogados.length === 0) {
-      getCandidatosAsignacion()
+    if ((showAssign || showReassign) && selected) {
+      getCandidatosAsignacion(selected.id)
         .then((data) => setAbogados(data))
         .catch(() => {});
     }
-  }, [showAssign, showReassign]);
+  }, [showAssign, showReassign, selected?.id]);
 
   // ── Handlers ──────────────────────────────────────────────
 
@@ -753,7 +808,7 @@ export const Dashboard_Gestion: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', overflow: 'hidden' }}>
 
       {/* ── Master panel ──────────────────────────────────── */}
       <div style={{
@@ -873,7 +928,7 @@ export const Dashboard_Gestion: React.FC = () => {
                         }}>
                           {i + 1}
                         </span>
-                        <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} />
+                        <TrafficDot tiene_termino={o.tiene_termino} dias={o.dias_restantes ?? null} cerrado={o.estatus === 'FINALIZADO'} />
                       </span>
                     </td>
                     <td style={tdStyle}><strong>{o.folio}</strong></td>
@@ -885,7 +940,7 @@ export const Dashboard_Gestion: React.FC = () => {
                     )}
                     <td style={tdStyle}>{o.remitente}</td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
-                    <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} /></td>
+                    <td style={tdStyle}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes}  cerrado={o.estatus === 'FINALIZADO'} /></td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     {miBandeja && (
                       <td style={tdStyle}><PasoChip paso={o.mi_paso} /></td>
@@ -924,54 +979,10 @@ export const Dashboard_Gestion: React.FC = () => {
 
       {/* ── Detail panel ──────────────────────────────────── */}
       {selected && (
-        /* Flota por encima de la lista, igual que el visor. Como columna en el
-           flujo compartía plano con la tarjeta de la lista, y el canto recto de
-           ésta se veía como un cuadro pegado detrás.
-           El z-index queda por debajo del visor (1100) para que, al abrir un
-           documento, éste se monte encima y no al revés. */
-        <div style={{
-          position:        isMobile ? 'static' : 'fixed',
-          // 70 = 58 px del encabezado + 12 de margen. Los mismos números del
-          // visor, para que las dos ventanas queden a la misma altura.
-          top:             isMobile ? undefined : 70,
-          bottom:          isMobile ? undefined : 12,
-          right:           isMobile ? undefined : 12,
-          width:           isMobile ? undefined : '45vw',
-          maxWidth:        isMobile ? undefined : '760px',
-          zIndex:          isMobile ? undefined : 1000,
-          flex:            isMobile ? '1' : undefined,
-          backgroundColor: theme.colors.surface,
-          borderRadius:    isMobile ? 0 : '12px',
-          boxShadow:       isMobile ? 'none' : '0 2px 8px rgba(61,57,53,0.10), 0 16px 44px rgba(61,57,53,0.24)',
-          // El recorte vive aquí y el scroll en el div interior: juntos, la barra
-          // se dibujaba sobre el canto y le comía la curva a la esquina.
-          overflow:        'hidden',
-          display:         'flex',
-          flexDirection:   'column',
-        }}>
-          <div style={{
-            flexShrink: 0, padding: '9px 18px',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primaryDark} 100%)`,
-          }}>
-            <h2 style={{ margin: 0, color: '#fff', fontSize: '0.92rem', fontWeight: 700, letterSpacing: '0.02em' }}>
-              Detalle — {selected.folio}
-            </h2>
-            <button
-              onClick={() => { setSelected(null); setAbrirAcciones(false); }}
-              style={{
-                background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff',
-                fontSize: '1.05rem', cursor: 'pointer', lineHeight: 1,
-                width: '24px', height: '24px', borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'background 0.15s', flexShrink: 0,
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.32)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.18)')}
-              aria-label="Cerrar detalle"
-            >×</button>
-          </div>
-          <div style={{ padding: '20px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <PanelExpediente
+          folio={selected.folio}
+          onClose={() => { setSelected(null); setAbrirAcciones(false); }}
+        >
             <OficioDetalle
               oficio={selected}
               onCambio={fetchOficios}
@@ -993,8 +1004,7 @@ export const Dashboard_Gestion: React.FC = () => {
               }
             />
             {/* La línea de tiempo ahora vive dentro del modal "Ver historial". */}
-          </div>
-        </div>
+        </PanelExpediente>
       )}
 
       {/* ── Assign Modal ──────────────────────────────────── */}
@@ -1004,15 +1014,14 @@ export const Dashboard_Gestion: React.FC = () => {
             <label style={labelStyle}>Abogado <span style={{ color: theme.colors.alert.red }}>*</span></label>
             <select value={abogadoId} onChange={(e) => setAbogadoId(e.target.value)} style={{ ...inputStyle, width: '100%' }} required>
               <option value="">— Selecciona un abogado —</option>
-              {abogados.map((a) => (
-                <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
-              ))}
+              <OpcionesAnalistas abogados={abogados} />
             </select>
             {abogados.length === 0 && (
               <p style={{ margin: '8px 0 0', padding: '10px 12px', borderRadius: '6px', backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '0.78rem' }}>
-                No hay analistas jurídicos en tu área. Se consideran analistas quienes tienen habilitado
-                el módulo «Recepción de Oficios» y no están designados como oficial de partes ni encargado.
-                Pídele al administrador que habilite el módulo a quien corresponda.
+                No hay analistas designados para este oficio. Se toman de dos lados: el área a la que va
+                dirigido y las áreas que tú diriges. Para que alguien aparezca tiene que estar designado
+                como analista jurídico en Configuración de Flujos y tener habilitado el módulo
+                «Recepción de Oficios».
               </p>
             )}
           </div>
@@ -1168,15 +1177,14 @@ export const Dashboard_Gestion: React.FC = () => {
               required
             >
               <option value="">— Selecciona un abogado —</option>
-              {abogados.map((a) => (
-                <option key={a.id} value={a.id}>{a.nombre} ({a.email})</option>
-              ))}
+              <OpcionesAnalistas abogados={abogados} />
             </select>
             {abogados.length === 0 && (
               <p style={{ margin: '8px 0 0', padding: '10px 12px', borderRadius: '6px', backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '0.78rem' }}>
-                No hay analistas jurídicos en tu área. Se consideran analistas quienes tienen habilitado
-                el módulo «Recepción de Oficios» y no están designados como oficial de partes ni encargado.
-                Pídele al administrador que habilite el módulo a quien corresponda.
+                No hay analistas designados para este oficio. Se toman de dos lados: el área a la que va
+                dirigido y las áreas que tú diriges. Para que alguien aparezca tiene que estar designado
+                como analista jurídico en Configuración de Flujos y tener habilitado el módulo
+                «Recepción de Oficios».
               </p>
             )}
           </div>
@@ -1233,9 +1241,12 @@ export const Dashboard_Gestion: React.FC = () => {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null }> = ({ tiene_termino, dias }) => {
-  let color = theme.colors.alert.green;
-  if (tiene_termino && dias !== null) {
+const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null; cerrado?: boolean }> = ({ tiene_termino, dias, cerrado }) => {
+  // Cerrado: el plazo dejó de correr, así que el semáforo se apaga. Dejarlo en
+  // rojo junto a un término que ya dice «Atendido» haría parecer que el oficio
+  // sigue pendiente cuando el asunto está resuelto.
+  let color = cerrado ? theme.colors.grayMid : theme.colors.alert.green;
+  if (!cerrado && tiene_termino && dias !== null) {
     if (dias <= 1) color = theme.colors.alert.red;
     else if (dias <= 3) color = theme.colors.alert.yellow;
   }

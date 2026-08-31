@@ -20,6 +20,7 @@ import {
   reconsiderarOficio,
   getComentarios,
   getHistorial,
+  corregirDatosOficio,
   getDocumentos,
   aprobarVobo,
   finalizarOficio,
@@ -41,6 +42,7 @@ import {
   listarDependencias,
   crearDependencia,
   editarDependencia,
+  getPermisosCatalogos,
   eliminarDependencia,
   listarUnidadesInternas,
   crearUnidadInterna,
@@ -49,6 +51,7 @@ import {
   listarRemitentes,
   crearRemitente,
   listarCorreos,
+  correosRegistrados,
   buscarEnCatalogos,
   permisosCatalogos,
   crearCorreo,
@@ -155,6 +158,9 @@ router.patch('/oficios/:id/reconsiderar', reconsiderarOficio);
 router.get('/oficios/:id/comentarios', getComentarios);
 
 /** GET /oficios/:id/historial — movimientos (auditoría de estados) para la línea temporal */
+/** PATCH /oficios/:id/datos — corrige los datos capturados por la oficialía */
+router.patch('/oficios/:id/datos', corregirDatosOficio);
+
 router.get('/oficios/:id/historial', getHistorial);
 
 /** GET /oficios/:id/documentos — documentos categorizados adjuntos (ver/descargar) */
@@ -216,6 +222,7 @@ router.post ('/oficios/:id/delegatorios',    crearDelegatorios);
 // Dependencias (raíz)
 router.get ('/catalogos/dependencias',        listarDependencias);
 router.post('/catalogos/dependencias',        crearDependencia);
+router.get  ('/catalogos/permisos',           getPermisosCatalogos);
 router.patch('/catalogos/dependencias/:id',   editarDependencia);
 router.delete('/catalogos/dependencias/:id',  eliminarDependencia);
 // Sub-unidades (dentro de una dependencia)
@@ -237,6 +244,12 @@ router.get('/catalogos/buscar',   buscarEnCatalogos);
 router.get('/catalogos/permisos', permisosCatalogos);
 
 // Correos de recepción — dos listas independientes: :tipo = origen | destino
+//
+// Va ANTES de '/catalogos/correos/:tipo': si fuera después, Express tomaría
+// «correos-registrados» como un valor de :tipo y respondería con el 422 de tipo
+// inválido en vez de entrar aquí.
+/** Quién tiene correos dados de alta y cuáles — solo SUPERADMIN, solo lectura */
+router.get   ('/catalogos/correos-registrados', correosRegistrados);
 router.get   ('/catalogos/correos/:tipo',      listarCorreos);
 router.post  ('/catalogos/correos/:tipo',      crearCorreo);
 router.patch ('/catalogos/correos/:tipo/:id',  editarCorreo);

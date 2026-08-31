@@ -8,7 +8,7 @@ import { Icono } from '../components/Icono';
 import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
-import { Modal }        from '../components/Modal';
+import { PanelExpediente } from '../components/PanelExpediente';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { AccionesOficio } from '../components/AccionesOficio';
 import { useAuth }      from '../context/AuthContext';
@@ -18,7 +18,6 @@ import { FiltrosOficios } from '../components/FiltrosOficios';
 import { PestanasBandeja, totalDeConteos, leerVistaFijada, alternarVistaFijada } from '../components/PestanasBandeja';
 import type { VistaBandeja } from '../components/PestanasBandeja';
 import type { OficiosFiltros } from '../components/FiltrosOficios';
-import { BandejaDelegatorios } from '../components/BandejaDelegatorios';
 import { textoCompresion } from '../utils/compresion';
 import type { Oficio, EstatusOficio } from '../types';
 import type { ComentarioReconsideracion } from '../api';
@@ -48,7 +47,6 @@ export const Dashboard_Juridico: React.FC = () => {
   const [conteos,    setConteos]    = useState<Record<string, number>>({});
   const [miPendientes, setMiPendientes] = useState(0);
   const [deOtrasAreas, setDeOtrasAreas] = useState(0);
-  const [delegatoriosPend, setDelegatoriosPend] = useState(0);
   // Pestaña activa: el histórico, lo que espera algo de mí, o el archivo.
   // Arranca en la pestaña que la persona haya fijado, si fijó alguna.
   const [vistaFijada, setVistaFijada] = useState<VistaBandeja | null>(() => leerVistaFijada(user?.id));
@@ -157,14 +155,11 @@ export const Dashboard_Juridico: React.FC = () => {
      detalleOficio.estatus === 'EN_RECONSIDERACION');
 
   return (
-    <div style={{ padding: isMobile ? '16px 12px' : '24px', backgroundColor: theme.colors.background, height: 'calc(100vh - 58px)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', fontFamily: theme.font.family }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px', height: 'calc(100vh - 58px)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', fontFamily: theme.font.family }}>
 
-      {/* Header */}
-      <div style={{ marginBottom: '14px' }}>
-        <p style={{ margin: '4px 0 0', color: theme.colors.textSecondary, fontSize: '0.875rem' }}>
-          {user?.nombre} · Área Jurídica
-        </p>
-      </div>
+      {/* Sin encabezado: el nombre del usuario ya está en la barra superior y
+          repetirlo aquí solo restaba alto a la tabla, que es lo que se viene a
+          ver. El área tampoco hacía falta: se entra a ella desde el módulo. */}
 
       {/* Feedback */}
       {successMsg && (
@@ -189,38 +184,41 @@ export const Dashboard_Juridico: React.FC = () => {
         totalTodo={totalDeConteos(conteos)}
         totalMia={miPendientes}
         totalFinalizados={conteos.FINALIZADO ?? 0}
-        /* Solo lo que la lista puede mostrar. Sumarle aparte las solicitudes
-           dejaba la pestaña con un número que no correspondía a ningún renglón:
-           el servidor ya las cuenta dentro de «de otras áreas». */
+        /* Solo lo que la lista puede mostrar: el servidor ya cuenta dentro de
+           «de otras áreas» los oficios con una solicitud pendiente para esta
+           persona, así que el número y los renglones coinciden. */
         totalOtrasAreas={deOtrasAreas}
         fijada={vistaFijada}
         onFijar={(v) => setVistaFijada(alternarVistaFijada(user?.id, v, vistaFijada))}
       />
 
-      {/* Lo que el analista tiene que atender de una solicitud. Va encima de la
-          lista y solo se dibuja cuando hay algo suyo pendiente. */}
-      {vista === 'otras_areas' && (
-        <div style={{ padding: '4px 0' }}>
-          <BandejaDelegatorios onCambio={fetchOficios} onConteo={setDelegatoriosPend} />
-        </div>
-      )}
+      {/* La bandeja suelta de solicitudes vivía aquí, encima de la lista. Se
+          quitó: el oficio con una solicitud pendiente ahora baja como un renglón
+          más de «Turnados» —el servidor ya lo deja ver a quien tiene la solicitud
+          asignada—, y se contesta desde el detalle, en «Acciones», igual que en el
+          tablero del encargado. Un panel flotante y una lista para lo mismo era
+          justo lo que se acordó no volver a hacer. */}
 
       {/* Lista — único scroll vertical de la vista */}
       {loading ? (
         <p style={{ color: theme.colors.textSecondary }}>Cargando…</p>
       ) : (
         <div className="scroll-x" style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto', border: `1px solid ${theme.colors.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', backgroundColor: theme.colors.surface, boxShadow: theme.shadow.sm }}>
-          <table style={{ width: '100%', minWidth: '820px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <table style={{ width: '100%', minWidth: '920px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ backgroundColor: theme.colors.surface }}>
-                {['Folio', 'Remitente', 'Dependencia', 'Ingreso', 'Término', 'Estatus'].map((h) => (
+                {/* «N° de origen» va junto al folio, como en los demás tableros: es
+                    el número con el que la dependencia identifica su propio oficio, y
+                    con el que la gente lo busca cuando llama a preguntar. Al analista
+                    le faltaba, y era el único que trabaja el expediente a diario. */}
+                {['Folio', 'N° de origen', 'Remitente', 'Dependencia', 'Ingreso', 'Término', 'Estatus'].map((h) => (
                   <th key={h} style={{ padding: '13px 14px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', color: theme.colors.textSecondary, borderBottom: `2px solid ${theme.colors.border}` }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {oficios.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: theme.colors.textSecondary, padding: '24px' }}>Sin oficios</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: theme.colors.textSecondary, padding: '24px' }}>Sin oficios</td></tr>
               ) : (
                 oficios.map((o, i) => (
                     <tr
@@ -230,10 +228,11 @@ export const Dashboard_Juridico: React.FC = () => {
                       title="Ver detalle de la solicitud"
                     >
                       <td style={{ padding: '10px 14px' }}><strong style={{ color: theme.colors.primary }}>{o.folio}</strong></td>
+                      <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{o.numero_oficio_origen ?? '—'}</td>
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary }}>{o.remitente}</td>
                       <td style={{ padding: '10px 14px', color: theme.colors.textSecondary, fontSize: '0.78rem', textTransform: 'uppercase' }}>{o.dependencia_origen}</td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
-                      <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} /></td>
+                      <td style={{ padding: '10px 14px' }}><TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes}  cerrado={o.estatus === 'FINALIZADO'} /></td>
                       <td style={{ padding: '10px 14px' }}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     </tr>
                 ))
@@ -243,14 +242,12 @@ export const Dashboard_Juridico: React.FC = () => {
         </div>
       )}
 
-      {/* ── Modal de detalle ──────────────────────────────── */}
-      <Modal
-        open={!!detalleOficio}
-        title={detalleOficio?.folio ?? ''}
-        onClose={closeDetalle}
-        width={780}
-      >
-        {detalleOficio && (
+      {/* ── Expediente ───────────────────────────────────────
+          Usa el mismo panel que Gestión y Oficial. Antes era una ventana modal
+          centrada, y el visor de documentos —que se coloca suponiendo el panel
+          derecho— se le encimaba. */}
+      {detalleOficio && (
+        <PanelExpediente folio={detalleOficio.folio} onClose={closeDetalle}>
           <div>
             {/* ── Detalle por secciones (datos, documentos, identidad, usuarios) ── */}
             <OficioDetalle oficio={detalleOficio} onCambio={fetchOficios} />
@@ -264,30 +261,10 @@ export const Dashboard_Juridico: React.FC = () => {
                   onRefrescar={() => fetchOficios()}
             />
 
-            {/* ── Texto extraído por IA (útil para redactar el proyecto) ── */}
-            {(detalleOficio as any).texto_ocr && (
-              <section style={{ marginTop: '22px' }}>
-                <div style={{ border: `1.5px solid ${theme.colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: theme.colors.charcoal, color: '#fff' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Icono nombre="engranaje" size={16} />
-                      <span style={{ fontWeight: 700, fontSize: '0.78rem', letterSpacing: '0.05em', textTransform: 'uppercase' as const, fontFamily: theme.font.family }}>
-                        Texto extraído por IA
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '0.65rem', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
-                      {((detalleOficio as any).ocr_metodo ?? '').toUpperCase()}
-                    </span>
-                  </div>
-                  <div style={{ padding: '16px', backgroundColor: '#FAFAF8', maxHeight: '320px', overflowY: 'auto', fontSize: '0.82rem', lineHeight: 1.8, color: theme.colors.textPrimary, whiteSpace: 'pre-wrap', fontFamily: 'monospace', userSelect: 'text' }}>
-                    {(detalleOficio as any).texto_ocr}
-                  </div>
-                  <div style={{ padding: '8px 14px', backgroundColor: '#F0F0EC', borderTop: `1px solid ${theme.colors.border}`, fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                    <Icono nombre="informacion" inline />Texto seleccionable — puedes copiar cualquier fragmento para tu proyecto de contestación
-                  </div>
-                </div>
-              </section>
-            )}
+            {/* El texto del OCR ya lo muestra el visor del documento, en su
+                propio recuadro y siempre abierto. Tenerlo también aquí lo
+                duplicaba en la misma pantalla: el mismo texto dos veces, uno al
+                lado del otro. */}
 
             {/* ── Correcciones (EN_RECONSIDERACION) ── */}
             {detalleOficio.estatus === 'EN_RECONSIDERACION' && (
@@ -440,8 +417,8 @@ export const Dashboard_Juridico: React.FC = () => {
               </section>
             )}
           </div>
-        )}
-      </Modal>
+        </PanelExpediente>
+      )}
     </div>
   );
 };
@@ -477,7 +454,7 @@ const KanbanCard: React.FC<CardProps> = ({ oficio, onOpen }) => {
         {new Date(oficio.fecha_registro).toLocaleDateString('es-MX')}
       </p>
 
-      <TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes} />
+      <TerminoTimer tiene_termino={oficio.tiene_termino} fecha_vencimiento={oficio.fecha_vencimiento} termino_tipo={oficio.termino_tipo} vence_en={oficio.vence_en} horas_restantes={oficio.horas_restantes}  cerrado={oficio.estatus === 'FINALIZADO'} />
 
       {/* Botones */}
       <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>

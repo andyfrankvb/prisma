@@ -1,7 +1,7 @@
 /**
  * Component: DelegatoriosPanel
  *
- * La sección «Solicitudes a otras áreas» del expediente: a qué áreas se les pidió
+ * La sección «Solicitudes para atención por otras áreas» del expediente: a qué áreas se les pidió
  * información, cuáles ya contestaron —con su documento y observación—, cuáles
  * siguen pendientes y cuánto llevan.
  *
@@ -129,7 +129,7 @@ export const DelegatoriosPanel: React.FC<{
     <div style={caja}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
         <div>
-          <span style={titulo}>Solicitudes a otras áreas</span>
+          <span style={titulo}>Solicitudes para atención por otras áreas</span>
           {pendientes > 0 && (
             <span style={{ marginLeft: '8px', fontSize: '0.7rem', fontWeight: 700, color: '#92400E', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' }}>
               {pendientes} sin contestar

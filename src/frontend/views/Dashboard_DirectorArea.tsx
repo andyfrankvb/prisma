@@ -224,7 +224,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
   ).map(([id, titulo]) => ({ id, titulo }));
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: theme.colors.background, fontFamily: theme.font.family }}>
+    <div style={{ minHeight: '100vh', fontFamily: theme.font.family }}>
 
       {/* Header */}
       <div style={{ padding: `20px ${padX} 0` }}>

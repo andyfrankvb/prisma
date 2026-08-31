@@ -7,6 +7,7 @@ import React from 'react';
 import { useNavigate }       from 'react-router-dom';
 import { useAuth }           from '../context/AuthContext';
 import { NotificationBell }  from './NotificationBell';
+import { FondoGlifos }       from './FondoGlifos';
 import { theme }             from '../theme';
 import { useIsMobile }       from '../hooks/useIsMobile';
 
@@ -20,7 +21,14 @@ export const AppShell: React.FC<Props> = ({ children }) => {
   const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', fontFamily: theme.font.family }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', minHeight: '100vh',
+      fontFamily: theme.font.family,
+      // Sin fondo propio: lo pinta FondoGlifos desde atrás. Uno opaco aquí
+      // taparía la filigrana, que va en una capa con zIndex negativo.
+    }}>
+
+      <FondoGlifos />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
       <header style={{
@@ -117,7 +125,10 @@ export const AppShell: React.FC<Props> = ({ children }) => {
       </header>
 
       {/* ── Page content ─────────────────────────────────────── */}
-      <main style={{ flex: 1, overflow: 'auto', backgroundColor: theme.colors.background }}>
+      {/* Sin `position` ni `zIndex`: en cuanto los tenía, se volvía un contexto
+          de apilamiento y encerraba a sus elementos fijos —el visor a pantalla
+          completa quedaba por debajo del encabezado y no se podía reducir—. */}
+      <main style={{ flex: 1, overflow: 'auto', backgroundColor: 'transparent' }}>
         {children}
       </main>
     </div>

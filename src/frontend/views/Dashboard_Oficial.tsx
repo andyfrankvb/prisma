@@ -13,6 +13,7 @@ import { Icono } from '../components/Icono';
 import { theme }        from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
 import { TerminoTimer } from '../components/TerminoTimer';
+import { PanelExpediente } from '../components/PanelExpediente';
 import { OficioDetalle } from '../components/OficioDetalle';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { SistemasChips } from '../components/SistemasPanel';
@@ -451,27 +452,17 @@ export const Dashboard_Oficial: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', backgroundColor: theme.colors.background, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 58px)', overflow: 'hidden' }}>
 
       {/* ── Master panel ──────────────────────────────────── */}
       <div style={{ flex: selected ? '0 0 55%' : '1', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'flex 0.2s' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 24px 0', backgroundColor: theme.colors.surface, borderBottom: `1px solid ${theme.colors.border}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {puedeCatalogos && (
-                <button onClick={() => setVerCatalogos(true)} style={btnSecondary}>
-                  Catálogos
-                </button>
-              )}
-              <button onClick={() => setShowCreate(true)} style={btnPrimary}>
-                + Registrar Oficio
-              </button>
-            </div>
-          </div>
+        {/* Los botones bajaron a la fila de los filtros. Vivían en una franja
+            propia arriba, con un div vacío a la izquierda para empujarlos a la
+            derecha: una banda de alto completo que no contenía nada más y le
+            restaba espacio a la tabla, que es lo que se viene a ver. */}
+        <div style={{ padding: '12px 24px 0', backgroundColor: theme.colors.surface, borderBottom: `1px solid ${theme.colors.border}` }}>
 
           {avisoCompresion && (
             <div style={{
@@ -491,9 +482,11 @@ export const Dashboard_Oficial: React.FC = () => {
             </div>
           )}
 
-          {/* Tarjeta de resumen (rectángulo pequeño) + filtros, en la misma fila */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch', marginBottom: '16px' }}>
-            <div style={{ flex: '1 1 100%', display: 'flex' }}>
+          {/* Filtros y botones en la misma fila. `alignItems: flex-start` para que
+              los botones se alineen con el primer renglón de filtros y no se
+              estiren cuando estos saltan a dos líneas. */}
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div style={{ flex: '1 1 420px', display: 'flex', minWidth: 0 }}>
               <FiltrosOficios onChange={(f) => {
                 setSearchDeb(f.search);
                 setEstatus(f.estatus);
@@ -505,6 +498,39 @@ export const Dashboard_Oficial: React.FC = () => {
                 setDirigidoAId(f.area);
                 setPage(1);
               }} />
+            </div>
+
+            {/* `alignSelf: center` en lugar del `flex-start` de la fila: los
+                filtros ocupan dos renglones y el botón queda a media altura entre
+                ambos, no pegado al de arriba. El margen derecho lo despega del
+                borde, donde quedaba demasiado al filo. */}
+            <div style={{
+              display: 'flex', gap: '8px', flexWrap: 'wrap',
+              flexShrink: 0, alignSelf: 'center', marginRight: '14px',
+            }}>
+              {puedeCatalogos && (
+                <button onClick={() => setVerCatalogos(true)} style={btnCompactoSec}>
+                  Catálogos
+                </button>
+              )}
+              {/* Solo el «+». La acción es la más frecuente de esta pantalla y no
+                  necesita presentarse cada vez; el rótulo ocupaba el ancho de tres
+                  filtros para decir lo que el símbolo ya dice.
+
+                  Un botón sin texto se apoya en dos cosas para no volverse un
+                  acertijo: el `title`, que lo nombra al pasar el cursor, y el
+                  `aria-label`, que lo nombra para quien usa lector de pantalla.
+                  Sin ambos, un cuadro con una cruz no le dice nada a nadie. */}
+              <button
+                onClick={() => setShowCreate(true)}
+                title="Registrar oficio"
+                aria-label="Registrar oficio"
+                style={btnMas}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = theme.colors.primaryDark)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = theme.colors.primary)}
+              >
+                <Icono nombre="mas" size={18} strokeWidth={2.6} />
+              </button>
             </div>
           </div>
         </div>
@@ -561,7 +587,7 @@ export const Dashboard_Oficial: React.FC = () => {
                     </td>
                     <td style={tdStyle}>{new Date(o.fecha_registro).toLocaleDateString('es-MX')}</td>
                     <td style={tdStyle}>
-                      <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes} />
+                      <TerminoTimer tiene_termino={o.tiene_termino} fecha_vencimiento={o.fecha_vencimiento} termino_tipo={o.termino_tipo} vence_en={o.vence_en} horas_restantes={o.horas_restantes}  cerrado={o.estatus === 'FINALIZADO'} />
                     </td>
                     <td style={tdStyle}><StatusBadge estatus={o.estatus as EstatusOficio} turnado={!!o.turnos_recibidos} devuelto={!!o.llego_por_devolucion} deConocimiento={!!o.de_conocimiento} enPaseFirma={!!o.en_pase_firma} /></td>
                     <td style={{ ...tdStyle, fontSize: '0.78rem', color: o.en_bandeja_de ? theme.colors.textPrimary : theme.colors.textSecondary }}>
@@ -587,36 +613,7 @@ export const Dashboard_Oficial: React.FC = () => {
 
       {/* ── Detail panel ──────────────────────────────────── */}
       {selected && (
-        <div style={{
-          flex: '0 0 45%',
-          borderLeft: `1px solid ${theme.colors.border}`,
-          backgroundColor: theme.colors.surface,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          {/* Detail header */}
-          <div style={detailPanelHeaderStyle}>
-            <div>
-              <h2 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 700 }}>
-                {selected.folio}
-              </h2>
-              <p style={{ margin: '2px 0 0', color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>
-                Detalle del oficio
-              </p>
-            </div>
-            <button
-              onClick={() => setSelected(null)}
-              aria-label="Cerrar detalle"
-              style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Detail body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-
+        <PanelExpediente folio={selected.folio} onClose={() => setSelected(null)}>
             <OficioDetalle
               oficio={selected}
               onCambio={fetchOficios}
@@ -655,8 +652,7 @@ export const Dashboard_Oficial: React.FC = () => {
                 </>
               }
             />
-          </div>
-        </div>
+        </PanelExpediente>
       )}
 
       {/* ── Create Modal — un solo formulario ─────────────── */}
@@ -1074,3 +1070,33 @@ const Field: React.FC<{ label: string; required?: boolean; children: React.React
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 // (imported from ../styles — see thStyle, tdStyle, etc.)
+
+/**
+ * Los botones de la barra de filtros.
+ *
+ * Son `btnPrimary` y `btnSecondary` encogidos, no estilos nuevos: conservan
+ * color, tipografía y radio, y solo bajan de talla para pesar lo mismo que un
+ * desplegable de filtro y no dominar la fila. Se define aquí y no en `styles.ts`
+ * porque aquellos los usan los formularios de todo el sistema, donde el botón sí
+ * tiene que ser el elemento principal de su bloque.
+ */
+const btnMas: React.CSSProperties = {
+  ...btnPrimary,
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  // Cuadrado, del alto de un filtro: así se lee como un control más de la fila
+  // y no como un bloque aparte.
+  width:          '36px',
+  height:         '36px',
+  padding:        0,
+  transition:     'background-color 0.15s',
+};
+
+const btnCompactoSec: React.CSSProperties = {
+  ...btnSecondary,
+  padding:       '7px 13px',
+  fontSize:      '0.74rem',
+  letterSpacing: '0.03em',
+  whiteSpace:    'nowrap',
+};

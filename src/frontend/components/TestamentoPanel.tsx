@@ -122,8 +122,11 @@ export const TestamentoPanel: React.FC<{
               Testamento
             </span>
             <span style={{ display: 'block', fontSize: '0.75rem', color: theme.colors.textSecondary, marginTop: '2px' }}>
+              {/* Marcado, el plazo no se repite: las dos fechas van abajo con su
+                  cuenta de días. Sin marcar todavía no hay fechas que mostrar, y
+                  ahí el total sí informa de lo que se está aceptando. */}
               {oficio.testamento
-                ? 'Búsqueda en curso. 2 días hábiles para las delegaciones y 1 para el proyecto de contestación.'
+                ? 'Búsqueda en curso en las delegaciones.'
                 : 'Búsqueda de testamentos: 3 días hábiles en total — 2 para las delegaciones y 1 para el proyecto.'}
             </span>
           </span>
@@ -135,8 +138,15 @@ export const TestamentoPanel: React.FC<{
           margin: '10px 0 0 26px', padding: '8px 12px', borderRadius: '6px',
           backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '0.76rem',
         }}>
-          Falta delegar la búsqueda. Usa «Delegar a otra área» abajo y elige las delegaciones
-          que la harán; heredarán el plazo de 2 días hábiles.
+          {/* Nombraba «Delegar a otra área», que ya no existe: las tres formas de
+              mandar un oficio se unificaron bajo «Turnar a otra área», y de sus
+              opciones «Solicitud a otra área» es la única que conserva el
+              expediente y hace que la delegación conteste.
+
+              Sin el plazo: las fechas van justo abajo, con su cuenta de días. */}
+          Falta solicitar la búsqueda. Abre «Turnar a otra área» y elige
+          <strong> «Solicitud a otra área»</strong>: el expediente permanece a tu cargo y las
+          delegaciones deben devolverte su respuesta. Selecciona ahí las que la realizarán.
         </p>
       )}
 

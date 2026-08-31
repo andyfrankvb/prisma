@@ -126,7 +126,9 @@ CREATE TABLE gestiones_contestacion (
                                   REFERENCES oficios (id)
                                   ON UPDATE CASCADE
                                   ON DELETE CASCADE,
-    proyecto_url              VARCHAR(500) NOT NULL,
+    -- Opcional: se pone en NULL cuando el borrador se reemplaza por el
+    -- escaneado firmado, y cuando el oficio cambia de área por competencia.
+    proyecto_url              VARCHAR(500),
     escaneo_firmado_url       VARCHAR(500),
     vobo_encargado            BOOLEAN      NOT NULL DEFAULT FALSE,
     fecha_vobo                TIMESTAMP,

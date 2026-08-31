@@ -129,6 +129,35 @@ async function getUnidadesEncargado(userId: number): Promise<number[]> {
 }
 
 /**
+ * De qué áreas se puede sacar a un analista para trabajar un oficio.
+ *
+ * El área del oficio, más las áreas que dirige quien reparte. Lo segundo no es
+ * una concesión: un encargado puede dirigir un área sin estar adscrito a ella
+ * —el de la Dirección General figura en la Dirección Jurídica—, y reparte con su
+ * propio equipo porque el área que dirige no tiene analistas propios.
+ *
+ * Vive aquí, y no repetida en cada lugar, porque el desplegable y la validación
+ * del servidor tienen que decir exactamente lo mismo: si la pantalla ofrece a
+ * alguien que el servidor rechaza, la acción falla a la cara del usuario; si
+ * ofrece de más, se cuela una asignación inválida.
+ *
+ * Sin `oficioId` responde solo con las áreas del usuario. Es el caso de la
+ * bandeja de delegatorios, donde el reparto es dentro de la propia área.
+ */
+async function unidadesParaAsignar(user: any, oficioId: number | null): Promise<number[]> {
+  const unidades = new Set<number>();
+
+  if (oficioId) {
+    const delOficio = await unidadDelOficio(oficioId);
+    if (delOficio) unidades.add(Number(delOficio));
+  }
+  for (const u of await getUnidadesEncargado(user.id)) unidades.add(Number(u));
+  if (!unidades.size && user.oficina_id) unidades.add(Number(user.oficina_id));
+
+  return [...unidades];
+}
+
+/**
  * Resuelve qué ENCARGADO debe recibir un oficio, según la unidad de su "dirigido a".
  * (Oficio dirigido a la DG → encargado de la unidad de la DG; a un delegado → el de su delegación.)
  */
@@ -644,6 +673,19 @@ export async function listarOficios(
     // bandeja de», que en VoBo aprobado muestra al encargado: colgarse de ella
     // dejaría al titular sin ver sus propias firmas pendientes.
     const esSecretariaFlujo = await canActAsSecretaria(user);
+    /**
+     * Quién cierra un oficio que está a firma de la Dirección General.
+     *
+     * Tiene que decir exactamente lo mismo que `puedeCerrarPaseFirma`, que es la
+     * regla que aplica el servidor al recibir el archivo: la secretaría **y** la
+     * titular de la Dirección General, cualquiera de las dos.
+     *
+     * Estaban desalineadas. Aquí solo se contaba a la secretaría, así que la
+     * Directora tenía permiso para subir el firmado pero el oficio nunca le
+     * aparecía en «Mi bandeja»: su pestaña salía en 0 mientras la secretaría veía
+     * los mismos oficios en «EN FIRMA DG». Podía firmar algo que no podía ver.
+     */
+    const cierraElPaseFirma = esSecretariaFlujo || await esTitularDireccionGeneral(user);
     // Enteros propios, no entrada del usuario: se interpolan para que `IN` reciba
     // una lista literal. Sin unidades a cargo, `IN (NULL)` nunca es cierto.
     const unidadesSql = unidadesEncargado.length
@@ -675,7 +717,7 @@ export async function listarOficios(
                CASE WHEN EXISTS (SELECT 1 FROM oficio_pases_firma pf
                                   WHERE pf.oficio_id = oficios.id
                                     AND pf.cerrado_en IS NULL)
-                    THEN ${esSecretariaFlujo ? 'TRUE' : 'FALSE'}
+                    THEN ${cierraElPaseFirma ? 'TRUE' : 'FALSE'}
                     ELSE (oficios.dirigido_a_id = ${Number(user.id)}
                           OR dir_u.unidad_id IN ${unidadesSql})
                END)                                                      THEN 'FIRMAR'
@@ -726,6 +768,77 @@ export async function listarOficios(
            .orWhereRaw(CON_SOLICITUD(unidadesEncargado));
       });
 
+    /**
+     * Los oficios que este analista tiene asignados y todavía le tocan.
+     *
+     * Vivía escrito dos veces —en `OPERATIVO` y en el `default`— y una tercera
+     * versión sin la última condición en `JURIDICO`. Tres copias de la misma
+     * regla es como se desincronizan las cosas, así que ahora es una sola.
+     *
+     * ── Qué caduca una asignación ──────────────────────────────────────────
+     *
+     * Turnar un oficio a otra área NO borra la asignación anterior. Sin algo que
+     * la caduque, el oficio se quedaba en la bandeja del analista viejo para
+     * siempre, aunque el asunto viviera ya en otra dirección.
+     *
+     * Antes eso se resolvía exigiendo que el analista fuera de la misma unidad
+     * que el oficio. Funcionaba de rebote y cobraba de más: también escondía el
+     * caso legítimo de un analista de otra área a quien su encargado le asignó
+     * trabajo. Ocurre de verdad —el encargado de la Dirección General está
+     * adscrito a la Dirección Jurídica y reparte con su propio equipo—, y esos
+     * oficios desaparecían de toda bandeja sin que nadie se enterara.
+     *
+     * La pregunta correcta no es de qué área es el analista, sino si el oficio se
+     * movió DESPUÉS de que se lo asignaran. Eso se responde con las fechas:
+     *
+     *   · Hubo un turnado posterior  → la asignación quedó vieja → se oculta.
+     *   · No lo hubo                 → sigue siendo suyo, venga del área que venga.
+     *
+     * Si el oficio se fue y volvió, también se oculta: el turnado de regreso es
+     * posterior igual. El encargado lo reparte de nuevo, que es lo que toca.
+     *
+     * Va como predicado y no como JOIN para poder combinarse con un OR: un
+     * analista ve lo suyo Y además los expedientes ajenos donde le pidieron
+     * información. `EXISTS` tampoco duplica renglones al paginar, que era lo que
+     * el JOIN con `DISTINCT ON` venía a evitar.
+     */
+    const TENGO_ASIGNADO = `EXISTS (
+      SELECT 1
+        FROM (
+          SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id, fecha_asignacion
+            FROM asignaciones_juridicas
+           ORDER BY oficio_id, id DESC
+        ) AS ua
+       WHERE ua.oficio_id  = oficios.id
+         AND ua.abogado_id = ${Number(user.id)}
+         AND NOT EXISTS (
+           SELECT 1 FROM oficio_turnos t
+            WHERE t.oficio_id = ua.oficio_id
+              AND t.creado_en > ua.fecha_asignacion
+         )
+    )`;
+
+    /**
+     * Los oficios sobre los que ESTA PERSONA tiene una solicitud que contestar.
+     *
+     * El expediente es de otra área y no le corresponde; lo que le corresponde es
+     * la información que le pidieron sobre él. Sin esto el oficio no aparece por
+     * ningún lado —no es suyo ni de su área— y la solicitud quedaba sin nadie que
+     * la viera, aunque estuviera asignada con nombre y apellido.
+     *
+     * Es el mismo trato que ya recibe el encargado del área destino con
+     * `CON_SOLICITUD`, que por eso sí ve el renglón. Aquí baja al analista.
+     *
+     * Solo mientras siga abierta: contestada o cancelada, el oficio ajeno deja de
+     * tener por qué salir en su lista.
+     */
+    const SOLICITUD_ASIGNADA_A_MI = `EXISTS (
+      SELECT 1 FROM oficio_delegatorios dmia
+       WHERE dmia.oficio_id = oficios.id
+         AND dmia.asignado_a_id = ${Number(user.id)}
+         AND dmia.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION')
+    )`;
+
     // Ser ENCARGADO (configurado por unidad) tiene PRIORIDAD sobre el rol de sistema:
     // ve los oficios dirigidos a su(s) delegación(es) aunque su rol sea OPERATIVO,
     // DIRECTOR, etc. Solo si NO es encargado se aplica la lógica por rol.
@@ -749,37 +862,20 @@ export async function listarOficios(
           .where({ abogado_id: user.id })
           .first();
 
-        if (asignacionOperativo) {
-          // Subquery global: DISTINCT ON sobre todas las asignaciones (sin filtrar por usuario)
-          // para obtener la asignación más reciente por oficio. Luego filtra por usuario.
-          // Esto evita que un abogado reasignado siga viendo el oficio en su bandeja.
-          query = query
-            .join(
-              db.raw(`(
-                SELECT ua.oficio_id
-                FROM (
-                  SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id
-                  FROM asignaciones_juridicas
-                  ORDER BY oficio_id, id DESC
-                ) AS ua
-                JOIN oficios   o_a ON o_a.id = ua.oficio_id
-                JOIN usuarios  u_a ON u_a.id = ua.abogado_id
-                JOIN usuarios  d_a ON d_a.id = o_a.dirigido_a_id
-                WHERE ua.abogado_id = ?
-                  -- Solo mientras el oficio siga en el area del analista. Al
-                  -- turnarlo, la asignacion anterior no se borra, y sin esta
-                  -- condicion el oficio se quedaba en su bandeja para siempre
-                  -- aunque viviera ya en otra area.
-                  AND u_a.unidad_id = d_a.unidad_id
-              ) AS mis_asignaciones`, [user.id]),
-              'mis_asignaciones.oficio_id',
-              'oficios.id',
-            );
-        } else {
-          query = query
-            .where('oficios.unidad_registro_id', user.oficina_id)
-            .andWhere('oficios.oficial_registro_id', user.id);
-        }
+        // En cualquiera de las dos ramas se suman los expedientes ajenos donde le
+        // pidieron información: la solicitud es suya aunque el oficio no lo sea, y
+        // sin esto no aparece en ninguna de las dos vistas.
+        query = query.where((sub: any) => {
+          if (asignacionOperativo) {
+            sub.whereRaw(TENGO_ASIGNADO);
+          } else {
+            sub.where((reg: any) => {
+              reg.where('oficios.unidad_registro_id', user.oficina_id)
+                 .andWhere('oficios.oficial_registro_id', user.id);
+            });
+          }
+          sub.orWhereRaw(SOLICITUD_ASIGNADA_A_MI);
+        });
         break;
       }
 
@@ -813,23 +909,11 @@ export async function listarOficios(
         break;
 
       case 'JURIDICO':
-        // DISTINCT ON global: primero obtiene la asignación más reciente por oficio
-        // (sin filtrar por usuario), luego filtra. Garantiza que un abogado reasignado
-        // deja de ver el oficio inmediatamente, sin duplicados en paginación.
-        query = query
-          .join(
-            db.raw(`(
-              SELECT oficio_id
-              FROM (
-                SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id
-                FROM asignaciones_juridicas
-                ORDER BY oficio_id, id DESC
-              ) AS ultima_asignacion_global
-              WHERE abogado_id = ?
-            ) AS mis_asignaciones`, [user.id]),
-            'mis_asignaciones.oficio_id',
-            'oficios.id',
-          );
+        // Misma regla que en OPERATIVO. Antes esta variante no caducaba nada, así
+        // que un oficio turnado a otra área se quedaba en su bandeja para siempre.
+        query = query.where((sub: any) => {
+          sub.whereRaw(TENGO_ASIGNADO).orWhereRaw(SOLICITUD_ASIGNADA_A_MI);
+        });
         break;
 
       case 'SECRETARIA':
@@ -842,28 +926,9 @@ export async function listarOficios(
           .where({ abogado_id: user.id })
           .first();
         if (tieneAsignaciones) {
-          query = query
-            .join(
-              db.raw(`(
-                SELECT ua.oficio_id
-                FROM (
-                  SELECT DISTINCT ON (oficio_id) oficio_id, abogado_id
-                  FROM asignaciones_juridicas
-                  ORDER BY oficio_id, id DESC
-                ) AS ua
-                JOIN oficios   o_a ON o_a.id = ua.oficio_id
-                JOIN usuarios  u_a ON u_a.id = ua.abogado_id
-                JOIN usuarios  d_a ON d_a.id = o_a.dirigido_a_id
-                WHERE ua.abogado_id = ?
-                  -- Solo mientras el oficio siga en el area del analista. Al
-                  -- turnarlo, la asignacion anterior no se borra, y sin esta
-                  -- condicion el oficio se quedaba en su bandeja para siempre
-                  -- aunque viviera ya en otra area.
-                  AND u_a.unidad_id = d_a.unidad_id
-              ) AS mis_asignaciones`, [user.id]),
-              'mis_asignaciones.oficio_id',
-              'oficios.id',
-            );
+          query = query.where((sub: any) => {
+            sub.whereRaw(TENGO_ASIGNADO).orWhereRaw(SOLICITUD_ASIGNADA_A_MI);
+          });
         } else {
           throw new AppError('Rol no autorizado', 403);
         }
@@ -1074,7 +1139,8 @@ export async function listarOficios(
                            OR EXISTS (SELECT 1 FROM oficio_delegatorios dp
                                        WHERE dp.oficio_id = oficios.id
                                          AND dp.unidad_destino_id IN (${lista})
-                                         AND dp.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION')))`;
+                                         AND dp.estado IN ('PENDIENTE','ASIGNADO','EN_REVISION'))
+                           OR ${SOLICITUD_ASIGNADA_A_MI})`;
     const otrasRows = await query.clone().clearSelect()
       .whereRaw(DE_OTRA_AREA)
       .countDistinct('oficios.id as count');
@@ -1243,7 +1309,15 @@ export async function listarOficios(
        * «Reasignar» sobre oficios que vivían en la bandeja del encargado de esa
        * unidad, que es quien de verdad los tiene.
        */
-      const en_mi_bandeja = Number((o as any).bandeja_usuario_id) === user.id;
+      /**
+       * `bandeja_usuario_id` nombra a UNA sola persona, y a firma son dos: la
+       * secretaría y la Directora. La consulta devuelve a la secretaría —es quien
+       * normalmente sube el escaneado—, así que sin esta segunda condición la
+       * Directora veía el oficio en su bandeja pero con las acciones apagadas,
+       * porque el frontend las cuelga de este dato.
+       */
+      const en_mi_bandeja = Number((o as any).bandeja_usuario_id) === user.id
+        || (!!(o as any).en_pase_firma && cierraPaseFirma);
 
       /**
        * Excepción deliberada a la regla anterior: el encargado de la unidad puede
@@ -1253,6 +1327,20 @@ export async function listarOficios(
        * para dejarlo atorado sin que nadie pueda recuperarlo.
        */
       const soy_encargado_del_area = unidadesEncargado.includes(o.dirigido_a_unidad_id);
+
+      /**
+       * ¿Puede corregir lo que la oficialía capturó mal?
+       *
+       * Todo el área donde vive el oficio —su titular, el encargado y su equipo—,
+       * más el encargado configurado de esa unidad aunque esté adscrito a otra,
+       * que es el caso de la Dirección General.
+       *
+       * Se corta en FINALIZADO: ahí el documento ya salió firmado, y cambiar el
+       * remitente reescribiría lo que dice un papel que ya está en manos de la
+       * autoridad que lo pidió.
+       */
+      const puede_corregir = o.estatus !== 'FINALIZADO'
+        && (user.oficina_id === o.dirigido_a_unidad_id || soy_encargado_del_area);
 
       let en_bandeja_de: string | null;
       switch (o.estatus) {
@@ -1449,6 +1537,7 @@ export async function listarOficios(
         es_de_mi_area,
         en_mi_bandeja,
         soy_encargado_del_area,
+        puede_corregir,
         puede_turnar,
         puede_solicitar,
         puede_aceptar_turno,
@@ -1613,17 +1702,28 @@ export async function crearOficio(
     }
 
     // ── Generar folio automático ──────────────────────────────
-    // Formato: OF-{OFICINA_ID}-{AÑO}-{MMDD}-{SECUENCIA DIARIA 4 dígitos}
-    // La secuencia REINICIA en 0001 cada día; el año se incluye para que la
-    // nomenclatura cambie sola al iniciar un nuevo año (2026 → 2027).
-    // Ejemplo: OF-37-2026-0807-0001 (primer oficio de la oficina 37 el 7-ago-2026)
+    //
+    // Formato: {ÁREA}-{DD_MM_AAAA}-{SECUENCIA DIARIA 4 dígitos}
+    // Ejemplo: DG-26_08_2026-0004
+    //
+    // La secuencia es GLOBAL del día, no por área: el segundo oficio que entra al
+    // sistema es el 0002 aunque para su área sea el primero. Así el número dice
+    // cuántos oficios entraron a la institución ese día. Antes cada área llevaba
+    // su propio 0001 y ese conteo no se podía leer de un vistazo.
+    //
+    // Los folios emitidos con la nomenclatura anterior (OF-26082026-DG-0004) NO
+    // se tocan: están impresos en acuses y en la correspondencia, y reescribirlos
+    // rompería la correspondencia con el papel. Conviven los dos formatos.
     const now  = new Date();
     const dd   = String(now.getDate()).padStart(2, '0');
     const mm   = String(now.getMonth() + 1).padStart(2, '0');
     const aaaa = now.getFullYear();
-    const fechaFolio = `${dd}${mm}${aaaa}`;   // DDMMAAAA (día-mes-año)
+    const fechaFolio = `${dd}_${mm}_${aaaa}`;   // DD_MM_AAAA
 
     // Código de nomenclatura según el ÁREA a la que se DIRIGE/ASIGNA el oficio.
+    // Con la secuencia global ya no forma parte de la identidad —la fecha y el
+    // número bastan para que no se repita—, pero se conserva porque dice de un
+    // vistazo a qué área entró.
     const areaDestino = await db('usuarios as u')
       .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
       .where('u.id', Number(dirigido_a_id) || 0)
@@ -1631,27 +1731,19 @@ export async function crearOficio(
       .first();
     const codigo = codigoDeUnidad(areaDestino?.unidad_nombre ?? '');
 
-    // Secuencia DIARIA por ÁREA DESTINO: cuenta los oficios dirigidos HOY a esa área.
-    // El rango del día se calcula en la zona horaria de la app (no de la BD).
-    const inicioDia = new Date(aaaa, now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const finDia    = new Date(aaaa, now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    const [{ seq }] = await db('oficios as o')
-      .leftJoin('usuarios as du', 'du.id', 'o.dirigido_a_id')
-      .where('du.unidad_id', areaDestino?.unidad_id ?? -1)
-      .andWhere('o.fecha_registro', '>=', inicioDia)
-      .andWhere('o.fecha_registro', '<=', finDia)
-      .count('o.id as seq');
-
-    const secuencia = String(Number(seq) + 1).padStart(4, '0');
-    const folio     = `OF-${fechaFolio}-${codigo}-${secuencia}`;
-
-    // Garantizar unicidad en caso de concurrencia
-    const existing = await db('oficios').where({ folio }).first();
-    if (existing) {
-      // Fallback: usar timestamp para desempate
-      const ts = Date.now().toString().slice(-4);
-      throw new AppError(`Folio ${folio} ya existe, intenta de nuevo`, 409);
-    }
+    /**
+     * El número se pide a la tabla `folio_secuencia`, no se calcula contando.
+     *
+     * Contar y sumar uno funcionaba con la numeración por área, donde cada una
+     * competía solo consigo misma. Con un contador único, todas las ventanillas
+     * piden el mismo número a la vez y dos capturas simultáneas obtendrían el
+     * mismo folio. Este INSERT … ON CONFLICT incrementa y devuelve en una sola
+     * operación: la base serializa a quien llegue segundo.
+     *
+     * La fecha se arma en la zona horaria de la aplicación y no con CURRENT_DATE,
+     * porque la base puede estar en otra y el día cambiaría a deshora.
+     */
+    const fechaSql = `${aaaa}-${mm}-${dd}`;
 
     // ── Guardar el "Oficio" como documento principal (si viene) ──
     // Es el único que se comprime y se OCR-ea. Si no se sube, pdf_original_path
@@ -1665,6 +1757,26 @@ export async function crearOficio(
 
     // ── Transacción ───────────────────────────────────────────
     const oficio = await db.transaction(async (trx) => {
+      /**
+       * El número del folio se toma AQUÍ DENTRO, no antes.
+       *
+       * Tomarlo al principio dejaba huecos: si el archivo no subía o una
+       * validación rebotaba después, el número quedaba consumido y nadie lo
+       * volvía a usar. Pedido dentro de la transacción, cualquier fallo posterior
+       * la revierte y el contador regresa solo a donde estaba.
+       *
+       * Va como primera sentencia y con los archivos ya guardados fuera, para que
+       * el bloqueo sobre el renglón del día dure lo que tarda un INSERT y no lo
+       * que tarda una carga de varios megas.
+       */
+      const { rows } = await trx.raw(
+        `INSERT INTO folio_secuencia (fecha, ultimo) VALUES (?, 1)
+           ON CONFLICT (fecha) DO UPDATE SET ultimo = folio_secuencia.ultimo + 1
+         RETURNING ultimo`,
+        [fechaSql],
+      );
+      const folio = `${codigo}-${fechaFolio}-${String(rows[0].ultimo).padStart(4, '0')}`;
+
       const [newOficio] = await trx('oficios')
         .insert({
           folio,
@@ -2680,6 +2792,35 @@ export async function asignarOficio(
       throw new AppError('El abogado indicado no existe o está inactivo', 404);
     }
 
+    /**
+     * Y que sea analista designado en alguna de las áreas de las que puede salir
+     * el reparto de ESTE oficio: la suya, o una que el encargado dirija.
+     *
+     * El desplegable ya solo ofrece esos, pero eso es la pantalla; esta es la
+     * regla. Sin ella, una lista vieja en el navegador —o una llamada hecha a
+     * mano— vuelve a dejar el oficio con alguien que no tiene por qué trabajarlo.
+     *
+     * Se valida antes de abrir la transacción: nada que revertir si no procede.
+     */
+    const unidadesValidas = await unidadesParaAsignar(user, oficio_id);
+    const designado = unidadesValidas.length
+      ? await db('configuracion_flujos')
+          .where({
+            modulo_clave: 'oficialia_partes',
+            rol_flujo:    'JURIDICO',
+            usuario_id:   abogado_id,
+          })
+          .whereIn('unidad_id', unidadesValidas)
+          .first()
+      : null;
+    if (!designado) {
+      throw new AppError(
+        `${abogado.nombre} no está designado como analista jurídico en este oficio ni en las áreas que diriges. `
+        + 'Desígnalo en Configuración de Flujos, o asigna a alguien que sí lo esté.',
+        422,
+      );
+    }
+
     await db.transaction(async (trx) => {
       const oficio = await getOficioOrFail(trx, oficio_id);
 
@@ -2894,7 +3035,7 @@ export async function reconsiderarOficio(
       }
       if (oficio.estatus === 'VOBO_APROBADO' && await enPaseFirma(oficio_id, trx)) {
         throw new AppError(
-          'Este oficio está esperando la firma de la Dirección General. Pídele que lo regrese antes de mandarlo a corregir.',
+          'Este oficio está esperando la firma del Despacho de la Titular. Pídele que lo regrese antes de mandarlo a corregir.',
           409,
         );
       }
@@ -2960,6 +3101,135 @@ export async function getComentarios(
   } catch (err) {
     next(err);
   }
+}
+
+// ─── PATCH /oficios/:id/datos ────────────────────────────────────────────────
+
+/**
+ * Campos de captura que se pueden corregir, con su nombre para el historial.
+ *
+ * Quedan FUERA a propósito:
+ *
+ *  · El término y la fecha de vencimiento. Mueven un plazo legal y quien está
+ *    trabajando el oficio no se enteraría de que le cambiaron el reloj.
+ *  · «Dirigido a». Cambia el oficio de área, que es exactamente lo que hace
+ *    turnar; tener dos caminos para lo mismo deja la trazabilidad partida.
+ *  · El estatus. Se mueve con las acciones del flujo, no a mano.
+ */
+const CAMPOS_CORREGIBLES: Record<string, string> = {
+  remitente:            'Remitente',
+  dependencia_origen:   'Dependencia',
+  unidad_interna:       'Unidad interna',
+  numero_oficio_origen: 'N.º de oficio de origen',
+  fecha_oficio:         'Fecha del oficio',
+  descripcion_solicitud:'Asunto',
+  correo_origen:        'Correo de origen',
+};
+
+/** Estos campos se guardan en mayúsculas al registrar; la corrección hace igual. */
+const CAMPOS_MAYUSCULAS = new Set([
+  'remitente', 'dependencia_origen', 'unidad_interna', 'numero_oficio_origen',
+]);
+
+/**
+ * Corrige los datos que capturó la oficialía al registrar el oficio.
+ *
+ * Antes no había manera: un dedazo en el remitente obligaba a descartar el
+ * registro y volver a capturar, quemando un folio.
+ *
+ * Quién puede: quien pertenece al área donde vive el oficio —su titular, el
+ * encargado y su equipo—, más el encargado configurado de esa unidad aunque esté
+ * adscrito a otra, que es el caso de la Dirección General.
+ *
+ * Hasta cuándo: mientras no esté FINALIZADO. Después el documento ya salió
+ * firmado, y corregir el remitente ahí reescribiría lo que dice un papel que ya
+ * está en manos de la autoridad que lo pidió.
+ *
+ * Cada campo que cambia deja su renglón en el historial con el antes y el
+ * después: sobre un expediente oficial, una corrección silenciosa es peor que no
+ * poder corregir.
+ */
+export async function corregirDatosOficio(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const user      = req.user!;
+    const oficio_id = parseInt(req.params.id, 10);
+
+    const oficio = await db('oficios as o')
+      .leftJoin('usuarios as dir', 'dir.id', 'o.dirigido_a_id')
+      .where('o.id', oficio_id)
+      .select('o.*', 'dir.unidad_id as dirigido_a_unidad_id')
+      .first();
+    if (!oficio) throw new AppError('Oficio no encontrado', 404);
+
+    if (oficio.estatus === 'FINALIZADO') {
+      throw new AppError(
+        'El oficio ya está finalizado: sus datos no se pueden corregir porque el documento salió firmado.',
+        409,
+      );
+    }
+
+    const unidadesEncargado = await getUnidadesEncargado(user.id);
+    const esDelArea = user.oficina_id === oficio.dirigido_a_unidad_id
+      || unidadesEncargado.includes(oficio.dirigido_a_unidad_id);
+    if (!esDelArea) {
+      throw new AppError('Solo el área que tiene el oficio puede corregir sus datos', 403);
+    }
+
+    // Se comparan solo los campos que vengan en la petición: mandar el resto
+    // vacío no debe borrar lo que ya estaba.
+    const cambios: { campo: string; antes: string | null; despues: string | null }[] = [];
+    const update: Record<string, any> = {};
+
+    for (const campo of Object.keys(CAMPOS_CORREGIBLES)) {
+      if (!(campo in req.body)) continue;
+
+      const crudo = req.body[campo];
+      let nuevo: string | null =
+        crudo === null || crudo === undefined || String(crudo).trim() === ''
+          ? null
+          : String(crudo).trim();
+      if (nuevo && CAMPOS_MAYUSCULAS.has(campo)) nuevo = nuevo.toUpperCase();
+
+      const anterior = oficio[campo] === undefined || oficio[campo] === null
+        ? null
+        : String(oficio[campo] instanceof Date
+            ? oficio[campo].toISOString().slice(0, 10)
+            : oficio[campo]);
+
+      if (nuevo === anterior) continue;   // sin cambio real, no ensucia el historial
+      update[campo] = nuevo;
+      cambios.push({ campo, antes: anterior, despues: nuevo });
+    }
+
+    if (cambios.length === 0) {
+      res.json({ message: 'No hubo cambios que guardar', data: { cambios: 0 } });
+      return;
+    }
+
+    await db.transaction(async (trx) => {
+      await trx('oficios').where({ id: oficio_id }).update(update);
+      await trx('oficio_correcciones').insert(
+        cambios.map((c) => ({
+          oficio_id,
+          campo:          c.campo,
+          valor_anterior: c.antes,
+          valor_nuevo:    c.despues,
+          usuario_id:     user.id,
+        })),
+      );
+    });
+
+    res.json({
+      message: cambios.length === 1
+        ? 'Se corrigió 1 dato del oficio'
+        : `Se corrigieron ${cambios.length} datos del oficio`,
+      data: { cambios: cambios.length },
+    });
+  } catch (err) { next(err); }
 }
 
 // ─── GET /oficios/:id/historial ──────────────────────────────────────────────
@@ -3037,8 +3307,8 @@ export async function getHistorial(
         fecha_cambio:    p.enviado_en,
         usuario_nombre:  p.enviado_por,
         detalle:         p.motivo
-          ? `A firma de la Dirección General: ${p.motivo}`
-          : 'A firma de la Dirección General',
+          ? `A firma del Despacho de la Titular: ${p.motivo}`
+          : 'A firma del Despacho de la Titular',
       };
       if (!p.cerrado_en || p.resultado !== 'CORREGIR') return [ida];
       return [ida, {
@@ -3061,6 +3331,15 @@ export async function getHistorial(
       .select('a.id', 'a.fecha_asignacion', 'a.observaciones',
               'ab.nombre as abogado', 'por.nombre as asignado_por')
       .orderBy('a.id', 'asc');
+
+    // Correcciones a los datos de captura: tampoco cambian el estatus, así que
+    // viven en su propia tabla igual que los turnos y los pases de firma.
+    const correcciones = await db('oficio_correcciones as c')
+      .join('usuarios as u', 'u.id', 'c.usuario_id')
+      .where('c.oficio_id', oficio_id)
+      .select('c.id', 'c.campo', 'c.valor_anterior', 'c.valor_nuevo', 'c.corregido_en',
+              'u.nombre as usuario_nombre')
+      .orderBy('c.id', 'asc');
 
     // Cada vez que se marcó o se quitó la marca de conocimiento.
     const conocimiento = await db('oficio_conocimiento as k')
@@ -3092,6 +3371,21 @@ export async function getHistorial(
         detalle:         k.marcado
           ? 'Marcado de conocimiento: se cierra sin contestación ni firma'
           : `Se quitó la marca de conocimiento; el oficio regresó a ${k.estatus_restaurado ?? 'su punto anterior'}`,
+      })),
+      /**
+       * Correcciones a los datos de captura. Van con el antes y el después
+       * explícitos: decir solo «se editó el oficio» dejaría al expediente sin
+       * manera de saber qué decía antes, que es justo lo que se necesita cuando
+       * alguien pregunta por un dato que ya no coincide con el papel.
+       */
+      ...correcciones.map((c: any) => ({
+        id:              -5000000 - c.id,
+        estado_anterior: null,
+        estado_nuevo:    'CORRECCION',
+        fecha_cambio:    c.corregido_en,
+        usuario_nombre:  c.usuario_nombre,
+        detalle:         `Corrigió ${CAMPOS_CORREGIBLES[c.campo] ?? c.campo}: `
+                       + `«${c.valor_anterior ?? '—'}» → «${c.valor_nuevo ?? '—'}»`,
       })),
       /**
        * Los cambios de área dicen con qué opción se hicieron.
@@ -3202,6 +3496,30 @@ export async function getCandidatosAsignacion(
     // Ser oficial de partes NO excluye: una misma persona puede recepcionar y
     // además trabajar expedientes, que en las delegaciones chicas pasa a diario.
     // Sí se excluye al encargado, que reparte el trabajo en vez de recibirlo.
+    //
+    // ── De qué áreas se listan ─────────────────────────────────────────────
+    //
+    // Del área del oficio Y de las que dirige quien reparte. Se filtraba solo por
+    // `user.oficina_id`, y eso vale mientras el encargado esté adscrito al área
+    // que dirige. Óscar Gopar no lo está: figura en la Dirección Jurídica y es
+    // encargado además de la Dirección General.
+    //
+    // Las dos mitades hacen falta:
+    //
+    //   · El área del oficio, porque el trabajo es de esa área.
+    //   · Las áreas que él dirige, porque un encargado reparte con SU equipo, y
+    //     la Dirección General no tiene analistas propios: los suyos están en
+    //     Jurídica. Sin esto, ese desplegable sale vacío y sus 35 oficios en
+    //     RECIBIDO no tienen a quién ir.
+    //
+    // No se abre a nadie más: solo áreas de las que él responde.
+    const oficioId = req.query.oficio_id ? Number(req.query.oficio_id) : null;
+    const unidadesCandidatas = await unidadesParaAsignar(user, oficioId);
+    // Se resuelve aparte y no como `unidadesCandidatas[0]`: que el área del
+    // oficio vaya primera en ese arreglo es cierto hoy, pero es orden de
+    // inserción, no una promesa. Aquí sí importa cuál es, para encabezar la lista.
+    const unidadDelPropioOficio = oficioId ? await unidadDelOficio(oficioId) : null;
+
     const candidatos = await db('usuarios as u')
       .join('configuracion_flujos as cf', function () {
         this.on('cf.usuario_id', 'u.id')
@@ -3215,7 +3533,10 @@ export async function getCandidatosAsignacion(
       .join('modulos as m', function () {
         this.on('m.id', 'um.modulo_id').andOnVal('m.clave', 'oficialia_partes');
       })
-      .where('cf.unidad_id', user.oficina_id)
+      // El área de la DESIGNACIÓN, no la de adscripción de la persona. Es la que
+      // dice de qué equipo se está echando mano, que es lo que la pantalla agrupa.
+      .join('catalogo_unidades as cu', 'cu.id', 'cf.unidad_id')
+      .whereIn('cf.unidad_id', unidadesCandidatas)
       .andWhere('u.activo', true)
       .andWhereNot('u.id', user.id)
       .whereNotExists(function () {
@@ -3225,7 +3546,19 @@ export async function getCandidatosAsignacion(
           .andWhere('cf2.modulo_clave', 'oficialia_partes')
           .where('cf2.rol_flujo', 'ENCARGADO');
       })
-      .distinct('u.id', 'u.nombre', 'u.cargo', 'u.email')
+      // El área del oficio primero: es de donde debería salir el analista, y las
+      // demás son el equipo prestado. Que encabece la lista lo dice sin explicarlo.
+      //
+      // El criterio va como columna y no directo en el ORDER BY porque con
+      // SELECT DISTINCT Postgres exige que toda expresión ordenada esté en la
+      // lista de selección.
+      .distinct(
+        'u.id', 'u.nombre', 'u.cargo', 'u.email',
+        'cf.unidad_id', 'cu.nombre as oficina_nombre',
+        db.raw('CASE WHEN cf.unidad_id = ? THEN 0 ELSE 1 END AS orden_area', [unidadDelPropioOficio ?? 0]),
+      )
+      .orderBy('orden_area', 'asc')
+      .orderBy('cu.nombre', 'asc')
       .orderBy('u.nombre', 'asc');
 
     res.json({ data: candidatos });
@@ -3541,7 +3874,7 @@ export async function mandarAPaseFirma(
       );
     }
     if (await enPaseFirma(oficio_id)) {
-      throw new AppError('Este oficio ya está esperando la firma de la Dirección General', 409);
+      throw new AppError('Este oficio ya está esperando la firma del Despacho de la Titular', 409);
     }
 
     // Los mismos frenos que para firmar: no se manda a firma algo que no está completo.
@@ -3576,7 +3909,7 @@ export async function mandarAPaseFirma(
       nota:               motivo || undefined,
     }).catch((err) => logger.error({ err, oficio_id }, 'Error al avisar el pase de firma'));
 
-    res.json({ message: 'El oficio quedó en espera de la firma de la Dirección General' });
+    res.json({ message: 'El oficio quedó en espera de la firma del Despacho de la Titular' });
   } catch (err) {
     next(err);
   }
@@ -3612,7 +3945,7 @@ export async function devolverPaseFirma(
       .where({ oficio_id })
       .whereNull('cerrado_en')
       .first();
-    if (!pase) throw new AppError('Este oficio no está esperando firma de la Dirección General', 409);
+    if (!pase) throw new AppError('Este oficio no está esperando firma del Despacho de la Titular', 409);
 
     await db('oficio_pases_firma')
       .where({ id: pase.id })

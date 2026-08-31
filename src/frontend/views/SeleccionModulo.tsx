@@ -13,7 +13,7 @@ import { Icono } from '../components/Icono';
 import type { NombreIcono } from '../components/Icono';
 import { useNavigate } from 'react-router-dom';
 import { useAuth }     from '../context/AuthContext';
-import { theme }       from '../theme';
+import { theme, FONDO_INSTITUCIONAL } from '../theme';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { ModuloConEstado, RolUsuario } from '../types';
 
@@ -77,26 +77,6 @@ function getRutaModulo(
       return '/dashboard/gestion';
   }
 }
-
-/**
- * Fondo institucional de las pantallas previas al tablero.
- *
- * Usa el degradado radial que la hoja de marca define como elemento propio,
- * sobre la base de gris cálido 401C. Van tres capas, de arriba hacia abajo:
- *
- *   1. Un halo guinda 1945C arriba al centro, que es el punto de calidez.
- *   2. Un asentamiento en guinda oscuro 7421C abajo, que da profundidad y evita
- *      que el gris plano se lea apagado.
- *   3. La base 401C.
- *
- * El guinda va en opacidades bajas a propósito: si sube, vuelve a competir con
- * el guinda de las tarjetas de módulo y con la marca PRISMA.
- */
-const FONDO_INSTITUCIONAL = [
-  `radial-gradient(115% 85% at 50% 8%, rgba(171,10,61,0.34) 0%, rgba(171,10,61,0.13) 40%, rgba(171,10,61,0) 70%)`,
-  `radial-gradient(120% 75% at 50% 108%, rgba(68,4,18,0.30) 0%, rgba(68,4,18,0) 62%)`,
-  theme.colors.grayMid,
-].join(', ');
 
 // ── Iconos y colores por módulo ───────────────────────────────
 

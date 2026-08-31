@@ -8,7 +8,7 @@
  * que la gente tiene que entender es si el oficio se va o se queda:
  *
  *   · Solicitud a otra área — el oficio SE QUEDA. La otra área trabaja y contesta
- *     con su documento, que regresa a «Solicitudes a otras áreas». Admite varias
+ *     con su documento, que regresa a «Solicitudes para atención por otras áreas». Admite varias
  *     áreas a la vez: así se piden los testamentos a las cuatro delegaciones.
  *   · Enviar información — el oficio SE VA, ya trabajado, y no tiene que
  *     regresar. Quien lo mandó lo sigue viendo en la pestaña Todo.
@@ -37,12 +37,12 @@ const OPCIONES: { valor: Opcion; titulo: string; detalle: string }[] = [
   {
     valor:   'SOLICITUD',
     titulo:  'Solicitud a otra área',
-    detalle: 'El oficio se queda contigo. El área trabaja y te contesta con su documento.',
+    detalle: 'El oficio permanece bajo tu atención; el área correspondiente gestionará y remitirá su respuesta.',
   },
   {
     valor:   'INFORMACION',
     titulo:  'Enviar información a otra área',
-    detalle: 'Tu área ya trabajó su parte y manda lo hecho. No tienen que regresártelo.',
+    detalle: 'Concluida la intervención de tu área, remite la documentación generada para continuar la atención, sin que el asunto regrese a tu área.',
   },
   {
     valor:   'COMPETENCIA',

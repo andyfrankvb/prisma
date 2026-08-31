@@ -6,13 +6,16 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { theme } from '../theme';
+import { theme, FONDO_INSTITUCIONAL } from '../theme';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { GlifoMaya } from '../components/GlifoMaya';
 import { getRecursos, urlArchivoRecurso } from '../api';
 import type { RecursoPublico } from '../api';
 
 export const Login: React.FC = () => {
   const { login }  = useAuth();
   const navigate   = useNavigate();
+  const isMobile   = useIsMobile();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState<string | null>(null);
@@ -41,113 +44,121 @@ export const Login: React.FC = () => {
     }
   };
 
+  /*
+   * `alignItems: flex-start` + `margin: auto` en la tarjeta, y no
+   * `alignItems: center`: centrado así, una tarjeta más alta que la ventana se
+   * desborda por arriba Y por abajo, y la mitad de arriba queda fuera de alcance
+   * —no hay forma de subir el scroll hasta ella—. Con `margin: auto` queda igual
+   * de centrada mientras quepa, y cuando no cabe se puede recorrer entera. Se
+   * nota en portátiles de 768 px de alto, no en un monitor grande.
+   */
   return (
     <div style={{
       minHeight:      '100vh',
       display:        'flex',
-      background:     `linear-gradient(135deg, ${theme.colors.primaryDark} 0%, ${theme.colors.primary} 60%, ${theme.colors.primaryLight} 100%)`,
+      alignItems:     'flex-start',
+      justifyContent: 'center',
+      // Los márgenes exteriores ceden primero cuando sobra poco alto.
+      padding:        isMobile ? '20px 14px' : 'clamp(12px, 3vh, 32px)',
+      background:     FONDO_INSTITUCIONAL,
+      fontFamily:     theme.font.family,
     }}>
 
-      {/* Panel izquierdo — branding */}
+      {/* Tarjeta: el bloque flota sobre el degradado, como en la selección de
+          módulos. Se parte en dos —identidad y formulario— y en móvil se apila
+          quedando solo el formulario, donde el ancho no da para las dos mitades. */}
       <div style={{
-        flex:           '0 0 45%',
-        display:        'flex',
-        flexDirection:  'column',
-        alignItems:     'center',
-        justifyContent: 'center',
-        padding:        '48px',
-        position:       'relative',
-        overflow:       'hidden',
+        display:       'flex',
+        margin:        'auto',
+        width:         '100%',
+        maxWidth:      '960px',
+        // 560 px era fijo: en una pantalla de 768 px de alto la tarjeta ya no
+        // cabía junto con sus márgenes. Ahora es el menor de los dos, así que en
+        // monitores grandes se ve idéntica y en portátiles se ajusta sola.
+        minHeight:     isMobile ? 0 : 'min(560px, 82vh)',
+        borderRadius:  '18px',
+        overflow:      'hidden',
+        backgroundColor: theme.colors.surface,
+        boxShadow:     '0 2px 10px rgba(61,57,53,0.12), 0 24px 60px rgba(61,57,53,0.30)',
       }}>
-        {/* Círculo decorativo fondo */}
-        <div style={{
-          position:        'absolute',
-          width:           '500px',
-          height:          '500px',
-          borderRadius:    '50%',
-          border:          '1px solid rgba(255,255,255,0.08)',
-          top:             '-100px',
-          left:            '-100px',
-        }} />
-        <div style={{
-          position:        'absolute',
-          width:           '300px',
-          height:          '300px',
-          borderRadius:    '50%',
-          border:          '1px solid rgba(255,255,255,0.06)',
-          bottom:          '-50px',
-          right:           '-50px',
-        }} />
 
-        {/* Logo PRISMA */}
+        {/* ── Panel de identidad ──────────────────────────────────
+            El logotipo NO va aquí: es guinda sobre transparente y sobre este
+            fondo desaparecería. Va del lado blanco, donde se lee entero. */}
+        {!isMobile && (
+          <div style={{
+            flex:           '0 0 42%',
+            position:       'relative',
+            overflow:       'hidden',
+            display:        'flex',
+            flexDirection:  'column',
+            justifyContent: 'center',
+            padding:        'clamp(28px, 5vh, 52px) 44px',
+            background:     `linear-gradient(150deg, ${theme.colors.primary} 0%, ${theme.colors.primaryDark} 100%)`,
+          }}>
+            {/* Glifos mayas como filigrana de fondo, en lugar de círculos
+                genéricos. Van a opacidad muy baja y sangrados por los bordes:
+                se perciben como textura, no como ilustración, y no le disputan
+                la lectura al titular. */}
+            <div style={{ position: 'absolute', top: '-56px', right: '-70px',
+                          color: 'rgba(255,255,255,0.14)' }}>
+              <GlifoMaya variante="perfil" size={280} />
+            </div>
+            <div style={{ position: 'absolute', bottom: '-70px', left: '-64px',
+                          color: 'rgba(255,255,255,0.10)' }}>
+              <GlifoMaya variante="ojo" size={230} />
+            </div>
+            <div style={{ position: 'absolute', top: '46%', right: '-96px',
+                          color: `${theme.colors.gold}45` }}>
+              <GlifoMaya variante="sol" size={190} />
+            </div>
+
+            {/* Solo la marca, en grande. El PNG es guinda sobre transparente y
+                aquí se perdería, así que se pasa a blanco con un filtro: eso
+                respeta la transparencia y evita la caja blanca detrás. Si algún
+                día hay una versión monocromática oficial, se cambia el src y se
+                quita el filtro. */}
+            <img
+              src="/PRISMA1.png"
+              alt="PRISMA — Plataforma de Control y Seguimiento"
+              style={{
+                position:  'relative',
+                width:     '100%',
+                maxWidth:  '330px',
+                height:    'auto',
+                objectFit: 'contain',
+                margin:    '0 auto',
+                filter:    'brightness(0) invert(1)',
+              }}
+            />
+          </div>
+        )}
+
+        {/* ── Panel del formulario ──────────────────────────────── */}
         <div style={{
-          marginBottom:    '28px',
-          display:         'flex',
-          alignItems:      'center',
-          justifyContent:  'center',
-          backgroundColor: 'rgba(255,255,255,0.95)',
-          borderRadius:    '12px',
-          padding:         '16px 24px',
-          boxShadow:       '0 4px 20px rgba(0,0,0,0.15)',
+          flex:           1,
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          padding:        isMobile ? '34px 24px' : 'clamp(28px, 5vh, 52px) 48px',
+          backgroundColor: theme.colors.surface,
         }}>
-          <img
-            src="/LOGO.PRISMA.png"
-            alt="Logo PRISMA"
-            style={{
-              width:     '180px',
-              maxWidth:  '100%',
-              objectFit: 'contain',
-            }}
-          />
-        </div>
-
-        <h1 style={{
-          margin:        0,
-          color:         theme.colors.white,
-          fontSize:      '1.6rem',
-          fontWeight:    900,
-          fontFamily:    theme.font.family,
-          textAlign:     'center',
-          letterSpacing: '0.02em',
-          textTransform: 'uppercase',
-        }}>
-          RPPC
-        </h1>
-        <p style={{
-          margin:        '6px 0 0',
-          color:         theme.colors.gold,
-          fontSize:      '0.75rem',
-          fontWeight:    700,
-          letterSpacing: '0.15em',
-          textTransform: 'uppercase',
-          fontFamily:    theme.font.family,
-        }}>
-          Gobierno del Estado de Quintana Roo
-        </p>
-
-        <div style={{
-          marginTop:       '40px',
-          padding:         '1px 32px',
-          backgroundColor: 'rgba(255,255,255,0.1)',
-          borderRadius:    '1px',
-          width:           '60px',
-        }} />
-
-      </div>
-
-      {/* Panel derecho — formulario */}
-      <div style={{
-        flex:           '0 0 55%',
-        display:        'flex',
-        alignItems:     'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.background,
-        padding:        '48px',
-      }}>
-        <div style={{
-          width:        '100%',
-          maxWidth:     '420px',
-        }}>
+          <div style={{
+            width:        '100%',
+            maxWidth:     '380px',
+          }}>
+          {/* En escritorio la marca ya preside el panel de al lado; repetirla
+              aquí la duplicaría. Solo aparece cuando ese panel se oculta. */}
+          {isMobile && (
+            <img
+              src="/PRISMA1.png"
+              alt="PRISMA — Plataforma de Control y Seguimiento"
+              style={{
+                height: '52px', width: 'auto', maxWidth: '100%',
+                objectFit: 'contain', display: 'block', marginBottom: '28px',
+              }}
+            />
+          )}
           <h2 style={{
             margin:      '0 0 8px',
             fontSize:    '1.5rem',
@@ -248,13 +259,14 @@ export const Login: React.FC = () => {
           )}
 
           <p style={{
-            marginTop:  '32px',
+            marginTop:  '28px',
             textAlign:  'center',
-            fontSize:   '0.75rem',
+            fontSize:   '0.72rem',
             color:      theme.colors.grayMid,
           }}>
             Unidos para Transformar · Quintana Roo 2022–2027
           </p>
+          </div>
         </div>
       </div>
     </div>

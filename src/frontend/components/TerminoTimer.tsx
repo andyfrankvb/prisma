@@ -23,6 +23,12 @@ interface Props {
    * navegador desfasa el resultado tantas horas como diferencia haya.
    */
   horas_restantes?:  number | null;
+  /**
+   * El oficio ya se cerró. El plazo deja de correr: un oficio contestado no
+   * sigue «venciendo», y verlo en rojo semanas después hacía parecer que algo
+   * seguía pendiente cuando el asunto estaba resuelto.
+   */
+  cerrado?:          boolean;
 }
 
 function calcDiasRestantes(fecha: string | null): number | null {
@@ -50,7 +56,7 @@ const SEMAFORO_COLOR: Record<Semaforo, string> = {
 };
 
 export const TerminoTimer: React.FC<Props> = ({
-  tiene_termino, fecha_vencimiento, termino_tipo, vence_en, horas_restantes,
+  tiene_termino, fecha_vencimiento, termino_tipo, vence_en, horas_restantes, cerrado,
 }) => {
   const porHoras  = termino_tipo === 'HORAS';
   const horas     = porHoras ? (horas_restantes ?? null) : null;
@@ -65,6 +71,25 @@ export const TerminoTimer: React.FC<Props> = ({
     return (
       <span style={{ color: theme.colors.textSecondary, fontSize: '0.8rem' }}>
         Sin término
+      </span>
+    );
+  }
+
+  /**
+   * Cerrado: el conteo se detiene.
+   *
+   * Se dice «Atendido» y no se deja el plazo en blanco, porque el oficio SÍ tenía
+   * término y esa columna quedaría muda justo en los que ya se resolvieron. Va en
+   * gris, sin semáforo: no hay nada que vigilar.
+   */
+  if (cerrado) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: theme.colors.textSecondary }}>
+        <span
+          style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: theme.colors.grayMid, flexShrink: 0 }}
+          aria-hidden="true"
+        />
+        Atendido
       </span>
     );
   }

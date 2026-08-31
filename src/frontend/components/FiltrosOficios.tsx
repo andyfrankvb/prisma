@@ -118,7 +118,7 @@ export const FiltrosOficios: React.FC<{
         <option value="devuelto">Devuelto por competencia</option>
         <option value="informacion">Con información de otra área</option>
         <option value="de_conocimiento">De conocimiento</option>
-        <option value="en_firma_dg">En firma de la Dirección General</option>
+        <option value="en_firma_dg">En firma del Despacho</option>
         <option value="delegatorios_pendientes">Con delegatorios pendientes</option>
       </select>
 

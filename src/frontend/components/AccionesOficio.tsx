@@ -111,7 +111,7 @@ export const AccionesOficio: React.FC<Props> = ({
       <div style={caja}>
         <button type="button" onClick={() => setMarcas((v) => !v)} aria-expanded={marcas} style={encabezado}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={rotulo}>Marcas y registro</span>
+            <span style={rotulo}>Gestiones y registros</span>
             {avisos.length > 0 && !marcas && <span style={chipAviso}>{avisos.join(' · ')}</span>}
           </span>
           <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, whiteSpace: 'nowrap' }}>

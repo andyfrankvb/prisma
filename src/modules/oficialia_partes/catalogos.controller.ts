@@ -45,6 +45,37 @@ async function exigirGestionCatalogos(req: Request): Promise<void> {
   }
 }
 
+/**
+ * GET /catalogos/permisos
+ *
+ * Dice si quien pregunta puede corregir el catálogo. Crear una entrada está
+ * abierto —la oficialía necesita dar de alta un remitente nuevo al vuelo—, pero
+ * renombrar una existente cambia lo que verán todos, así que se reserva a quien
+ * administra catálogos. La pantalla lo usa para ofrecer o no el lápiz.
+ */
+export async function getPermisosCatalogos(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    res.json({ data: { puede_gestionar: await puedeGestionarCatalogos(req.user) } });
+  } catch (err) { next(err); }
+}
+
+/**
+ * DECISIÓN: renombrar una entrada del catálogo NO reescribe los oficios ya
+ * capturados.
+ *
+ * El oficio guarda el texto, no una referencia, así que corregir «FISCALIA» a
+ * «FISCALÍA» aquí deja bien el catálogo y todos los registros futuros, pero los
+ * expedientes anteriores conservan lo que decían el día que se capturaron.
+ *
+ * Es deliberado, no un pendiente: un expediente ya ingresado solo cambia cuando
+ * alguien lo corrige a mano desde su propio detalle —y ahí queda registrado en
+ * su historial, con el antes y el después—. Propagar el renombrado en masa
+ * modificaría cientos de expedientes de golpe, algunos ya finalizados y
+ * firmados, sin que nadie lo pidiera ni quedara rastro por oficio.
+ */
+
 // ═══════════════════════════ Dependencias (nivel raíz) ═══════════════════════════
 
 // GET /catalogos/dependencias
@@ -389,6 +420,20 @@ function tipoDeRuta(req: Request): 'ORIGEN' | 'DESTINO' {
 const míos = (q: any, userId: number) =>
   q.where((sub: any) => sub.where('usuario_id', userId).orWhereNull('usuario_id'));
 
+/**
+ * Hasta dónde alcanza este usuario al corregir o quitar un correo.
+ *
+ * Cada quien, solo los suyos —esa es la regla de todo el módulo—. El SuperAdmin
+ * alcanza todos: es quien ve la lista completa por usuario, y de nada sirve
+ * mostrarle un correo mal escrito de otra persona si no lo puede arreglar.
+ *
+ * Solo para corregir y quitar. Listar y dar de alta siguen siendo personales
+ * incluso para él: su propia lista es la que se le ofrece al registrar un oficio,
+ * y llenarla con las cuentas de todos la volvería inservible.
+ */
+const alcanceCorreos = (q: any, user: any) =>
+  user?.rol === 'SUPERADMIN' ? q : míos(q, user.id);
+
 // GET /catalogos/correos/:tipo
 export async function listarCorreos(
   req: Request, res: Response, next: NextFunction,
@@ -502,14 +547,24 @@ export async function editarCorreo(
     if (!correo) throw new AppError('El correo es requerido', 422);
     if (!FORMATO_CORREO.test(correo)) throw new AppError('El correo no tiene un formato válido', 422);
 
-    const dup = await míos(db('catalogo_correos').where({ tipo, correo }), req.user!.id)
-      .whereNot({ id }).first();
-    if (dup) throw new AppError('Ese correo ya está en tu lista', 409);
+    // Se localiza primero para saber DE QUIÉN es: la lista de cada persona es
+    // independiente, así que el duplicado hay que buscarlo entre los de su dueño
+    // y no entre los de quien está editando. Con el SuperAdmin corrigiendo el
+    // correo de otro, mirar su propia lista habría comparado contra la ajena.
+    const actual = await alcanceCorreos(db('catalogo_correos').where({ id, tipo }), req.user!).first();
+    if (!actual) throw new AppError('Correo no encontrado', 404);
 
-    // Solo sobre los propios: la lista es de cada quien y nadie edita la de otro.
-    const [row] = await míos(db('catalogo_correos').where({ id, tipo }), req.user!.id)
+    const dup = await db('catalogo_correos')
+      .where({ tipo, correo })
+      .andWhere((sub: any) => (actual.usuario_id === null
+        ? sub.whereNull('usuario_id')
+        : sub.where('usuario_id', actual.usuario_id)))
+      .whereNot({ id })
+      .first();
+    if (dup) throw new AppError('Ese correo ya está en esa lista', 409);
+
+    const [row] = await db('catalogo_correos').where({ id })
       .update({ correo }).returning(['id', 'correo as nombre']);
-    if (!row) throw new AppError('Correo no encontrado', 404);
     res.json({ data: row });
   } catch (err) { next(err); }
 }
@@ -522,7 +577,7 @@ export async function eliminarCorreo(
     await exigirGestionCatalogos(req);
     const tipo = tipoDeRuta(req);
     const id   = parseInt(req.params.id, 10);
-    const deleted = await míos(db('catalogo_correos').where({ id, tipo }), req.user!.id).delete();
+    const deleted = await alcanceCorreos(db('catalogo_correos').where({ id, tipo }), req.user!).delete();
     if (!deleted) throw new AppError('Correo no encontrado', 404);
     res.json({ message: 'Correo eliminado' });
   } catch (err) { next(err); }
@@ -601,5 +656,48 @@ export async function permisosCatalogos(
 ): Promise<void> {
   try {
     res.json({ data: { puede_gestionar: await puedeGestionarCatalogos(req.user) } });
+  } catch (err) { next(err); }
+}
+
+// GET /catalogos/correos-registrados  (solo SUPERADMIN)
+
+/**
+ * Qué usuarios tienen correos dados de alta, y cuáles.
+ *
+ * El resto del módulo es deliberadamente privado: cada quien ve su propia lista
+ * y nadie ve la de los demás, porque una cuenta de ventanilla de Chetumal no le
+ * sirve a quien captura en Cancún. Eso deja al SuperAdmin sin manera de saber si
+ * la función se está usando: entra a «Mis correos», no ve nada —ninguno es
+ * suyo— y parece que no se guarda nada.
+ *
+ * Esta vista responde esa pregunta y solo esa: quién tiene, cuántos y cuáles.
+ * No permite editarlos ni borrarlos; eso sigue siendo de cada dueño.
+ *
+ * Los heredados —sin dueño, venidos del catálogo viejo cuando la lista era una
+ * sola para toda la institución— se agrupan aparte, porque son de todos hasta
+ * que alguien los reclame.
+ */
+export async function correosRegistrados(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    if (req.user?.rol !== 'SUPERADMIN') {
+      throw new AppError('Solo el administrador puede consultar los correos de todos', 403);
+    }
+
+    const filas = await db('catalogo_correos as c')
+      .leftJoin('usuarios as u', 'u.id', 'c.usuario_id')
+      .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
+      .where('c.activo', true)
+      .select(
+        'c.id', 'c.tipo', 'c.correo', 'c.usuario_id',
+        'u.nombre as usuario_nombre',
+        'cu.nombre as unidad_nombre',
+      )
+      .orderByRaw('u.nombre NULLS LAST')   // los heredados, al final
+      .orderBy('c.tipo', 'asc')
+      .orderBy('c.correo', 'asc');
+
+    res.json({ data: filas });
   } catch (err) { next(err); }
 }

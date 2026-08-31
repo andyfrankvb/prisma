@@ -25,7 +25,7 @@ const ESTATUS_LABEL: Record<string, string> = {
   DEVUELTO:           'Cambio de competencia devuelto',
   INFORMACION_ENVIADA:  'Envío de información a otra área',
   TURNO_ACEPTADO:       'Oficio aceptado',
-  PASE_FIRMA:           'A firma de la Dirección General',
+  PASE_FIRMA:           'A firma del Despacho de la Titular',
   PASE_FIRMA_DEVUELTO:  'Regresado sin firmar',
   ASIGNACION:           'Asignado a un analista',
   DE_CONOCIMIENTO:      'Marcado de conocimiento',

@@ -317,6 +317,28 @@ export async function getCorreos(tipo: TipoCorreo) {
   return handleResponse<{ data: CorreoItem[] }>(res);
 }
 
+/** Un correo dado de alta, con su dueño. Solo lo devuelve el listado del SuperAdmin. */
+export interface CorreoRegistrado {
+  id:              number;
+  tipo:            'ORIGEN' | 'DESTINO';
+  correo:          string;
+  usuario_id:      number | null;
+  usuario_nombre:  string | null;
+  unidad_nombre:   string | null;
+}
+
+/**
+ * Todos los correos dados de alta y de quién es cada uno. Solo SUPERADMIN.
+ *
+ * El resto del módulo es privado por diseño —cada quien ve la suya y nadie más—,
+ * y eso deja al administrador sin forma de saber si la función se está usando.
+ * Esto responde eso y nada más: es de solo lectura.
+ */
+export async function getCorreosRegistrados() {
+  const res = await fetch(`${BASE}/catalogos/correos-registrados`, { headers: authHeaders() });
+  return handleResponse<{ data: CorreoRegistrado[] }>(res);
+}
+
 export async function crearCorreo(tipo: TipoCorreo, nombre: string) {
   const res = await fetch(`${BASE}/catalogos/correos/${tipo}`, {
     method:  'POST',
@@ -553,6 +575,30 @@ export async function rechazarDelegatorio(id: number, motivo: string) {
  * Inicia la búsqueda de testamentos: marca el oficio, fija los plazos y devuelve
  * cuántos días hábiles tienen las delegaciones para contestar.
  */
+/** Campos de captura que el área puede corregir. Debe coincidir con el servidor. */
+export interface CorreccionOficio {
+  remitente?:             string;
+  dependencia_origen?:    string;
+  unidad_interna?:        string | null;
+  numero_oficio_origen?:  string | null;
+  fecha_oficio?:          string | null;
+  descripcion_solicitud?: string;
+  correo_origen?:         string | null;
+}
+
+/**
+ * Corrige los datos que capturó la oficialía. Solo se mandan los campos que se
+ * tocaron: el servidor ignora los ausentes en vez de vaciarlos.
+ */
+export async function corregirDatosOficio(id: number, datos: CorreccionOficio) {
+  const res = await fetch(`${BASE}/oficios/${id}/datos`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(datos),
+  });
+  return handleResponse<{ message: string; data: { cambios: number } }>(res);
+}
+
 export async function marcarTestamento(id: number) {
   const res = await fetch(`${BASE}/oficios/${id}/testamento`, {
     method:  'PATCH',
@@ -617,9 +663,19 @@ export async function getAbogados(): Promise<Abogado[]> {
   return handleResponse<Abogado[]>(res).then((r: any) => r.data ?? r);
 }
 
-/** Candidatos a asignar/reasignar: usuarios de la unidad del encargado con el módulo de oficios */
-export async function getCandidatosAsignacion(): Promise<Abogado[]> {
-  const res = await fetch(`${BASE}/oficios/candidatos-asignacion`, {
+/**
+ * Candidatos a asignar/reasignar: los analistas designados en el área **del
+ * oficio**, con el módulo de oficios habilitado.
+ *
+ * Hay que mandar el oficio. Sin él, el servidor responde con los del área de
+ * quien pregunta, que es lo correcto solo cuando ambas coinciden — en la bandeja
+ * de delegatorios, por ejemplo, donde el reparto es dentro de la propia área.
+ * Para asignar un oficio manda siempre su id: un encargado puede dirigir un área
+ * distinta a la suya, y ahí las dos listas no son la misma.
+ */
+export async function getCandidatosAsignacion(oficioId?: number): Promise<Abogado[]> {
+  const qs = oficioId ? `?oficio_id=${oficioId}` : '';
+  const res = await fetch(`${BASE}/oficios/candidatos-asignacion${qs}`, {
     headers: authHeaders(),
   });
   return handleResponse<{ data: Abogado[] }>(res).then((r) => r.data);
