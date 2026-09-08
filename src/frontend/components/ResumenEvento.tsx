@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Icono } from './Icono';
+import { useDialogo } from '../context/DialogoContext';
 import { theme } from '../theme';
 import type { EventoResumen, EventoDetalle, EstadoTarea } from '../types';
 
@@ -48,6 +49,9 @@ interface Props {
   /** Gestión de participantes y responsable desde el modal, en eventos abiertos:
    *  la DG en los suyos, el director de área en el que él creó. */
   puedeGestionar?:  boolean;
+  /** Designar encargado es del dueño del evento; armar la lista de participantes
+   *  también la puede el encargado, así que van por separado. */
+  puedeDesignarEncargado?: boolean;
   directoresArea?:  DirectorOpcion[];
   /** De quién es el evento. Cambia cómo se nombra a la gente: en la Dirección
    *  General los participantes son titulares de área; en el evento de un
@@ -58,8 +62,9 @@ interface Props {
   onCambio?: () => void;
 }
 
-export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestionar = false, directoresArea = [], ambito = 'DIRECCION_GENERAL', onCambio }) => {
+export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestionar = false, puedeDesignarEncargado = puedeGestionar, directoresArea = [], ambito = 'DIRECCION_GENERAL', onCambio }) => {
   const esAmbitoArea = ambito === 'AREA';
+  const dialogo = useDialogo();
   const [detalle, setDetalle] = useState<EventoDetalle | null>(null);
   const [loading, setLoading] = useState(true);
   const [nuevoParticipante, setNuevoParticipante] = useState<number | ''>('');
@@ -98,6 +103,36 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
       setErrorPart(err.message);
     } finally {
       setAgregando(false);
+    }
+  };
+
+  const [quitando, setQuitando] = useState<number | null>(null);
+
+  const quitarParticipante = async (id: number, nombre: string) => {
+    const sigue = await dialogo.confirmar({
+      titulo:    'Quitar del evento',
+      mensaje:   `¿Sacar a ${nombre} del evento? Sus actividades y su historial se conservan.`,
+      confirmar: 'Quitar',
+      peligro:   true,
+    });
+    if (!sigue) return;
+    setQuitando(id);
+    setErrorPart(null);
+    try {
+      const res = await fetch(`${BASE}/eventos/${resumen.id}/directores/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b?.message ?? `HTTP ${res.status}`);
+      }
+      cargar();
+      onCambio?.();
+    } catch (err: any) {
+      setErrorPart(err.message);
+    } finally {
+      setQuitando(null);
     }
   };
 
@@ -223,6 +258,20 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                   return (
                     <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: esResp ? '#FDE8EF' : '#F3F4F6', color: esResp ? '#8A0730' : theme.colors.textPrimary, border: esResp ? '1px solid #F2C9D6' : `1px solid ${theme.colors.border}` }}>
                       <Icono nombre={esResp ? 'etiqueta' : 'persona'} size={12} />{p.nombre}{esResp ? ' · Responsable' : ''}
+                      {/* Al encargado no se le ofrece la ×: el servidor la niega para
+                          no dejar el evento con un responsable fuera de la lista. */}
+                      {puedeGestionar && resumen.estado !== 'CERRADO' && !esResp && (
+                        <button
+                          type="button"
+                          onClick={() => quitarParticipante(p.id, p.nombre)}
+                          disabled={quitando === p.id}
+                          title={`Quitar a ${p.nombre} del evento`}
+                          aria-label={`Quitar a ${p.nombre} del evento`}
+                          style={{ marginLeft: '2px', border: 'none', background: 'transparent', color: theme.colors.textSecondary, cursor: quitando === p.id ? 'wait' : 'pointer', fontSize: '0.95rem', lineHeight: 1, padding: '0 2px', fontFamily: theme.font.family }}
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   );
                 })}
@@ -230,7 +279,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
             )}
 
             {/* Cambiar el director responsable — solo aquí, dentro del Abrir */}
-            {puedeGestionar && resumen.estado !== 'CERRADO' && (
+            {puedeDesignarEncargado && resumen.estado !== 'CERRADO' && (
               <div style={{ marginTop: '12px', padding: '10px 12px', backgroundColor: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#8A0730' }}><Icono nombre="persona" inline />{esAmbitoArea ? 'Responsable del evento:' : 'Director responsable:'}</span>
                 <select

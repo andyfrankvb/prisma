@@ -495,9 +495,6 @@ export async function agregarTarea(
   next: NextFunction,
 ): Promise<void> {
   try {
-    requireDirector(req);
-    requireRolDirector(req); // solo directores crean tareas (no observadores)
-
     const eventoId = parseInt(req.params.id, 10);
     const { titulo, descripcion, asignado_a_id, fecha_programada } = req.body as CrearTareaBody;
 
@@ -517,6 +514,27 @@ export async function agregarTarea(
     const usuarioEsDG     = req.user!.oficina_id === idDG;
     const esCreadorEvento = req.user!.id === evento.creado_por_id;
     const esResponsable   = evento.responsable_id === req.user!.id;
+
+    /**
+     * El encargado del evento reparte el trabajo, tenga el rol que tenga.
+     *
+     * El guardia de rol estaba arriba, antes de leer el evento, así que rechazaba
+     * a cualquiera que no fuera DIRECTOR sin llegar a mirar quién era. Eso dejaba
+     * dos encargados muy distintos: cuando la Dirección General nombra encargado a
+     * un titular de área, ese puede repartir actividades —pero por ser director, no
+     * por ser encargado—; cuando un director nombra encargado a alguien de su
+     * equipo, la palabra no valía nada: abría el evento y no podía hacer nada
+     * dentro. Ahora se lee el evento primero y ser el encargado basta.
+     *
+     * Lo que sigue exigiendo rol de director es aprobar y devolver el trabajo: esa
+     * es la revisión jerárquica, y en un evento de área la aprobación del director
+     * es la final. Si la diera el encargado operativo, cerraría sus propias
+     * actividades y el doble control desaparece.
+     */
+    if (!esResponsable) {
+      requireDirector(req);
+      requireRolDirector(req); // observadores y operativos ajenos al encargo
+    }
 
     // Un Director de Área puede agregar tareas si:
     //   a) Es el creador del evento, O
@@ -707,8 +725,6 @@ export async function agregarDirector(
   next: NextFunction,
 ): Promise<void> {
   try {
-    requireDirector(req);
-
     const eventoId = parseInt(req.params.id, 10);
     const { director_id } = req.body as { director_id: number };
 
@@ -717,6 +733,9 @@ export async function agregarDirector(
     if (evento.estado === 'CERRADO') {
       throw new AppError('No se pueden agregar participantes a un evento cerrado', 409);
     }
+    // El guardia de rol va después de leer el evento: el encargado arma la lista
+    // aunque no sea director, y eso no se sabe hasta saber de qué evento se habla.
+    if (evento.responsable_id !== req.user!.id) requireDirector(req);
 
     /**
      * Quién puede sumar a alguien, y a quién.
@@ -733,9 +752,12 @@ export async function agregarDirector(
     const idDG    = await getIdDireccionGeneral();
     const esDGReq = req.user!.oficina_id === idDG && actuaComoDG(req.user);
     const esDueno = evento.creado_por_id === req.user!.id;
+    // El encargado arma el equipo del evento: es quien lo coordina y quien se da
+    // cuenta de que falta alguien. Antes tenía que pedírselo a quien lo creó.
+    const esEncargado = evento.responsable_id === req.user!.id;
 
-    if (!esDGReq && !esDueno) {
-      throw new AppError('Solo quien creó el evento puede agregar participantes', 403);
+    if (!esDGReq && !esDueno && !esEncargado) {
+      throw new AppError('Solo quien creó el evento o su encargado pueden agregar participantes', 403);
     }
     if (esDGReq && !evento.requiere_aprobacion_dg) {
       throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
@@ -745,14 +767,25 @@ export async function agregarDirector(
     const dir = await db('usuarios').where({ id: director_id, activo: true }).first();
     if (!dir) throw new AppError('Esa persona no existe o está inactiva', 422);
 
-    const admitido = esDGReq
+    /**
+     * A quién se admite lo decide EL EVENTO, no quien está sumando.
+     *
+     * Antes se comparaba contra la unidad de quien hacía la petición, y eso
+     * funcionaba mientras solo el dueño podía sumar: su unidad y la del evento son
+     * la misma. Al abrirle la función al encargado deja de serlo — el encargado de
+     * un evento de la Dirección General es el titular de OTRA área—, y con la
+     * regla vieja habría podido meter a su equipo operativo en un evento de la DG,
+     * donde los participantes son titulares.
+     */
+    const dueno = await db('usuarios').where({ id: evento.creado_por_id }).select('unidad_id').first();
+    const admitido = evento.requiere_aprobacion_dg
       ? dir.rol === 'DIRECTOR' && dir.unidad_id !== idDG
-      : dir.unidad_id === req.user!.oficina_id;
+      : dir.unidad_id === dueno?.unidad_id;
     if (!admitido) {
       throw new AppError(
-        esDGReq
+        evento.requiere_aprobacion_dg
           ? 'El participante debe ser un director de área activo'
-          : 'Solo puedes agregar a personas de tu propia área',
+          : 'Solo puedes agregar a personas del área del evento',
         422,
       );
     }
@@ -769,6 +802,92 @@ export async function agregarDirector(
       .orderBy('u.nombre', 'asc');
 
     res.json({ data: participantes, message: 'Participante agregado correctamente' });
+  } catch (err) { next(err); }
+}
+
+// ── DELETE /eventos/:id/directores/:directorId ────────────────
+/**
+ * Saca a alguien del evento.
+ *
+ * Nunca existió: se podía sumar gente pero no quitarla, ni siquiera la Dirección
+ * General. Una lista a la que solo se agrega deja de describir quién trabaja el
+ * evento —el que se fue del área, el que se puso por error— y a partir de ahí
+ * estorba en todos los selectores que se apoyan en ella.
+ *
+ * Quita el renglón de participación y nada más. NO borra actividades ni historial:
+ * lo que ya se trabajó ocurrió, y esconderlo sería peor que tener a alguien de más
+ * en una lista. Por eso mismo se niega a sacar a quien tiene trabajo asignado
+ * dentro; primero hay que reasignarlo.
+ */
+export async function quitarDirector(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId   = parseInt(req.params.id, 10);
+    const directorId = parseInt(req.params.directorId, 10);
+
+    const evento = await db('eventos').where({ id: eventoId }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se pueden quitar participantes de un evento cerrado', 409);
+    }
+    if (evento.responsable_id !== req.user!.id) requireDirector(req);
+
+    // Las mismas tres llaves que para agregar.
+    const idDG        = await getIdDireccionGeneral();
+    const esDGReq     = req.user!.oficina_id === idDG && actuaComoDG(req.user);
+    const esDueno     = evento.creado_por_id === req.user!.id;
+    const esEncargado = evento.responsable_id === req.user!.id;
+
+    if (!esDGReq && !esDueno && !esEncargado) {
+      throw new AppError('Solo quien creó el evento o su encargado pueden quitar participantes', 403);
+    }
+    if (esDGReq && !evento.requiere_aprobacion_dg) {
+      throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
+    }
+
+    // El encargado no se saca a sí mismo: el evento quedaría con un responsable que
+    // no figura entre sus participantes, y quien lo nombró perdería la referencia.
+    // Para salirse hay que pedirle a quien creó el evento que nombre a otro.
+    if (directorId === evento.responsable_id) {
+      throw new AppError(
+        'Esa persona es la encargada del evento. Designa a otra antes de quitarla.',
+        422,
+      );
+    }
+
+    // Con trabajo dentro no se va. Quitarlo dejaría actividades a nombre de alguien
+    // ajeno al evento —justo la incoherencia que se corrigió al repartirlas—, y
+    // borrarlas sería perder lo ya trabajado.
+    const conTrabajo = await db('tareas_evento')
+      .where({ evento_id: eventoId })
+      .andWhere((q: any) => q.where('asignado_a_id', directorId)
+                             .orWhere('reasignado_a_id', directorId))
+      .count('id as n')
+      .first();
+    if (Number(conTrabajo?.n ?? 0) > 0) {
+      throw new AppError(
+        'Esa persona tiene actividades en el evento. Reasígnalas antes de quitarla.',
+        409,
+      );
+    }
+
+    const quitados = await db('evento_directores')
+      .where({ evento_id: eventoId, director_id: directorId })
+      .del();
+    if (quitados === 0) {
+      throw new AppError('Esa persona no participa en el evento', 404);
+    }
+
+    const participantes = await db('evento_directores as ed')
+      .join('usuarios as u', 'u.id', 'ed.director_id')
+      .where('ed.evento_id', eventoId)
+      .select('u.id', 'u.nombre')
+      .orderBy('u.nombre', 'asc');
+
+    res.json({ data: participantes, message: 'Participante quitado del evento' });
   } catch (err) { next(err); }
 }
 

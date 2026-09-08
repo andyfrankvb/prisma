@@ -192,7 +192,11 @@ export const SeccionEventos: React.FC = () => {
             unidad_id:      unidadId,
             oficina_nombre: user.oficina_nombre ?? '',
           };
-          setDirectores([yo, ...ops]);
+          // Sin el filtro, quien es a la vez operativo de la unidad y quien mira
+          // —el encargado del evento, desde que puede repartir trabajo— salía dos
+          // veces en el selector: una como «(yo)» y otra dentro de su propio
+          // equipo, con la misma clave de React.
+          setDirectores([yo, ...ops.filter((o) => o.id !== user.id)]);
         })
         .catch(() => {});
     }
@@ -424,8 +428,12 @@ export const SeccionEventos: React.FC = () => {
                 errorCierre={errorCierre[evento.id]}
                 onAgregarTarea={() => openNuevaTarea(evento.id)}
                 esDG={esDG}
-                soloLectura={user?.rol !== 'DIRECTOR' && !esAsistenteDG(user)}
+                /* El encargado coordina aunque no sea director: por eso deja de
+                   contar como solo lectura en SU evento. */
+                soloLectura={user?.rol !== 'DIRECTOR' && !esAsistenteDG(user)
+                             && evento.responsable_id !== user?.id}
                 esEncargado={!!user && evento.responsable_id === user.id}
+                puedeCerrar={esDG || evento.creado_por_id === user?.id}
               />
             ))}
           </div>
@@ -437,9 +445,13 @@ export const SeccionEventos: React.FC = () => {
         <ResumenEvento
           resumen={resumenEvento}
           onClose={() => { setResumenEvento(null); fetchEventos(); }}
-          /* El dueño administra su evento igual que la DG el suyo: suma
-             participantes y nombra responsable, cada quien dentro de su gente. */
-          puedeGestionar={esDG || resumenEvento.creado_por_id === user?.id}
+          /* Armar la lista de participantes la puede el dueño y también el
+             encargado, que es quien coordina y quien nota que falta alguien.
+             Designar encargado se queda con el dueño: pasarle el encargo a otro
+             no es algo que decida quien lo tiene. */
+          puedeGestionar={esDG || resumenEvento.creado_por_id === user?.id
+                          || resumenEvento.responsable_id === user?.id}
+          puedeDesignarEncargado={esDG || resumenEvento.creado_por_id === user?.id}
           directoresArea={esDG ? todosDirectores : invitables}
           ambito={esDG ? 'DIRECCION_GENERAL' : 'AREA'}
           onCambio={() => refrescarDetalle(resumenEvento.id)}
@@ -711,11 +723,13 @@ interface EventoCardProps {
   esDG:             boolean;
   soloLectura:      boolean;
   esEncargado:      boolean;
+  /** Terminar el evento: la DG en los suyos, el director que lo creó en el propio. */
+  puedeCerrar:      boolean;
 }
 
 const EventoCard: React.FC<EventoCardProps> = ({
   evento, expanded, detalle, detalleLoading, onToggle, onAbrir, onCerrar, cerrando, errorCierre, onAgregarTarea,
-  esDG, soloLectura, esEncargado,
+  esDG, soloLectura, esEncargado, puedeCerrar,
 }) => {
   const isCerrado = evento.estado === 'CERRADO';
   const total     = evento.total_tareas || 1;
@@ -815,19 +829,25 @@ const EventoCard: React.FC<EventoCardProps> = ({
 
           {/* Acciones — ocultas para observadores (solo lectura) */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            {/* Repartir trabajo lo hace quien coordina: el director participante o
+                el encargado del evento, sea cual sea su rol. */}
             {!isCerrado && !soloLectura && (
-              <>
-                <button onClick={onAgregarTarea} style={{ ...btnPrimary, fontSize: '0.8rem', padding: '7px 14px' }}>
-                  + Agregar Tarea
-                </button>
-                <button
-                  onClick={onCerrar}
-                  disabled={cerrando}
-                  style={{ ...btnSecondary, fontSize: '0.8rem', padding: '7px 14px', color: theme.colors.alert.red, borderColor: theme.colors.alert.red }}
-                >
-                  {cerrando ? 'Cerrando…' : 'Cerrar Evento'}
-                </button>
-              </>
+              <button onClick={onAgregarTarea} style={{ ...btnPrimary, fontSize: '0.8rem', padding: '7px 14px' }}>
+                + Agregar Tarea
+              </button>
+            )}
+            {/* Terminar el evento es de su dueño, y va aparte: antes colgaba de la
+                misma condición que «Agregar Tarea», así que al abrirle el reparto al
+                encargado le habría aparecido también un botón que el servidor le
+                niega. */}
+            {!isCerrado && puedeCerrar && (
+              <button
+                onClick={onCerrar}
+                disabled={cerrando}
+                style={{ ...btnSecondary, fontSize: '0.8rem', padding: '7px 14px', color: theme.colors.alert.red, borderColor: theme.colors.alert.red }}
+              >
+                {cerrando ? 'Cerrando…' : 'Cerrar Evento'}
+              </button>
             )}
           </div>
 

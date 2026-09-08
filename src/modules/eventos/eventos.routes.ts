@@ -25,6 +25,7 @@ import {
   devolverTareaDG,
   setResponsable,
   agregarDirector,
+  quitarDirector,
 } from './eventos.controller';
 
 // 200 MB — acepta PDF, imágenes y video
@@ -71,7 +72,8 @@ router.get('/',            listarEventos);
 router.get('/:id',         obtenerEvento);
 router.patch('/:id/cerrar',       cerrarEvento);
 router.patch('/:id/responsable',  setResponsable);
-router.post ('/:id/directores',   agregarDirector);   // agregar participante a evento existente
+router.post  ('/:id/directores',              agregarDirector);  // sumar participante
+router.delete('/:id/directores/:directorId', quitarDirector);   // sacarlo del evento
 
 // Tareas
 router.post('/:id/tareas',                             agregarTarea);
