@@ -650,10 +650,6 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
   const userRol   = userStr ? JSON.parse(userStr).rol : '';
   const esDirector = userRol === 'DIRECTOR';
 
-  const [editandoFecha,   setEditandoFecha]   = useState(false);
-  const [fechaCompromiso, setFechaCompromiso] = useState(tarea.fecha_compromiso ?? '');
-  const [guardandoFecha,  setGuardandoFecha]  = useState(false);
-  const [errorFecha,      setErrorFecha]      = useState<string | null>(null);
 
   const [reasignando,     setReasignando]     = useState(false);
   const [operativos,      setOperativos]      = useState<{id: number; nombre: string}[]>([]);
@@ -691,17 +687,6 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
       onRevisionSuccess();
     } catch (err: any) { setErrorReasig(err.message); }
     finally { setGuardandoReasig(false); }
-  };
-
-  const handleGuardarFecha = async () => {
-    if (!fechaCompromiso) return;
-    setGuardandoFecha(true); setErrorFecha(null);
-    try {
-      const res = await apiFetch<{ data: TareaConEvento }>(`/eventos/${tarea.evento_id}/tareas/${tarea.id}/fecha-compromiso`, { method: 'PATCH', body: JSON.stringify({ fecha_compromiso: fechaCompromiso }) });
-      tarea.fecha_compromiso = res.data.fecha_compromiso;
-      setEditandoFecha(false);
-    } catch (err: any) { setErrorFecha(err.message); }
-    finally { setGuardandoFecha(false); }
   };
 
   // ── Modal "Abrir" — mismo que BandejaTareaCardArea ───────────
@@ -766,25 +751,21 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
         {/* Fechas */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
+            {tarea.fecha_programada
+              ? <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
+              : <span style={{ fontStyle: 'italic', color: theme.colors.grayMid }}>Sin fecha límite</span>}
             {tarea.vencida && <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '20px' }}>Vencida</span>}
             {!tarea.vencida && tarea.proxima_a_vencer && <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem', backgroundColor: '#FFFBEB', padding: '2px 8px', borderRadius: '20px' }}>Próxima</span>}
           </div>
-          {!editandoFecha ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {tarea.fecha_compromiso ? <span style={{ color: theme.colors.primary }}><Icono nombre="personas" inline />Compromiso: <strong>{tarea.fecha_compromiso}</strong></span> : <span style={{ fontStyle: 'italic' }}>Sin fecha compromiso</span>}
-              <button onClick={() => { setEditandoFecha(true); setErrorFecha(null); }} style={{ background: 'none', border: 'none', color: theme.colors.primary, cursor: 'pointer', fontSize: '0.7rem', padding: '0 4px', fontFamily: theme.font.family, textDecoration: 'underline' }}>
-                {tarea.fecha_compromiso ? 'Cambiar' : '+ Agregar'}
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <input type="date" value={fechaCompromiso} onChange={(e) => setFechaCompromiso(e.target.value)} max={tarea.fecha_programada} min={new Date().toISOString().slice(0,10)} style={{ padding: '4px 8px', border: `1px solid ${theme.colors.border}`, borderRadius: '5px', fontSize: '0.75rem', fontFamily: theme.font.family }} />
-              <button onClick={handleGuardarFecha} disabled={guardandoFecha || !fechaCompromiso} style={{ padding: '4px 10px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '5px', fontSize: '0.72rem', fontWeight: 700, cursor: (guardandoFecha || !fechaCompromiso) ? 'not-allowed' : 'pointer', opacity: (guardandoFecha || !fechaCompromiso) ? 0.6 : 1, fontFamily: theme.font.family }}>{guardandoFecha ? '…' : 'Guardar'}</button>
-              <button onClick={() => { setEditandoFecha(false); setFechaCompromiso(tarea.fecha_compromiso ?? ''); setErrorFecha(null); }} style={{ padding: '4px 8px', backgroundColor: '#fff', color: theme.colors.textSecondary, border: `1px solid ${theme.colors.border}`, borderRadius: '5px', fontSize: '0.72rem', cursor: 'pointer', fontFamily: theme.font.family }}>Cancelar</button>
-              {errorFecha && <span style={{ color: theme.colors.alert.red, fontSize: '0.72rem' }}><Icono nombre="alerta" inline />{errorFecha}</span>}
-            </div>
-          )}
+          {/* Aquí vivía la «fecha compromiso»: el operativo podía ponerle a su
+              actividad una SEGUNDA fecha, además de la que ya le había fijado
+              quien se la asignó. Dos plazos para lo mismo confunden —¿cuál vale
+              cuando no coinciden?— y en la práctica nadie los conciliaba. Se
+              quitó: manda la fecha de la actividad, y ya.
+
+              La columna `fecha_compromiso` sigue en la base con lo ya capturado;
+              no se borra nada. Si el día de mañana hiciera falta, se vuelve a
+              mostrar sin recuperar datos perdidos. */}
         </div>
 
         {/* Reasignación — solo visible para DIRECTOR, no para OPERATIVO */}
@@ -1041,7 +1022,9 @@ const BandejaTareaCardArea: React.FC<{
 
         {/* Fecha */}
         <span style={{ fontSize: '0.75rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
-          <Icono nombre="calendario" inline />{tarea.fecha_programada}
+          {tarea.fecha_programada
+            ? <><Icono nombre="calendario" inline />{tarea.fecha_programada}</>
+            : <span style={{ fontStyle: 'italic' }}>Sin fecha límite</span>}
         </span>
 
         {/* Acciones director: Aprobar / Devolver cuando EN_REVISION */}

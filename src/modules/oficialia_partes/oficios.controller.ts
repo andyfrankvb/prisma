@@ -65,6 +65,9 @@ function codigoDeUnidad(nombre: string): string {
   if (n.includes('BENITO'))                                               return 'BJ';
   if (n.includes('INNOVAC') || n.includes('INFORMAT') || n.includes('ARCHIVO') || n.includes('TICS')) return 'DTICS';
   if (n.includes('ADMINISTRAT'))                                          return 'DA';
+  // Sin este renglón el respaldo daría «DDP» —las iniciales de «Dirección De
+  // Planeación»—, que no es como se nombra el área.
+  if (n.includes('PLANEAC'))                                              return 'DP';
   // Sin coincidencia: iniciales de las primeras palabras (fallback).
   const inic = n.replace(/[^A-Z ]/g, '').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 4);
   return inic || 'NA';

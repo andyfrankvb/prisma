@@ -1034,3 +1034,172 @@ export async function getHistorialDelegatorio(id: number) {
   const res = await fetch(`${BASE}/delegatorios/${id}/historial`, { headers: authHeaders() });
   return handleResponse<{ data: { id: number; comentario: string; estado_previo: string; creado_en: string; usuario: string }[] }>(res);
 }
+
+// ── Control de Correspondencia ───────────────────────────────────────────────
+//
+// Las rutas de `/publico/` NO llevan `authHeaders()`: son las que abre el QR desde
+// la cámara del teléfono y no piden sesión. Mandarles un token que quizá esté
+// vencido solo serviría para que fallaran.
+
+const CORR = `${BASE}/correspondencia`;
+
+export type EstadoPaquete = 'ABIERTO' | 'EN_TRANSITO' | 'ENTREGADO' | 'CANCELADO';
+
+export interface Paquete {
+  id:                   number;
+  folio:                string;
+  estado:               EstadoPaquete;
+  destinatario_id:      number;
+  destinatario_nombre:  string;
+  destinatario_unidad:  string | null;
+  creado_por_nombre:    string | null;
+  unidad_origen_nombre: string | null;
+  /** Quién lo trae ahora. Sale del último movimiento, no de una columna. */
+  custodio_nombre:      string | null;
+  custodio_id:          number | null;
+  cuantos_oficios:      number;
+  observaciones:        string | null;
+  creado_en:            string;
+  cerrado_en:           string | null;
+  entregado_en:         string | null;
+  /** Solo llega en la vista «para mí» y en el detalle si eres el destinatario. */
+  codigo_recepcion?:    string | null;
+  token?:               string;
+}
+
+/**
+ * Un renglón del contenido. Es UNA de dos cosas, nunca las dos:
+ *   · un oficio de PRISMA  → trae `id`, `folio`, `remitente`…
+ *   · algo descrito a mano → trae solo `descripcion`
+ */
+export interface OficioEnPaquete {
+  contenido_id: number;
+  descripcion: string | null;
+  id: number | null; folio: string | null; remitente: string | null;
+  dependencia_origen: string | null; numero_oficio_origen: string | null; estatus: string | null;
+}
+
+export interface MovimientoPaquete {
+  id: number;
+  tipo: 'CREADO' | 'CERRADO' | 'TRASLADO' | 'ENTREGADO' | 'CANCELADO';
+  quien: string | null;
+  /** true cuando la persona no está en el sistema y solo dejó su nombre. */
+  declarado: boolean;
+  unidad: string | null;
+  nota: string | null;
+  registrado_en: string;
+}
+
+export type VistaPaquetes = 'armando' | 'traigo' | 'para_mi' | 'todos';
+
+export async function getPaquetes(vista: VistaPaquetes) {
+  const res = await fetch(`${CORR}/paquetes?vista=${vista}`, { headers: authHeaders() });
+  return handleResponse<{ data: Paquete[] }>(res);
+}
+
+export async function getPaquete(id: number) {
+  const res = await fetch(`${CORR}/paquetes/${id}`, { headers: authHeaders() });
+  return handleResponse<{ data: Paquete & { oficios: OficioEnPaquete[]; recorrido: MovimientoPaquete[] } }>(res);
+}
+
+export async function getDestinatariosPaquete() {
+  const res = await fetch(`${CORR}/paquetes/destinatarios`, { headers: authHeaders() });
+  return handleResponse<{ data: { id: number; nombre: string; unidad: string | null }[] }>(res);
+}
+
+export async function crearPaquete(destinatario_id: number, observaciones?: string) {
+  const res = await fetch(`${CORR}/paquetes`, {
+    method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ destinatario_id, observaciones }),
+  });
+  return handleResponse<{ data: { id: number; folio: string; token: string }; message: string }>(res);
+}
+
+/** Un oficio del sistema, o algo descrito a mano. Uno u otro, nunca los dos. */
+export async function agregarAPaquete(
+  paqueteId: number, que: { oficio_id?: number; descripcion?: string },
+) {
+  const res = await fetch(`${CORR}/paquetes/${paqueteId}/oficios`, {
+    method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(que),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Se quita por el id del RENGLÓN: el contenido libre no tiene oficio. */
+export async function quitarDePaquete(paqueteId: number, contenidoId: number) {
+  const res = await fetch(`${CORR}/paquetes/${paqueteId}/contenido/${contenidoId}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/**
+ * Buscador propio del módulo. No usa el de oficios porque aquel responde «¿te toca
+ * trabajar este expediente?», y quien arma paquetes puede no tener ninguno.
+ */
+export async function buscarOficiosParaPaquete(q: string) {
+  const res = await fetch(`${CORR}/paquetes/buscar-oficios?q=${encodeURIComponent(q)}`,
+                          { headers: authHeaders() });
+  return handleResponse<{ data: {
+    id: number; folio: string; numero_oficio_origen: string | null;
+    remitente: string; dependencia_origen: string | null;
+    fecha_oficio: string | null; descripcion_solicitud: string | null;
+    estatus: string; fecha_registro: string;
+    dirigido_a_nombre: string | null;
+  }[] }>(res);
+}
+
+export async function cerrarPaquete(paqueteId: number) {
+  const res = await fetch(`${CORR}/paquetes/${paqueteId}/cerrar`, {
+    method: 'PATCH', headers: authHeaders(),
+  });
+  return handleResponse<{ data: { folio: string; token: string; codigo: string; url_qr: string }; message: string }>(res);
+}
+
+export async function cancelarPaquete(paqueteId: number, motivo: string) {
+  const res = await fetch(`${CORR}/paquetes/${paqueteId}/cancelar`, {
+    method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+// ── Lo público: lo que abre el QR ────────────────────────────────────────────
+
+export interface PaqueteEscaneado {
+  id: number; folio: string; estado: EstadoPaquete;
+  destinatario_id: number; destinatario_nombre: string; destinatario_unidad: string | null;
+  custodio_nombre: string | null; custodio_id: number | null;
+  cuantos_oficios: number; creado_en: string; cerrado_en: string | null;
+  oficios: { folio: string; remitente: string; dependencia_origen: string | null }[];
+  recorrido: { tipo: string; quien: string | null; registrado_en: string }[];
+}
+
+export async function rastrearPaquete(token: string) {
+  const res = await fetch(`${CORR}/publico/${token}`);
+  return handleResponse<{ data: PaqueteEscaneado }>(res);
+}
+
+export async function personasParaEscaneo() {
+  const res = await fetch(`${CORR}/publico/personas`);
+  return handleResponse<{ data: { id: number; nombre: string; unidad: string | null }[] }>(res);
+}
+
+export async function registrarTrasladoPaquete(
+  token: string, quien: { usuario_id?: number; nombre_declarado?: string },
+) {
+  const res = await fetch(`${CORR}/publico/${token}/traslado`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(quien),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+export async function registrarEntregaPaquete(token: string, codigo: string) {
+  const res = await fetch(`${CORR}/publico/${token}/entrega`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codigo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}

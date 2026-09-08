@@ -259,7 +259,8 @@ export interface TareaEvento {
   reasignado_a_id:     number | null;
   reasignado_a_nombre: string | null;
   estado:              EstadoTarea;
-  fecha_programada:    string;
+  /** Opcional: una actividad puede repartirse sin plazo. */
+  fecha_programada:    string | null;
   fecha_compromiso:    string | null;
   fecha_actualizacion: string;
   vencida:             boolean;
@@ -274,6 +275,7 @@ export interface EventoResumen {
   fecha_creacion:     string;
   fecha_cierre:       string | null;
   fecha_programada:   string | null;
+  creado_por_id?:     number;
   responsable_id?:    number | null;
   total_tareas:       number;
   tareas_pendiente:   number;
@@ -310,6 +312,9 @@ export interface EventoDetalle {
   cerrado_por_nombre?:   string | null;
   tareas:           TareaEvento[];
   directores_participantes?: { id: number; nombre: string }[];
+  /** true en los eventos de la Dirección General; false en el evento propio de
+   *  un director de área, donde los participantes son su equipo operativo. */
+  requiere_aprobacion_dg?: boolean;
 }
 
 // ── Configuración de Flujos ───────────────────────────────────

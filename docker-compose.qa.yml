@@ -1,0 +1,141 @@
+# Orquestación de QA — entorno de pruebas.
+#
+# Es el compose de producción con cuatro diferencias, y todas existen para que
+# una prueba NO pueda tocar lo real:
+#
+#   1. La base de datos corre AQUÍ DENTRO, como un servicio más. En producción es
+#      un PostgreSQL de la institución al que se llega por DATABASE_URL, y esa
+#      misma variable en el archivo equivocado bastaría para escribir sobre los
+#      oficios de verdad.
+#   2. Los archivos van a un volumen local. En producción /app/storage es un
+#      montaje CIFS a la carpeta compartida, y ahí los archivos SON el documento,
+#      no una copia: borrar uno probando no se deshace.
+#   3. Los correos quedan apagados explícitamente.
+#   4. Sin OPENAI_API_KEY: la extracción usa solo el OCR local y no cobra nada.
+#
+# Los contenedores llevan sufijo _qa para que se distingan de un vistazo en
+# `docker ps` y no choquen si algún día conviven en la misma máquina.
+#
+# ── Levantarlo ───────────────────────────────────────────────────────────────
+#
+#   1) cp .env.qa.ejemplo .env.qa   y editar las dos claves
+#   2) docker compose -f docker-compose.qa.yml --env-file .env.qa build
+#   3) docker compose -f docker-compose.qa.yml --env-file .env.qa up -d db
+#   4) docker compose -f docker-compose.qa.yml --env-file .env.qa run --rm app_api npm run db:migrate
+#   5) docker compose -f docker-compose.qa.yml --env-file .env.qa run --rm app_api npm run db:seed:admin
+#   6) docker compose -f docker-compose.qa.yml --env-file .env.qa up -d
+#
+# El paso 4 arma la base desde cero —baseline más todas las migraciones— y deja
+# registro en `schema_migrations`, así que se puede repetir sin romper nada.
+
+networks:
+  qa_net:
+    driver: bridge
+
+volumes:
+  redis_data_qa:
+  db_data_qa:
+  # Disco local, NO la carpeta compartida de la institución.
+  storage_qa:
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: prisma_db_qa
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-prisma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env.qa}
+      POSTGRES_DB:       ${POSTGRES_DB:-prisma_qa}
+      TZ: America/Cancun
+    volumes:
+      - db_data_qa:/var/lib/postgresql/data
+    networks: [qa_net]
+    # Sin `ports`: la base no se expone a internet. Para consultarla desde fuera,
+    # un túnel SSH —abrirle el puerto 5432 a una máquina pública es la forma más
+    # rápida de que alguien más la encuentre.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prisma} -d ${POSTGRES_DB:-prisma_qa}"]
+      interval: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: prisma_redis_qa
+    restart: unless-stopped
+    command: redis-server --appendonly yes --loglevel warning
+    volumes:
+      - redis_data_qa:/data
+    networks: [qa_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  app_api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    image: prisma-qa-api:latest
+    container_name: prisma_api_qa
+    restart: unless-stopped
+    env_file: .env.qa
+    environment:
+      # NODE_ENV=production no significa «es producción»: significa que Node y
+      # Express corren en su modo eficiente, que es como debe probarse. Lo que
+      # separa los entornos son los datos y el almacenamiento, no esta palabra.
+      NODE_ENV: production
+      PORT: "3000"
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_PATH: /app/storage
+      INAPP_TRANSPORT: websocket
+      OCR_PROVIDER: tesseract
+      TZ: America/Cancun
+      # Apagado explícito: en QA se registran remitentes y destinatarios de prueba,
+      # y no queremos que un aviso salga hacia una dirección real.
+      EMAIL_TRANSPORT: "none"
+    volumes:
+      - storage_qa:/app/storage
+    networks: [qa_net]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  app_worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+    container_name: prisma_worker_qa
+    restart: unless-stopped
+    env_file: .env.qa
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_PATH: /app/storage
+      OCR_PROVIDER: tesseract
+      TZ: America/Cancun
+      EMAIL_TRANSPORT: "none"
+    volumes:
+      - storage_qa:/app/storage
+    networks: [qa_net]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  app_web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: prisma_web_qa
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+    networks: [qa_net]
+    depends_on:
+      - app_api

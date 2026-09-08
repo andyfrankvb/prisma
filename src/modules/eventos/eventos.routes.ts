@@ -16,7 +16,6 @@ import {
   listarTareasArea,
   agregarComentario,
   listarComentarios,
-  setFechaCompromiso,
   reasignarTarea,
   enviarRevision,
   aprobarTarea,
@@ -77,7 +76,6 @@ router.post ('/:id/directores',   agregarDirector);   // agregar participante a 
 // Tareas
 router.post('/:id/tareas',                             agregarTarea);
 router.patch('/:id/tareas/:tareaId/estado',            actualizarEstadoTarea);
-router.patch('/:id/tareas/:tareaId/fecha-compromiso',  setFechaCompromiso);
 router.patch('/:id/tareas/:tareaId/reasignar',         reasignarTarea);
 
 // Comentarios

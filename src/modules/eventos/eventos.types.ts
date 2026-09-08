@@ -18,7 +18,7 @@ export interface TareaEvento {
   asignado_a_id:       number;
   asignado_a_nombre:   string;
   estado:              EstadoTarea;
-  fecha_programada:    string;   // ISO date string YYYY-MM-DD
+  fecha_programada:    string | null;   // YYYY-MM-DD — opcional: sin plazo no vence
   fecha_actualizacion: string;   // ISO timestamp
   vencida:             boolean;
   proxima_a_vencer:    boolean;
@@ -63,7 +63,7 @@ export interface CrearTareaBody {
   titulo:           string;
   descripcion?:     string;
   asignado_a_id:    number;
-  fecha_programada: string;   // YYYY-MM-DD
+  fecha_programada?: string | null;   // YYYY-MM-DD — opcional
 }
 
 export interface ActualizarEstadoTareaBody {
@@ -150,8 +150,11 @@ function parseFechaLocal(fecha_programada: string): Date {
  * Determina si una tarea está vencida.
  * Una tarea está vencida cuando su fecha_programada es anterior a hoy
  * y su estado es distinto de COMPLETADA.
+ *
+ * La fecha es opcional: una actividad sin plazo no puede vencer.
  */
-export function isVencida(fecha_programada: string, estado: EstadoTarea): boolean {
+export function isVencida(fecha_programada: string | null, estado: EstadoTarea): boolean {
+  if (!fecha_programada) return false;
   if (estado === 'COMPLETADA') return false;
   const hoy   = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -164,8 +167,11 @@ export function isVencida(fecha_programada: string, estado: EstadoTarea): boolea
  * Una tarea está próxima a vencer cuando su fecha_programada está dentro
  * de los próximos 3 días naturales (inclusive hoy) y su estado es distinto
  * de COMPLETADA.
+ *
+ * La fecha es opcional: una actividad sin plazo nunca está próxima a vencer.
  */
-export function isProximaAVencer(fecha_programada: string, estado: EstadoTarea): boolean {
+export function isProximaAVencer(fecha_programada: string | null, estado: EstadoTarea): boolean {
+  if (!fecha_programada) return false;
   if (estado === 'COMPLETADA') return false;
   const hoy   = new Date();
   hoy.setHours(0, 0, 0, 0);

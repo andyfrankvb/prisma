@@ -71,7 +71,13 @@ const fFecha = (iso: string) => new Date(iso).toLocaleDateString('es-MX', { day:
 const fHora  = (iso: string) => new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
 interface Props {
-  oficio: Oficio;
+  /**
+   * Solo estos cuatro campos se usan aquí. Se declaran así, y no como un `Oficio`
+   * entero, para que lo pueda abrir quien tiene el oficio a medias —el buscador
+   * del módulo de correspondencia, por ejemplo, que trae lo justo para cotejar—
+   * sin fingir un objeto completo con casts.
+   */
+  oficio: Pick<Oficio, 'id' | 'folio' | 'estatus' | 'fecha_registro'>;
   open:   boolean;
   onClose: () => void;
 }

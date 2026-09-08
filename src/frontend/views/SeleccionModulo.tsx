@@ -69,6 +69,11 @@ function getRutaModulo(
     case 'catalogos':
       return '/catalogos';
 
+    // Sin este renglón el módulo caía al `default` de abajo y mandaba a la
+    // recepción de oficios: el menú lo ofrecía y llevaba a otro lado.
+    case 'control_correspondencia':
+      return '/correspondencia';
+
     case 'tablero_direccion':
       // Módulo de monitoreo: Panel de Dirección con métricas, supervisión y bandeja
       return '/dashboard/director';

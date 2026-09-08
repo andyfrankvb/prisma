@@ -71,6 +71,7 @@ export const SeccionEventos: React.FC = () => {
   // La DG real (DIRECTOR en Dirección General) y sus asistentes designados
   // (Fabian, Tania) actúan como la Directora General: mismos permisos y roles.
   const esDG = esDireccionGeneral(user);
+
   // Director de área: puede crear sus propios eventos privados (sin aprobación DG).
   const esDirectorArea = user?.rol === 'DIRECTOR' && (user as any)?.unidad_tipo !== 'DIRECCION_GENERAL';
   const puedeCrearEvento = esDG || esDirectorArea;
@@ -101,6 +102,27 @@ export const SeccionEventos: React.FC = () => {
   const [creandoTarea,    setCreandoTarea]    = useState(false);
   const [errorTarea,      setErrorTarea]      = useState<string | null>(null);
   const [directores,      setDirectores]      = useState<UsuarioAdmin[]>([]);
+
+  /**
+   * A quién puede invitar quien está creando el evento.
+   *
+   *   · La DG    → los titulares de área. Es coordinación entre direcciones.
+   *   · Director → su propio equipo, que es la lista que ya se carga para poder
+   *                asignarles actividades. Se le quita él mismo: quien crea el
+   *                evento no se invita, ya es su dueño, y verse en la lista de
+   *                participantes confunde.
+   *
+   * El servidor valida lo mismo por su cuenta; esto solo evita ofrecer algo que
+   * después sería rechazado.
+   *
+   * Va AQUÍ y no junto a `esDG` arriba: allá se leía `todosDirectores` antes de su
+   * propia declaración y React reventaba con «Cannot access before
+   * initialization» — pantalla en blanco al abrir «Mis Eventos».
+   */
+  const invitables = React.useMemo(
+    () => (esDG ? todosDirectores : directores.filter((d) => d.id !== user?.id)),
+    [esDG, todosDirectores, directores, user?.id],
+  );
   // Directores de otras áreas — solo se cargan cuando el usuario es el
   // responsable del evento (puede asignar actividades a otros directores).
   const [otrosDirectores, setOtrosDirectores] = useState<UsuarioAdmin[]>([]);
@@ -291,7 +313,8 @@ export const SeccionEventos: React.FC = () => {
           titulo:           tareaTitulo,
           descripcion:      tareaDesc || undefined,
           asignado_a_id:    Number(tareaAsignado),
-          fecha_programada: tareaFecha,
+          // Sin plazo se omite el campo: el servidor lo guarda como nulo.
+          fecha_programada: tareaFecha || undefined,
         }),
       });
       setShowNuevaTarea(false);
@@ -316,14 +339,26 @@ export const SeccionEventos: React.FC = () => {
   });
 
   // ── Opciones del selector "Asignar a" (modal Agregar Tarea) ──────────
-  // Solo se puede asignar una actividad a directores que YA participan en el
-  // evento. Los operativos del propio equipo no son "participantes", así que
-  // ese caso (director de área asignando a su gente) no se filtra.
+  //
+  // Una actividad solo se le puede encomendar a quien fue incluido en el evento.
+  // Antes la lista del director de área mostraba a todo su equipo operativo,
+  // participara o no, y al elegir a alguien de fuera el servidor rechazaba el
+  // alta: la actividad no se guardaba y no quedaba claro por qué. Se filtra aquí
+  // para que la lista no ofrezca lo que el servidor va a negar.
+  //
+  // El propio usuario siempre aparece: quien organiza el evento puede quedarse
+  // con una actividad aunque no se haya agregado a sí mismo como participante.
+  //
+  // En los eventos de la Dirección General el participante es el director del
+  // área, y él reparte libremente entre su equipo: ahí el filtro no aplica a los
+  // operativos, solo a los directores.
+  const detalleTarea = detalle?.id === tareaEventoId ? detalle : null;
+  const eventoDeDirector = detalleTarea?.requiere_aprobacion_dg === false;
   const idsParticipantesEvento = new Set(
-    (detalle?.id === tareaEventoId ? (detalle?.directores_participantes ?? []) : []).map((p) => p.id),
+    (detalleTarea?.directores_participantes ?? []).map((p) => p.id),
   );
-  const directoresOpciones = esDG
-    ? directores.filter((d) => idsParticipantesEvento.has(d.id))
+  const directoresOpciones = (esDG || eventoDeDirector)
+    ? directores.filter((d) => d.id === user?.id || idsParticipantesEvento.has(d.id))
     : directores;
   const otrosDirectoresOpciones = otrosDirectores.filter((d) => idsParticipantesEvento.has(d.id));
 
@@ -402,8 +437,11 @@ export const SeccionEventos: React.FC = () => {
         <ResumenEvento
           resumen={resumenEvento}
           onClose={() => { setResumenEvento(null); fetchEventos(); }}
-          puedeGestionar={esDG}
-          directoresArea={todosDirectores}
+          /* El dueño administra su evento igual que la DG el suyo: suma
+             participantes y nombra responsable, cada quien dentro de su gente. */
+          puedeGestionar={esDG || resumenEvento.creado_por_id === user?.id}
+          directoresArea={esDG ? todosDirectores : invitables}
+          ambito={esDG ? 'DIRECCION_GENERAL' : 'AREA'}
           onCambio={() => refrescarDetalle(resumenEvento.id)}
         />
       )}
@@ -487,13 +525,20 @@ export const SeccionEventos: React.FC = () => {
                 style={{ ...inputStyle, width: '100%' }}
               />
             </div>
-            {esDG && todosDirectores.length > 0 && (
+            {/* A quién se puede invitar depende de quién crea:
+                  · la DG    → titulares de área (coordinación entre direcciones)
+                  · director → su propio equipo operativo
+                Antes este bloque llevaba `esDG &&`, así que a un director nunca se
+                le dibujaba —aunque el comentario de la carga de datos ya decía que
+                ambos podían invitar—. */}
+            {invitables.length > 0 && (
               <div>
                 <label style={labelStyle}>
-                  Directores participantes <span style={{ color: theme.colors.textSecondary, fontWeight: 400 }}>(opcional)</span>
+                  {esDG ? 'Directores participantes' : 'Participantes de mi equipo'}
+                  {' '}<span style={{ color: theme.colors.textSecondary, fontWeight: 400 }}>(opcional)</span>
                 </label>
                 <div style={{ backgroundColor: '#F9FAFB', borderRadius: '8px', border: `1px solid ${theme.colors.border}`, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-                  {todosDirectores.map(d => (
+                  {invitables.map(d => (
                     <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: theme.colors.textPrimary }}>
                       <input
                         type="checkbox"
@@ -524,7 +569,8 @@ export const SeccionEventos: React.FC = () => {
                 {nuevoDirectores.length > 0 && (
                   <div style={{ marginTop: '12px' }}>
                     <label style={labelStyle}>
-                      Director responsable <span style={{ color: theme.colors.textSecondary, fontWeight: 400 }}>(opcional)</span>
+                      {esDG ? 'Director responsable' : 'Responsable del evento'}
+                      {' '}<span style={{ color: theme.colors.textSecondary, fontWeight: 400 }}>(opcional)</span>
                     </label>
                     <select
                       value={nuevoResponsable}
@@ -532,14 +578,16 @@ export const SeccionEventos: React.FC = () => {
                       style={{ ...inputStyle, width: '100%' }}
                     >
                       <option value="">— Sin responsable designado —</option>
-                      {todosDirectores
+                      {invitables
                         .filter((d) => nuevoDirectores.includes(d.id))
                         .map((d) => (
                           <option key={d.id} value={d.id}>{d.nombre}{d.oficina_nombre ? ` · ${d.oficina_nombre}` : ''}</option>
                         ))}
                     </select>
                     <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                      El responsable podrá ver todas las actividades del evento y asignar a otros directores.
+                      {esDG
+                        ? 'El responsable podrá ver todas las actividades del evento y asignar a otros directores.'
+                        : 'El responsable podrá ver todas las actividades del evento y repartirlas dentro del equipo.'}
                     </p>
                   </div>
                 )}
@@ -592,11 +640,11 @@ export const SeccionEventos: React.FC = () => {
                 <option value="">
                   {directores.length === 0
                     ? 'Cargando…'
-                    : esDG && directoresOpciones.length === 0
-                      ? '— El evento no tiene directores participantes —'
-                      : directores[0] && (directores[0] as any).rol === 'OPERATIVO'
-                        ? '— Selecciona colaborador —'
-                        : '— Selecciona director de área —'}
+                    : directoresOpciones.length === 0 && otrosDirectoresOpciones.length === 0
+                      ? '— El evento no tiene participantes —'
+                      : esDG
+                        ? '— Selecciona director de área —'
+                        : '— Selecciona participante —'}
                 </option>
                 {/* Mi equipo / yo mismo */}
                 {otrosDirectoresOpciones.length > 0 ? (
@@ -621,21 +669,23 @@ export const SeccionEventos: React.FC = () => {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Fecha programada <span style={{ color: theme.colors.alert.red }}>*</span></label>
+              <label style={labelStyle}>Fecha límite <span style={{ color: theme.colors.textSecondary, fontWeight: 400 }}>(opcional)</span></label>
               <input
                 type="date"
                 value={tareaFecha}
                 onChange={(e) => setTareaFecha(e.target.value)}
-                required
                 min={new Date().toISOString().slice(0, 10)}
                 style={{ ...inputStyle, width: '100%' }}
               />
+              <p style={{ margin: '5px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                Si no se define un plazo, la actividad no vence ni entra en los avisos.
+              </p>
             </div>
           </div>
           {errorTarea && <div role="alert" style={alertErrorStyle}>{errorTarea}</div>}
           <div style={modalFooter}>
             <button type="button" onClick={() => setShowNuevaTarea(false)} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={creandoTarea || !tareaTitulo.trim() || !tareaAsignado || !tareaFecha} style={btnPrimary}>
+            <button type="submit" disabled={creandoTarea || !tareaTitulo.trim() || !tareaAsignado} style={btnPrimary}>
               {creandoTarea ? 'Agregando…' : '+ Agregar Tarea'}
             </button>
           </div>
@@ -1368,7 +1418,9 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
         {/* Fecha + indicadores */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
+            {tarea.fecha_programada
+              ? <span><Icono nombre="calendario" inline />Límite: <strong>{tarea.fecha_programada}</strong></span>
+              : <span style={{ fontStyle: 'italic', color: theme.colors.grayMid }}>Sin fecha límite</span>}
             {tarea.vencida && (
               <span style={{ color: theme.colors.alert.red, fontWeight: 700, fontSize: '0.7rem' }}>Vencida</span>
             )}
@@ -1376,11 +1428,6 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
               <span style={{ color: theme.colors.alert.yellow, fontWeight: 700, fontSize: '0.7rem' }}>Próxima</span>
             )}
           </div>
-          {tarea.fecha_compromiso && (
-            <span style={{ color: theme.colors.primary }}>
-              <Icono nombre="personas" inline />Compromiso: <strong>{tarea.fecha_compromiso}</strong>
-            </span>
-          )}
         </div>
 
         {/* Botones de acción para EN_REVISION — solo el revisor N1 (director de la

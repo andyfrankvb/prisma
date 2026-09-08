@@ -24,6 +24,7 @@ import directorRouter       from './modules/director/director.routes';
 import adminRouter          from './modules/admin/admin.routes';
 import recursosRouter       from './modules/recursos/recursos.routes';
 import eventosRouter        from './modules/eventos/eventos.routes';
+import correspondenciaRouter from './modules/correspondencia/paquetes.routes';
 import tramitesRouter       from './modules/tramites/tramites.routes';
 import { startNotificationService } from './notifications';
 import { AppError } from './utils/AppError';
@@ -156,6 +157,11 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response, next: NextFun
 // token) y `oficiosRouter` está montado en /api/v1 con authenticate, por lo que
 // interceptaría cualquier ruta declarada después.
 app.use('/api/v1/recursos',       recursosRouter);
+// Correspondencia va aquí arriba por lo mismo: sus rutas del QR se abren desde la
+// cámara del teléfono y NO piden token. Montado después de `oficiosRouter`, el
+// `authenticate` de aquel las alcanzaba y respondían «Token requerido» — que es
+// justo el aviso del comentario de arriba, cumpliéndose.
+app.use('/api/v1/correspondencia', correspondenciaRouter);
 app.use('/api/v1',                oficiosRouter);
 app.use('/api/v1/usuarios',       usuariosRouter);
 app.use('/api/v1/files',          filesRouter);

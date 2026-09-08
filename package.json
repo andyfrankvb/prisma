@@ -13,6 +13,7 @@
     "test:integration": "vitest run src/tests/integration",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "db:check": "node db/preflight.mjs",
     "db:migrate": "node db/migrate.mjs",
     "db:seed:admin": "node db/seed-admin.mjs"
   },

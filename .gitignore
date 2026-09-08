@@ -11,7 +11,10 @@ frontend/.next/
 .env
 .env.local
 .env.production
+.env.qa
 infra/.env
+# Los .ejemplo sí se versionan: son plantillas sin claves reales.
+!.env*.ejemplo
 
 # Logs
 *.log

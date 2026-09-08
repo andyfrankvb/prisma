@@ -115,6 +115,53 @@ function requireDirector(req: Request): void {
   }
 }
 
+/**
+ * Lo mismo, pero admitiendo además a quien PARTICIPA en el evento.
+ *
+ * Hacía falta desde que un director de área puede invitar a su equipo operativo:
+ * sin esto se les agregaba al evento y al entrar recibían «Acceso restringido al
+ * Director». Quedaban trabajando a ciegas —hoy hay siete operativos con el módulo
+ * asignado que pueden atender sus actividades pero no ver de qué evento salen—.
+ *
+ * Es acceso al evento en el que participan, no al módulo entero: quien no esté
+ * invitado sigue sin poder abrirlo.
+ */
+async function requireDirectorOParticipanteEnAlguno(req: Request): Promise<void> {
+  try {
+    requireDirector(req);
+    return;
+  } catch (err) {
+    const participa = await db('evento_directores')
+      .where('director_id', req.user!.id).first();
+    const tieneTarea = participa ? null : await db('tareas_evento')
+      .where((q: any) => q.where('asignado_a_id', req.user!.id)
+                          .orWhere('reasignado_a_id', req.user!.id))
+      .first();
+    // La consulta de `listarEventos` ya acota a lo suyo —lo que creó y aquello en
+    // lo que participa—, así que dejar pasar aquí no muestra de más.
+    if (!participa && !tieneTarea) throw err;
+  }
+}
+
+async function requireDirectorOParticipante(req: Request, eventoId: number): Promise<void> {
+  try {
+    requireDirector(req);
+    return;
+  } catch (err) {
+    const participa = await db('evento_directores')
+      .where({ evento_id: eventoId, director_id: req.user!.id })
+      .first();
+    // O tiene una actividad suya dentro: se le encargó trabajo ahí, así que ver el
+    // evento es lo mínimo para saber a qué pertenece lo que está haciendo.
+    const tieneTarea = participa ? null : await db('tareas_evento')
+      .where({ evento_id: eventoId })
+      .andWhere((q: any) => q.where('asignado_a_id', req.user!.id)
+                             .orWhere('reasignado_a_id', req.user!.id))
+      .first();
+    if (!participa && !tieneTarea) throw err;
+  }
+}
+
 /** Exige actuar como director: rol DIRECTOR o asistente de la DG. */
 function requireRolDirector(req: Request): void {
   if (!actuaComoDG(req.user)) {
@@ -175,14 +222,40 @@ export async function crearEvento(
       }
     }
 
-    // El responsable y los directores participantes SOLO aplican a eventos de la DG.
-    // Un director de área crea un evento privado de su propio equipo.
-    const responsableVal = esDG ? (responsable_id ?? null) : null;
-    if (esDG && responsableVal !== null) {
-      const resp = await db('usuarios').where({ id: responsableVal, activo: true }).first();
-      if (!resp || resp.rol !== 'DIRECTOR') {
-        throw new AppError('El responsable debe ser un director de área activo', 422);
-      }
+    /**
+     * Participantes y responsable, para los dos casos.
+     *
+     * Antes se descartaban salvo en la DG: un director de área creaba un evento y
+     * el sistema tiraba en silencio a quién había elegido. Pero un director también
+     * coordina —reparte el trabajo de su gente y nombra a alguien al frente—, solo
+     * que su gente es su EQUIPO OPERATIVO, no otros directores.
+     *
+     * Quién puede entrar cambia según quién crea, y eso se valida aquí:
+     *
+     *   · La DG invita a titulares de área. Es coordinación entre direcciones.
+     *   · Un director invita a los de SU unidad. No a los de otras: su evento no es
+     *     lugar para meter personal ajeno, y sin esta comprobación bastaría con
+     *     mandar cualquier id en la petición para colar a quien fuera.
+     */
+    const responsableVal = responsable_id ?? null;
+
+    /** ¿Puede quien crea meter a esta persona en su evento? */
+    const admisible = async (id: number): Promise<boolean> => {
+      const u = await db('usuarios').where({ id, activo: true })
+        .select('rol', 'unidad_id').first();
+      if (!u) return false;
+      return esDG
+        ? u.rol === 'DIRECTOR'                      // la DG invita titulares
+        : u.unidad_id === req.user!.oficina_id;     // el director, a los suyos
+    };
+
+    if (responsableVal !== null && !(await admisible(Number(responsableVal)))) {
+      throw new AppError(
+        esDG
+          ? 'El responsable debe ser un director de área activo'
+          : 'El responsable debe ser alguien activo de tu propia área',
+        422,
+      );
     }
 
     const [evento] = await db('eventos')
@@ -198,18 +271,19 @@ export async function crearEvento(
       })
       .returning(['id', 'titulo', 'descripcion', 'estado', 'creado_por_id', 'fecha_creacion', 'fecha_cierre', 'fecha_programada', 'responsable_id', 'requiere_aprobacion_dg']);
 
-    // Directores participantes — solo para eventos de la DG
-    if (esDG) {
-      const participantes = new Set<number>();
-      if (Array.isArray(director_ids)) {
-        director_ids.forEach((id: number) => participantes.add(Number(id)));
+    // Participantes. Ya no solo en la DG: un director de área invita a su equipo.
+    const participantes = new Set<number>();
+    if (Array.isArray(director_ids)) {
+      for (const id of director_ids) {
+        if (await admisible(Number(id))) participantes.add(Number(id));
       }
-      if (responsableVal) participantes.add(Number(responsableVal));
-      participantes.delete(req.user!.id);
-      if (participantes.size > 0) {
-        const rows = [...participantes].map((director_id) => ({ evento_id: evento.id, director_id }));
-        await db('evento_directores').insert(rows).onConflict(['evento_id', 'director_id']).ignore();
-      }
+    }
+    if (responsableVal) participantes.add(Number(responsableVal));
+    // Quien crea no se invita a sí mismo: ya es dueño del evento.
+    participantes.delete(req.user!.id);
+    if (participantes.size > 0) {
+      const rows = [...participantes].map((director_id) => ({ evento_id: evento.id, director_id }));
+      await db('evento_directores').insert(rows).onConflict(['evento_id', 'director_id']).ignore();
     }
 
     res.status(201).json({ data: evento, message: 'Evento creado correctamente' });
@@ -224,7 +298,9 @@ export async function listarEventos(
   next: NextFunction,
 ): Promise<void> {
   try {
-    requireDirector(req);
+    // Deja entrar también a quien participa en algún evento: es su lista, y la
+    // consulta de abajo ya la acota a lo que le corresponde.
+    await requireDirectorOParticipanteEnAlguno(req);
 
     let query = db('eventos as e')
       .select(
@@ -235,6 +311,9 @@ export async function listarEventos(
         'e.creado_por_id',
         'e.fecha_creacion',
         'e.fecha_cierre',
+        // La fecha límite del evento faltaba aquí, así que la tarjeta de la lista
+        // nunca la mostraba aunque se hubiera capturado.
+        'e.fecha_programada',
         'e.responsable_id',
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id)::int AS total_tareas`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'PENDIENTE')::int AS tareas_pendiente`),
@@ -276,9 +355,9 @@ export async function obtenerEvento(
   next: NextFunction,
 ): Promise<void> {
   try {
-    requireDirector(req);
-
     const id = parseInt(req.params.id, 10);
+    // Aquí sí entra el equipo invitado: es el evento donde trabaja.
+    await requireDirectorOParticipante(req, id);
 
     const evento = await db('eventos')
       .select('id', 'titulo', 'descripcion', 'estado', 'fecha_creacion', 'fecha_cierre', 'fecha_programada', 'creado_por_id', 'responsable_id', 'requiere_aprobacion_dg', 'justificacion_cierre', 'cerrado_por_id')
@@ -350,9 +429,13 @@ export async function obtenerEvento(
     }
 
     const tareas = tareasRaw.map((t) => {
-      const fechaStr = typeof t.fecha_programada === 'string'
-        ? t.fecha_programada
-        : (t.fecha_programada as Date).toISOString().split('T')[0];
+      // La fecha es opcional desde la migración 2026-09-07: puede llegar nula.
+      const fechaStr: string | null =
+        t.fecha_programada == null
+          ? null
+          : typeof t.fecha_programada === 'string'
+            ? t.fecha_programada
+            : (t.fecha_programada as Date).toISOString().split('T')[0];
 
       // Para la DG: ocultar el operativo asignado, mostrar el director del área
       // (o el nombre del área si la unidad no tiene director activo).
@@ -420,7 +503,10 @@ export async function agregarTarea(
 
     if (!titulo?.trim())    throw new AppError('El título de la tarea es requerido', 422);
     if (!asignado_a_id)     throw new AppError('El campo asignado_a_id es requerido', 422);
-    if (!fecha_programada)  throw new AppError('La fecha programada es requerida', 422);
+    // La fecha es OPCIONAL. Exigirla obligaba a inventar un plazo cuando todavía
+    // no se sabía cuál era, y una fecha inventada es peor que ninguna: el tablero
+    // marca vencimientos que nadie pactó y la gente deja de creerle a los avisos.
+    // Sin fecha, la actividad simplemente no vence.
 
     // Verificar que el evento existe
     const evento = await db('eventos').where({ id: eventoId }).first();
@@ -487,6 +573,32 @@ export async function agregarTarea(
         .onConflict(['evento_id', 'director_id']).ignore();
     }
 
+    // En el evento propio de un director de área, la actividad solo se le
+    // encomienda a quien fue incluido en el evento. Quien lo organiza —creador o
+    // responsable— cuenta aunque no se haya agregado a sí mismo a la lista.
+    //
+    // Antes esta regla solo vivía en el selector de la pantalla, y el selector
+    // ofrecía a todo el equipo operativo participara o no: al elegir a alguien
+    // ajeno al evento el alta se rechazaba con un mensaje que hablaba de la
+    // dirección y no de la participación, así que no se entendía por qué no se
+    // guardaba. Los eventos de la Dirección General quedan fuera: ahí el
+    // participante es el director del área, y él reparte entre su gente.
+    if (!evento.requiere_aprobacion_dg) {
+      const idAsignado = Number(asignado_a_id);
+      const organiza   = idAsignado === evento.creado_por_id || idAsignado === evento.responsable_id;
+      if (!organiza) {
+        const participa = await db('evento_directores')
+          .where({ evento_id: eventoId, director_id: idAsignado })
+          .first();
+        if (!participa) {
+          throw new AppError(
+            'Esa persona no está incluida en el evento. Agrégala como participante antes de encomendarle una actividad.',
+            422,
+          );
+        }
+      }
+    }
+
     const [tarea] = await db('tareas_evento')
       .insert({
         evento_id:           eventoId,
@@ -494,7 +606,9 @@ export async function agregarTarea(
         descripcion:         descripcion?.trim() ?? null,
         asignado_a_id:       Number(asignado_a_id),
         estado:              'PENDIENTE',
-        fecha_programada,
+        // Cadena vacía desde el formulario significa «sin fecha», no una fecha
+        // inválida: se guarda como nulo.
+        fecha_programada:    fecha_programada || null,
         fecha_actualizacion: db.fn.now(),
       })
       .returning([
@@ -508,7 +622,8 @@ export async function agregarTarea(
 
 // ── PATCH /eventos/:id/responsable ────────────────────────────
 /**
- * La Directora General designa (o cambia) al director responsable del evento.
+ * Designa (o cambia) al responsable del evento: la DG en los suyos, el director
+ * de área en el propio.
  * Body: { responsable_id: number | null }  (null = quitar responsable)
  */
 export async function setResponsable(
@@ -522,21 +637,51 @@ export async function setResponsable(
     const eventoId = parseInt(req.params.id, 10);
     const { responsable_id } = req.body as { responsable_id: number | null };
 
-    // Solo la DG puede designar responsable
-    const idDG = await getIdDireccionGeneral();
-    if (req.user!.oficina_id !== idDG || !actuaComoDG(req.user)) {
-      throw new AppError('Solo la Directora General puede asignar el responsable del evento', 403);
-    }
-
     const evento = await db('eventos').where({ id: eventoId }).first();
     if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se puede cambiar el responsable de un evento cerrado', 409);
+    }
+
+    /**
+     * Quién designa responsable, y a quién.
+     *
+     * Estaba reservado a la Directora General, y eso dejaba el evento del
+     * director de área a medias: podía nombrar responsable al crearlo pero no
+     * cambiarlo después, que es cuando se sabe a quién le tocó de verdad.
+     *
+     * Las mismas dos reglas que al crear y al sumar participantes:
+     *   · la DG nombra titulares de área en sus eventos;
+     *   · el dueño del evento nombra a alguien de SU unidad.
+     */
+    const idDG    = await getIdDireccionGeneral();
+    const esDGReq = req.user!.oficina_id === idDG && actuaComoDG(req.user);
+    const esDueno = evento.creado_por_id === req.user!.id;
+
+    if (!esDGReq && !esDueno) {
+      throw new AppError('Solo quien creó el evento puede designar a su responsable', 403);
+    }
+    if (esDGReq && !evento.requiere_aprobacion_dg) {
+      throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
+    }
 
     // Validar el nuevo responsable (si no es null)
     if (responsable_id !== null && responsable_id !== undefined) {
       const resp = await db('usuarios').where({ id: responsable_id, activo: true }).first();
-      if (!resp || resp.rol !== 'DIRECTOR') {
-        throw new AppError('El responsable debe ser un director de área activo', 422);
+      if (!resp) throw new AppError('Esa persona no existe o está inactiva', 422);
+
+      const admitido = esDGReq
+        ? resp.rol === 'DIRECTOR' && resp.unidad_id !== idDG
+        : resp.unidad_id === req.user!.oficina_id;
+      if (!admitido) {
+        throw new AppError(
+          esDGReq
+            ? 'El responsable debe ser un director de área activo'
+            : 'El responsable debe ser alguien activo de tu propia área',
+          422,
+        );
       }
+
       // Asegurar que el responsable también sea participante del evento
       await db('evento_directores')
         .insert({ evento_id: eventoId, director_id: responsable_id })
@@ -551,9 +696,10 @@ export async function setResponsable(
 
 // ── POST /eventos/:id/directores ──────────────────────────────
 /**
- * Agrega un director participante a un evento de la DG ya creado (aunque tenga
- * actividades), por si más adelante resulta necesario sumar a alguien.
- * Solo la Directora General (o sus asistentes). Body: { director_id: number }
+ * Suma un participante a un evento ya creado (aunque tenga actividades), por si
+ * más adelante resulta necesario incorporar a alguien: la DG suma titulares de
+ * área a los suyos, el director de área suma a los de su unidad en el propio.
+ * Body: { director_id: number }
  */
 export async function agregarDirector(
   req: Request,
@@ -566,24 +712,49 @@ export async function agregarDirector(
     const eventoId = parseInt(req.params.id, 10);
     const { director_id } = req.body as { director_id: number };
 
-    const idDG = await getIdDireccionGeneral();
-    if (req.user!.oficina_id !== idDG || !actuaComoDG(req.user)) {
-      throw new AppError('Solo la Directora General puede agregar participantes', 403);
-    }
-
     const evento = await db('eventos').where({ id: eventoId }).first();
     if (!evento) throw new AppError('Evento no encontrado', 404);
     if (evento.estado === 'CERRADO') {
       throw new AppError('No se pueden agregar participantes a un evento cerrado', 409);
     }
-    if (!evento.requiere_aprobacion_dg) {
-      throw new AppError('Solo los eventos de la Dirección General tienen directores participantes', 422);
+
+    /**
+     * Quién puede sumar a alguien, y a quién.
+     *
+     * Estaba reservado a la Directora General, y eso dejaba la función a medias
+     * desde que un director puede invitar a su equipo AL CREAR el evento: podía
+     * armarlo con su gente pero no sumar a nadie después, que es justo cuando uno
+     * cae en la cuenta de que faltó alguien.
+     *
+     * Las mismas dos reglas que al crear:
+     *   · la DG suma titulares de área a sus eventos;
+     *   · el dueño del evento suma a los de SU unidad.
+     */
+    const idDG    = await getIdDireccionGeneral();
+    const esDGReq = req.user!.oficina_id === idDG && actuaComoDG(req.user);
+    const esDueno = evento.creado_por_id === req.user!.id;
+
+    if (!esDGReq && !esDueno) {
+      throw new AppError('Solo quien creó el evento puede agregar participantes', 403);
+    }
+    if (esDGReq && !evento.requiere_aprobacion_dg) {
+      throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
     }
 
     if (!director_id) throw new AppError('director_id es requerido', 422);
     const dir = await db('usuarios').where({ id: director_id, activo: true }).first();
-    if (!dir || dir.rol !== 'DIRECTOR' || dir.unidad_id === idDG) {
-      throw new AppError('El participante debe ser un director de área activo', 422);
+    if (!dir) throw new AppError('Esa persona no existe o está inactiva', 422);
+
+    const admitido = esDGReq
+      ? dir.rol === 'DIRECTOR' && dir.unidad_id !== idDG
+      : dir.unidad_id === req.user!.oficina_id;
+    if (!admitido) {
+      throw new AppError(
+        esDGReq
+          ? 'El participante debe ser un director de área activo'
+          : 'Solo puedes agregar a personas de tu propia área',
+        422,
+      );
     }
 
     await db('evento_directores')
@@ -773,9 +944,13 @@ export async function listarTareasArea(
     const tareasRaw = await query.orderBy('t.fecha_programada', 'asc');
 
     const tareas = tareasRaw.map((t) => {
-      const fechaStr = typeof t.fecha_programada === 'string'
-        ? t.fecha_programada
-        : (t.fecha_programada as Date).toISOString().split('T')[0];
+      // La fecha es opcional desde la migración 2026-09-07: puede llegar nula.
+      const fechaStr: string | null =
+        t.fecha_programada == null
+          ? null
+          : typeof t.fecha_programada === 'string'
+            ? t.fecha_programada
+            : (t.fecha_programada as Date).toISOString().split('T')[0];
       return {
         ...t,
         fecha_programada: fechaStr,
@@ -966,85 +1141,14 @@ export async function listarComentarios(
   } catch (err) { next(err); }
 }
 
-// ── PATCH /eventos/:id/tareas/:tareaId/fecha-compromiso ───────
-
-export async function setFechaCompromiso(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const tareaId = parseInt(req.params.tareaId, 10);
-    const { fecha_compromiso } = req.body as { fecha_compromiso: string };
-
-    if (!fecha_compromiso) {
-      throw new AppError('La fecha compromiso es requerida', 422);
-    }
-
-    const tarea = await db('tareas_evento').where({ id: tareaId }).first();
-    if (!tarea) throw new AppError('Tarea no encontrada', 404);
-
-    // Puede establecer la fecha compromiso el director asignado O el
-    // colaborador a quien se delegó la tarea (reasignado), que es quien la trabaja.
-    if (req.user!.id !== tarea.asignado_a_id && req.user!.id !== tarea.reasignado_a_id) {
-      throw new AppError('Solo el responsable o el colaborador delegado puede establecer la fecha compromiso', 403);
-    }
-
-    // La fecha compromiso no puede ser posterior a la fecha programada de la tarea
-    const fechaComp = new Date(fecha_compromiso);
-    const fechaProg = new Date(tarea.fecha_programada);
-    if (fechaComp > fechaProg) {
-      throw new AppError(
-        `La fecha compromiso no puede ser posterior a la fecha programada de la tarea (${tarea.fecha_programada})`,
-        422,
-      );
-    }
-
-    // La fecha compromiso no puede ser posterior a la fecha programada del evento
-    const eventoData = await db('eventos')
-      .where({ id: tarea.evento_id })
-      .select('titulo', 'creado_por_id', 'fecha_programada')
-      .first();
-    if (eventoData?.fecha_programada) {
-      const fechaEvento = new Date(eventoData.fecha_programada);
-      if (fechaComp > fechaEvento) {
-        throw new AppError(
-          `La fecha compromiso no puede ser posterior a la fecha del evento (${eventoData.fecha_programada})`,
-          422,
-        );
-      }
-    }
-
-    const [tareaActualizada] = await db('tareas_evento')
-      .where({ id: tareaId })
-      .update({
-        fecha_compromiso,
-        fecha_actualizacion: db.fn.now(),
-      })
-      .returning([
-        'id', 'evento_id', 'titulo', 'descripcion',
-        'asignado_a_id', 'estado', 'fecha_programada',
-        'fecha_compromiso', 'fecha_actualizacion',
-      ]);
-
-    res.json({ data: tareaActualizada, message: 'Fecha compromiso actualizada' });
-
-    // Notificar al dueño del evento sobre la fecha compromiso
-    if (eventoData && eventoData.creado_por_id !== req.user!.id) {
-      notifyEventoTarea({
-        recipient_id:  eventoData.creado_por_id,
-        event:         'TAREA_FECHA_COMPROMISO',
-        title:         `Fecha compromiso actualizada`,
-        body:          `${req.user!.nombre} estableció fecha compromiso ${fecha_compromiso} en "${tarea.titulo}"`,
-        tarea_id:      tareaId,
-        evento_titulo: eventoData.titulo,
-      }).catch(() => {});
-    }
-  } catch (err) { next(err); }
-}
-
-// ── PATCH /eventos/:id/tareas/:tareaId/enviar-revision ───────
-
+// La fecha compromiso se retiró del módulo.
+//
+// Permitía que quien trabaja una actividad le pusiera una SEGUNDA fecha, encima
+// de la que le había fijado quien se la asignó. Dos plazos para lo mismo y nadie
+// los conciliaba: al final no se sabía cuál valía. Ahora manda la fecha de la
+// actividad, que además pasó a ser opcional.
+//
+// La columna `tareas_evento.fecha_compromiso` se conserva con lo ya capturado.
 export async function enviarRevision(
   req: Request,
   res: Response,

@@ -23,23 +23,58 @@ import { useDialogo } from '../context/DialogoContext';
 
 const LIMIT = 20;
 
-const ROLES: RolUsuario[] = ['OFICIAL', 'ENCARGADO', 'JURIDICO', 'SECRETARIA', 'DIRECTOR', 'SUPERADMIN'];
+/**
+ * Los roles del sistema, con el nombre que de verdad les corresponde.
+ *
+ * Las etiquetas venían de cuando la única área con flujo era la Jurídica, y ya
+ * no describían lo que hacen: `DIRECTOR` decía «Dirección General» —cuando es el
+ * titular de CUALQUIER área, y es lo que exigen `areasTurno` y `destinosPermitidos`
+ * para que un área pueda recibir oficios— y `ENCARGADO` decía «Director Jurídico».
+ * Con esos nombres, dar de alta al jefe de un área nueva parecía imposible: el
+ * rol estaba ahí, pero se leía como si fuera de otra oficina.
+ *
+ * También faltaban dos que el servidor sí acepta —`ROLES_VALIDOS` en
+ * admin.controller—: OPERATIVO, que es el rol de casi todos los analistas, y
+ * PARTICULAR. No se podían crear desde aquí.
+ *
+ * El rol dice QUIÉN es la persona. Lo que hace en cada trámite se configura
+ * aparte, en Configuración de Flujos, y es por unidad.
+ */
+const ROLES: RolUsuario[] = [
+  'DIRECTOR', 'ENCARGADO', 'OPERATIVO', 'OFICIAL', 'JURIDICO', 'SECRETARIA', 'PARTICULAR', 'SUPERADMIN',
+];
 
 const ROL_LABEL: Record<RolUsuario, string> = {
+  DIRECTOR:   'Titular del área',
+  ENCARGADO:  'Encargado de área',
+  OPERATIVO:  'Personal operativo',
   OFICIAL:    'Oficial de Partes',
-  ENCARGADO:  'Director Jurídico',
-  JURIDICO:   'Área Jurídica',
+  JURIDICO:   'Analista jurídico',
   SECRETARIA: 'Secretaría',
-  DIRECTOR:   'Dirección General',
+  PARTICULAR: 'Particular',
   SUPERADMIN: 'Super Administrador',
+};
+
+/** Una línea que explica cada rol, para no tener que adivinar cuál toca. */
+const ROL_AYUDA: Record<RolUsuario, string> = {
+  DIRECTOR:   'El jefe del área. Necesario para que el área reciba oficios y aparezca como destino de turnado.',
+  ENCARGADO:  'Reparte el trabajo del área. Puede dirigir un área distinta a la suya.',
+  OPERATIVO:  'Trabaja expedientes. Es el rol de la mayoría; se le designa como analista en Configuración de Flujos.',
+  OFICIAL:    'Recibe y registra los oficios en ventanilla.',
+  JURIDICO:   'Analista jurídico con rol propio. Hoy casi todos usan «Personal operativo».',
+  SECRETARIA: 'Acompaña a la Dirección General y sube los documentos firmados.',
+  PARTICULAR: 'Asistente de la Dirección General, sin función en el flujo.',
+  SUPERADMIN: 'Administra usuarios, flujos y catálogos de todo el sistema.',
 };
 
 const ROL_COLOR: Record<RolUsuario, { bg: string; text: string }> = {
   OFICIAL:    { bg: '#FEF3C7', text: '#92400E' },
   ENCARGADO:  { bg: '#FDE8EF', text: '#AB0A3D' },
   JURIDICO:   { bg: '#D1FAE5', text: '#065F46' },
+  OPERATIVO:  { bg: '#E8EEF3', text: '#3D3935' },
   SECRETARIA: { bg: '#EFEDEA', text: '#3D3935' },
   DIRECTOR:   { bg: '#EDE9E4', text: '#3D3935' },
+  PARTICULAR: { bg: '#F3EDE3', text: '#B68400' },
   SUPERADMIN: { bg: '#440412', text: '#fff'    },
 };
 

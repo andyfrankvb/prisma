@@ -45,15 +45,21 @@ interface DirectorOpcion { id: number; nombre: string; oficina_nombre?: string }
 interface Props {
   resumen: EventoResumen;
   onClose: () => void;
-  // Gestión de participantes desde el modal (solo la DG en eventos abiertos)
+  /** Gestión de participantes y responsable desde el modal, en eventos abiertos:
+   *  la DG en los suyos, el director de área en el que él creó. */
   puedeGestionar?:  boolean;
   directoresArea?:  DirectorOpcion[];
+  /** De quién es el evento. Cambia cómo se nombra a la gente: en la Dirección
+   *  General los participantes son titulares de área; en el evento de un
+   *  director son su equipo. */
+  ambito?: 'DIRECCION_GENERAL' | 'AREA';
   /** Se dispara al agregar participante o cambiar responsable, para que la
    *  vista padre refresque su detalle (p. ej. el selector de "Asignar a"). */
   onCambio?: () => void;
 }
 
-export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestionar = false, directoresArea = [], onCambio }) => {
+export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestionar = false, directoresArea = [], ambito = 'DIRECCION_GENERAL', onCambio }) => {
+  const esAmbitoArea = ambito === 'AREA';
   const [detalle, setDetalle] = useState<EventoDetalle | null>(null);
   const [loading, setLoading] = useState(true);
   const [nuevoParticipante, setNuevoParticipante] = useState<number | ''>('');
@@ -209,7 +215,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
             {loading ? (
               <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>Cargando…</p>
             ) : (detalle?.directores_participantes ?? []).length === 0 ? (
-              <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>Sin directores participantes.</p>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary }}>Sin participantes.</p>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {(detalle?.directores_participantes ?? []).map((p) => {
@@ -226,7 +232,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
             {/* Cambiar el director responsable — solo aquí, dentro del Abrir */}
             {puedeGestionar && resumen.estado !== 'CERRADO' && (
               <div style={{ marginTop: '12px', padding: '10px 12px', backgroundColor: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#8A0730' }}><Icono nombre="persona" inline />Director responsable:</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#8A0730' }}><Icono nombre="persona" inline />{esAmbitoArea ? 'Responsable del evento:' : 'Director responsable:'}</span>
                 <select
                   value={responsableId ?? ''}
                   onChange={(e) => cambiarResponsable(e.target.value ? Number(e.target.value) : null)}
@@ -254,7 +260,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                     disabled={agregando}
                     style={{ padding: '6px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: theme.font.family, minWidth: '220px' }}
                   >
-                    <option value="">— Incorporar otro director… —</option>
+                    <option value="">{esAmbitoArea ? '— Incorporar a alguien de mi equipo… —' : '— Incorporar otro director… —'}</option>
                     {directoresArea
                       .filter((d) => !(detalle?.directores_participantes ?? []).some((p) => p.id === d.id))
                       .map((d) => (
@@ -272,7 +278,9 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                 </div>
                 {errorPart && <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorPart}</p>}
                 <p style={{ margin: 0, fontSize: '0.7rem', color: theme.colors.textSecondary }}>
-                  Puedes sumar a otro director al evento aunque ya tenga actividades.
+                  {esAmbitoArea
+                    ? 'Puedes sumar a alguien de tu equipo aunque el evento ya tenga actividades.'
+                    : 'Puedes sumar a otro director al evento aunque ya tenga actividades.'}
                 </p>
               </div>
             )}
@@ -301,8 +309,9 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                       </div>
                       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '6px', fontSize: '0.74rem', color: theme.colors.textSecondary }}>
                         <span><Icono nombre="persona" inline />{t.reasignado_a_nombre || t.asignado_a_nombre}</span>
-                        <span><Icono nombre="calendario" inline />Programada: {t.fecha_programada}</span>
-                        <span><Icono nombre="personas" inline />Compromiso: {t.fecha_compromiso || 'sin definir'}</span>
+                        {t.fecha_programada
+                          ? <span><Icono nombre="calendario" inline />Programada: {t.fecha_programada}</span>
+                          : <span style={{ fontStyle: 'italic' }}>Sin fecha límite</span>}
                       </div>
                     </div>
                   );

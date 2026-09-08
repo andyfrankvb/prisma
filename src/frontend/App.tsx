@@ -12,6 +12,8 @@ import { Login }              from './views/Login';
 import { SeleccionModulo }    from './views/SeleccionModulo';
 import { Dashboard_Oficial }  from './views/Dashboard_Oficial';
 import { Dashboard_Gestion }  from './views/Dashboard_Gestion';
+import { EscaneoPaquete }     from './views/EscaneoPaquete';
+import { SeccionCorrespondencia } from './views/SeccionCorrespondencia';
 import { Dashboard_Juridico } from './views/Dashboard_Juridico';
 import { SeccionCatalogos }  from './views/SeccionCatalogos';
 import { SeccionCorreos }    from './views/SeccionCorreos';
@@ -69,6 +71,12 @@ function App() {
             }
           />
 
+          {/* La ruta del QR. Va fuera de `ProtectedRoute` a propósito: se abre
+              desde la cámara del teléfono y no debe pedir sesión. Tampoco lleva
+              `AppShell` —encabezado, menú, campana—: quien la abre está de pie en
+              un pasillo con una mano ocupada, y todo eso sobra. */}
+          <Route path="/p/:token" element={<EscaneoPaquete />} />
+
           <Route
             path="/dashboard/oficial"
             element={
@@ -90,6 +98,15 @@ function App() {
           {/* Catálogos para quien tenga el módulo. Es la misma pantalla que usa
               el SuperAdmin y las mismas tablas: aquí solo cambia por dónde se
               entra, no qué se ve ni de dónde sale. */}
+          <Route
+            path="/correspondencia"
+            element={
+              <ProtectedRoute>
+                <AppShell><SeccionCorrespondencia /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/catalogos"
             element={

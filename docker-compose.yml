@@ -72,7 +72,14 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/oficialia_partes}
       REDIS_URL:    redis://redis:6379
       JWT_SECRET:   ${JWT_SECRET:-dev_secret_key_local}
-      APP_URL:      http://localhost
+      # Dirección con la que el sistema se nombra a sí mismo. Es la que va dentro
+      # del código QR de los paquetes, así que «localhost» no sirve para probar
+      # con el teléfono: apuntaría al propio teléfono de quien escanea.
+      #
+      # Para probar desde un celular, pon la IP de esta computadora en la red:
+      #   APP_URL=http://192.168.0.36 docker compose up -d app_api
+      # o déjala en el .env.
+      APP_URL:      ${APP_URL:-http://localhost}
       EMAIL_TRANSPORT: smtp
       SMTP_HOST:    mailhog
       SMTP_PORT:    1025
