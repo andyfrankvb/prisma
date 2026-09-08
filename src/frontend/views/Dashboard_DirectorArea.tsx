@@ -99,6 +99,29 @@ export const Dashboard_DirectorArea: React.FC = () => {
   // El observador no tiene actividades propias → arranca en "Mis Eventos"
   const [seccion, setSeccion] = useState<'actividades' | 'eventos'>(esObservador ? 'eventos' : 'actividades');
 
+  /**
+   * Quien no es director también puede tener eventos.
+   *
+   * La pestaña se mostraba solo a los directores y a la Dirección General, y eso
+   * dejaba fuera un caso que ahora es normal: un director de área nombra encargado
+   * de su evento a alguien de su equipo operativo. Esa persona quedaba sin manera
+   * de llegar al evento —el servidor sí se lo permite— y solo veía sus actividades
+   * sueltas, sin saber a qué pertenecen.
+   *
+   * No se deduce del rol sino de los hechos: se le pregunta al servidor si tiene
+   * algún evento. `GET /eventos` ya acota por su cuenta a lo propio y a aquello en
+   * lo que se participa, así que una lista con algo dentro ES la respuesta.
+   */
+  const [tieneEventos, setTieneEventos] = useState(false);
+  useEffect(() => {
+    if (!user || esDirector || esDG) return;
+    apiFetch<{ data: unknown[] }>('/eventos')
+      .then(({ data }) => setTieneEventos(Array.isArray(data) && data.length > 0))
+      .catch(() => setTieneEventos(false));   // sin permiso o sin eventos: sin pestaña
+  }, [user, esDirector, esDG]);
+
+  const veEventos = esDirector || esDG || tieneEventos;
+
   // Lista unificada: propias + revisión de equipo (director)
   const [actividades,  setActividades]  = useState<TareaUnificada[]>([]);
   const [loading,      setLoading]      = useState(false);
@@ -241,7 +264,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
         {([
           // El observador no tiene actividades propias → solo ve "Mis Eventos"
           ...(esObservador ? [] : [{ key: 'actividades', label: 'Mis Actividades', icon: 'carpeta' }]),
-          ...((esDirector || esDG) ? [{ key: 'eventos', label: esObservador ? 'Eventos' : 'Mis Eventos', icon: 'calendario' }] : []),
+          ...(veEventos ? [{ key: 'eventos', label: esObservador ? 'Eventos' : 'Mis Eventos', icon: 'calendario' }] : []),
         ] as { key: 'actividades' | 'eventos'; label: string; icon: NombreIcono }[]).map(({ key, label, icon }) => {
           const active = seccion === key;
           return (
@@ -270,7 +293,7 @@ export const Dashboard_DirectorArea: React.FC = () => {
       </div>
 
       {/* Mis Eventos */}
-      {seccion === 'eventos' && (esDirector || esDG) && <SeccionEventos />}
+      {seccion === 'eventos' && veEventos && <SeccionEventos />}
 
       {/* Mis Actividades */}
       {seccion === 'actividades' && (
