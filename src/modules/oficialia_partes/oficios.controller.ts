@@ -1134,9 +1134,34 @@ export async function listarOficios(
      * es algo que tengas que aceptar.
      */
     const lista = unidadesEncargado.length ? unidadesEncargado.map(Number).join(',') : 'NULL';
+
+    /**
+     * Las áreas de quien consulta: aquella a la que está adscrito, más las que
+     * dirige aunque no pertenezca a ellas. Las dos hacen falta —un encargado
+     * puede dirigir un área sin estar adscrito— y con una sola se cae un caso:
+     * sin la propia, un analista dejaría de ver lo que le llega a su área; sin
+     * las dirigidas, el encargado de una delegación dejaría de verlo.
+     */
+    const MIS_UNIDADES = [Number(user.oficina_id), ...unidadesEncargado.map(Number)]
+      .filter((v, i, a) => Number.isFinite(v) && a.indexOf(v) === i)
+      .join(',') || 'NULL';
+
     const DE_OTRA_AREA = `(EXISTS (SELECT 1 FROM oficio_turnos t3
                                     WHERE t3.oficio_id = oficios.id
                                       AND t3.unidad_destino_id = dir_u.unidad_id
+                                      -- Que el turno haya llegado a MI área, no
+                                      -- solamente al área del destinatario.
+                                      --
+                                      -- Sin este renglón la condición no mencionaba
+                                      -- en ninguna parte a quien consulta: preguntaba
+                                      -- si el oficio traía un turno sin aceptar, lo
+                                      -- cual es cierto del oficio y no de quien lo
+                                      -- mira. El área que turnaba veía en «Turnados»
+                                      -- lo que ella misma había mandado, como si le
+                                      -- tocara aceptarlo. Las otras dos condiciones de
+                                      -- esta pestaña sí se acotaban; esta era la única
+                                      -- que no.
+                                      AND t3.unidad_destino_id IN (${MIS_UNIDADES})
                                       AND t3.aceptado_en IS NULL
                                       AND NOT t3.es_devolucion)
                            OR EXISTS (SELECT 1 FROM oficio_delegatorios dp
