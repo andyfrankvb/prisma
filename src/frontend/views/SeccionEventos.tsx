@@ -12,6 +12,8 @@ import { Modal } from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { esAsistenteDG, esDireccionGeneral } from '../utils/asistentesDG';
+import { useDialogo } from '../context/DialogoContext';
+import { borrarTareaEvento, cancelarTareaEvento, borrarEvento } from '../api';
 import { ResumenEvento } from '../components/ResumenEvento';
 import type { EventoResumen, EventoDetalle, TareaEvento, EstadoTarea, RegistroHistorial } from '../types';
 import type { UsuarioAdmin } from '../api';
@@ -61,12 +63,16 @@ const ESTADO_TAREA_CFG: Record<EstadoTarea, { bg: string; text: string; label: s
   EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
+  // Gris apagado a propósito: cancelada no es un error ni un logro, es trabajo
+  // que dejó de esperarse. No debe competir por atención con lo que sigue vivo.
+  CANCELADA:      { bg: '#EDE9E4', text: '#6B6560', label: 'Cancelada'      },
 };
 
 // ── Component ─────────────────────────────────────────────────
 
 export const SeccionEventos: React.FC = () => {
   const { user } = useAuth();
+  const dialogoEventos = useDialogo();
   const isMobile = useIsMobile();
   // La DG real (DIRECTOR en Dirección General) y sus asistentes designados
   // (Fabian, Tania) actúan como la Directora General: mismos permisos y roles.
@@ -336,11 +342,40 @@ export const SeccionEventos: React.FC = () => {
     }
   };
 
-  // Ordenar: ABIERTOS primero, CERRADOS al final
-  const eventosOrdenados = [...eventos].sort((a, b) => {
-    if (a.estado === b.estado) return 0;
-    return a.estado === 'ABIERTO' ? -1 : 1;
-  });
+  /**
+   * Los terminados se guardan, no se archivan.
+   *
+   * «Cerrado» ya es el estado terminal: exige justificación y guarda quién lo
+   * cerró. Lo que estorbaba era verlos siempre, no que existieran — así que en vez
+   * de inventar un estado «archivado» —un tercer sitio donde buscar, y uno que no
+   * obliga a explicar nada— la lista simplemente los oculta hasta que se piden.
+   */
+  const [verTerminados, setVerTerminados] = useState(false);
+  const terminados = eventos.filter((e) => e.estado === 'CERRADO').length;
+
+  const eventosOrdenados = [...eventos]
+    .filter((e) => verTerminados || e.estado !== 'CERRADO')
+    .sort((a, b) => {
+      if (a.estado === b.estado) return 0;
+      return a.estado === 'ABIERTO' ? -1 : 1;
+    });
+
+  const quitarEvento = async (evento: EventoResumen) => {
+    const sigue = await dialogoEventos.confirmar({
+      titulo:    'Borrar evento',
+      mensaje:   `¿Borrar «${evento.titulo}»? Solo se puede si no tiene ninguna actividad.`,
+      confirmar: 'Borrar',
+      peligro:   true,
+    });
+    if (!sigue) return;
+    try {
+      await borrarEvento(evento.id);
+      setEventos((prev) => prev.filter((e) => e.id !== evento.id));
+      if (expandedId === evento.id) { setExpandedId(null); setDetalle(null); }
+    } catch (err: any) {
+      setErrorCierre((prev) => ({ ...prev, [evento.id]: err.message }));
+    }
+  };
 
   // ── Opciones del selector "Asignar a" (modal Agregar Tarea) ──────────
   //
@@ -377,6 +412,18 @@ export const SeccionEventos: React.FC = () => {
           </h2>
           <p style={{ margin: '3px 0 0', color: theme.colors.textSecondary, fontSize: '0.8rem' }}>
             {eventos.filter((e) => e.estado === 'ABIERTO').length} evento{eventos.filter((e) => e.estado === 'ABIERTO').length !== 1 ? 's' : ''} abierto{eventos.filter((e) => e.estado === 'ABIERTO').length !== 1 ? 's' : ''}
+            {terminados > 0 && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => setVerTerminados((v) => !v)}
+                  style={{ background: 'none', border: 'none', padding: 0, color: theme.colors.primary, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family, textDecoration: 'underline' }}
+                >
+                  {verTerminados ? 'ocultar' : 'ver'} {terminados} terminado{terminados !== 1 ? 's' : ''}
+                </button>
+              </>
+            )}
           </p>
         </div>
         {puedeCrearEvento && (
@@ -434,6 +481,7 @@ export const SeccionEventos: React.FC = () => {
                              && evento.responsable_id !== user?.id}
                 esEncargado={!!user && evento.responsable_id === user.id}
                 puedeCerrar={esDG || evento.creado_por_id === user?.id}
+                onBorrar={() => quitarEvento(evento)}
               />
             ))}
           </div>
@@ -725,11 +773,12 @@ interface EventoCardProps {
   esEncargado:      boolean;
   /** Terminar el evento: la DG en los suyos, el director que lo creó en el propio. */
   puedeCerrar:      boolean;
+  onBorrar:         () => void;
 }
 
 const EventoCard: React.FC<EventoCardProps> = ({
   evento, expanded, detalle, detalleLoading, onToggle, onAbrir, onCerrar, cerrando, errorCierre, onAgregarTarea,
-  esDG, soloLectura, esEncargado, puedeCerrar,
+  esDG, soloLectura, esEncargado, puedeCerrar, onBorrar,
 }) => {
   const isCerrado = evento.estado === 'CERRADO';
   const total     = evento.total_tareas || 1;
@@ -849,6 +898,18 @@ const EventoCard: React.FC<EventoCardProps> = ({
                 {cerrando ? 'Cerrando…' : 'Cerrar Evento'}
               </button>
             )}
+            {/* Solo tiene sentido en el evento vacío: con actividades dentro, el
+                servidor lo niega y manda a cerrarlo. Ofrecerlo igual sería un
+                botón que falla, así que se muestra únicamente cuando procede. */}
+            {!isCerrado && puedeCerrar && evento.total_tareas === 0 && (
+              <button
+                onClick={onBorrar}
+                style={{ ...btnSecondary, fontSize: '0.8rem', padding: '7px 14px', color: theme.colors.textSecondary }}
+                title="Se creó por error y no tiene ninguna actividad"
+              >
+                Borrar evento
+              </button>
+            )}
           </div>
 
           {/* Tareas */}
@@ -868,7 +929,8 @@ const EventoCard: React.FC<EventoCardProps> = ({
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {detalle.tareas.map((t) => (
-                <TareaRow key={t.id} tarea={t} fechaLimiteEvento={detalle.fecha_programada ?? null} />
+                <TareaRow key={t.id} tarea={t} fechaLimiteEvento={detalle.fecha_programada ?? null}
+                          puedeEditar={!soloLectura && !isCerrado} />
               ))}
             </div>
           )}
@@ -1266,9 +1328,109 @@ function formatFecha(iso: string): string {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
-const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null }> = ({ tarea: tareaInicial, fechaLimiteEvento }) => {
+const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null; puedeEditar?: boolean }> = ({ tarea: tareaInicial, fechaLimiteEvento, puedeEditar = false }) => {
   const [tarea, setTarea] = useState<TareaEvento>(tareaInicial);
+  /** Borrada de verdad: la fila desaparece sin esperar a recargar el detalle. */
+  const [borrada, setBorrada] = useState(false);
+  const dialogo = useDialogo();
   const cfg = ESTADO_TAREA_CFG[tarea.estado] ?? ESTADO_TAREA_CFG.PENDIENTE;
+
+  /**
+   * Corrección de la encomienda: su nombre y su descripción.
+   *
+   * La encomienda se redacta rápido al repartir el trabajo y muchas veces se
+   * afina después de hablarlo con quien la va a hacer; hasta ahora no había forma
+   * de enmendarla. Solo aparece para quien coordina el evento —el servidor exige
+   * lo mismo—, y se apaga cuando la actividad ya terminó: reescribir lo que se
+   * pidió después de que el trabajo se entregó y se aprobó dejaría el historial
+   * contando otra cosa.
+   */
+  const [editando,  setEditando]  = useState(false);
+  const [edTitulo,  setEdTitulo]  = useState('');
+  const [edDesc,    setEdDesc]    = useState('');
+  const [guardandoEd, setGuardandoEd] = useState(false);
+  const [errorEd,   setErrorEd]   = useState<string | null>(null);
+  // Cancelada cuenta como terminada: ni se edita ni se vuelve a quitar. Sin esto
+  // seguía ofreciendo «Editar» y «Quitar» sobre algo que ya no espera nada.
+  const terminada = tarea.estado === 'FINALIZADO' || tarea.estado === 'COMPLETADA'
+                 || tarea.estado === 'CANCELADA';
+
+  const abrirEdicion = () => {
+    setEdTitulo(tarea.titulo);
+    setEdDesc(tarea.descripcion ?? '');
+    setErrorEd(null);
+    setEditando(true);
+  };
+
+  /**
+   * Quitar la actividad del tablero: borrarla o cancelarla.
+   *
+   * Cuál de las dos aplica lo decide el SERVIDOR, no esta pantalla. Aquí se
+   * intenta borrar y, si responde que no se puede —porque ya tiene avances,
+   * comentarios o arrancó—, se ofrece cancelar con su motivo. Así la regla vive en
+   * un solo lugar: replicarla aquí significaría que el día que cambie, la pantalla
+   * ofrecería una cosa y el servidor haría otra.
+   */
+  const [cancelando,  setCancelando]  = useState(false);
+  const [motivoCanc,  setMotivoCanc]  = useState('');
+  const [quitando,    setQuitando]    = useState(false);
+  const [errorQuitar, setErrorQuitar] = useState<string | null>(null);
+
+  const intentarBorrar = async () => {
+    const sigue = await dialogo.confirmar({
+      titulo:    'Borrar actividad',
+      mensaje:   `¿Borrar «${tarea.titulo}»? Solo se puede si nadie la ha trabajado todavía.`,
+      confirmar: 'Borrar',
+      peligro:   true,
+    });
+    if (!sigue) return;
+    setQuitando(true);
+    setErrorQuitar(null);
+    try {
+      await borrarTareaEvento(tarea.evento_id, tarea.id);
+      setBorrada(true);
+    } catch (err: any) {
+      // 409 = tiene trabajo encima. No es un fallo: es la señal de cancelar.
+      if (err.status === 409) { setErrorQuitar(err.message); setCancelando(true); }
+      else setErrorQuitar(err.message);
+    } finally {
+      setQuitando(false);
+    }
+  };
+
+  const confirmarCancelar = async () => {
+    if (!motivoCanc.trim()) { setErrorQuitar('Escribe por qué se cancela'); return; }
+    setQuitando(true);
+    setErrorQuitar(null);
+    try {
+      await cancelarTareaEvento(tarea.evento_id, tarea.id, motivoCanc);
+      setTarea((t) => ({ ...t, estado: 'CANCELADA', motivo_cancelacion: motivoCanc.trim() }));
+      setCancelando(false);
+      setMotivoCanc('');
+    } catch (err: any) {
+      setErrorQuitar(err.message);
+    } finally {
+      setQuitando(false);
+    }
+  };
+
+  const guardarEdicion = async () => {
+    if (!edTitulo.trim()) { setErrorEd('El título es obligatorio'); return; }
+    setGuardandoEd(true);
+    setErrorEd(null);
+    try {
+      const res = await apiFetch<{ data: { titulo: string; descripcion: string | null } }>(
+        `/eventos/${tarea.evento_id}/tareas/${tarea.id}`,
+        { method: 'PATCH', body: JSON.stringify({ titulo: edTitulo, descripcion: edDesc }) },
+      );
+      setTarea((t) => ({ ...t, titulo: res.data.titulo, descripcion: res.data.descripcion }));
+      setEditando(false);
+    } catch (err: any) {
+      setErrorEd(err.message);
+    } finally {
+      setGuardandoEd(false);
+    }
+  };
 
   // ── Estado local de comentarios ───────────────────────────
   const [comentarios,        setComentarios]        = useState<Comentario[]>([]);
@@ -1393,10 +1555,17 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
     finally { setEnviando(false); }
   };
 
+  // Borrada: la fila se va en el acto. Esperar a que el padre recargue el detalle
+  // dejaría un renglón fantasma que ya no existe en la base.
+  if (borrada) return null;
+
+  const cancelada = tarea.estado === 'CANCELADA';
+
   return (
     <div style={{
       borderRadius:    '8px',
-      backgroundColor: '#F9FAFB',
+      backgroundColor: cancelada ? '#F3F2F0' : '#F9FAFB',
+      opacity:         cancelada ? 0.75 : 1,
       border:          `1px solid ${theme.colors.border}`,
       overflow:        'hidden',
     }}>
@@ -1410,12 +1579,111 @@ const TareaRow: React.FC<{ tarea: TareaEvento; fechaLimiteEvento: string | null 
       }}>
         {/* Título + asignado */}
         <div style={{ flex: 1, minWidth: '160px' }}>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.85rem', color: theme.colors.textPrimary }}>
-            {tarea.titulo}
-          </p>
-          <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-            <Icono nombre="persona" inline />{tarea.asignado_a_nombre}
-          </p>
+          {editando ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <input
+                value={edTitulo}
+                onChange={(e) => setEdTitulo(e.target.value)}
+                placeholder="Nombre de la actividad"
+                style={{ width: '100%', padding: '6px 9px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontWeight: 600, fontFamily: theme.font.family }}
+              />
+              <textarea
+                value={edDesc}
+                onChange={(e) => setEdDesc(e.target.value)}
+                rows={2}
+                placeholder="Descripción (opcional)"
+                style={{ width: '100%', padding: '6px 9px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.78rem', fontFamily: theme.font.family, resize: 'vertical' }}
+              />
+              {errorEd && (
+                <span style={{ fontSize: '0.72rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorEd}</span>
+              )}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="button" onClick={guardarEdicion} disabled={guardandoEd || !edTitulo.trim()}
+                  style={{ padding: '5px 12px', border: 'none', backgroundColor: theme.colors.primary, color: '#fff', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: guardandoEd ? 'wait' : 'pointer', opacity: !edTitulo.trim() ? 0.5 : 1, fontFamily: theme.font.family }}>
+                  {guardandoEd ? 'Guardando…' : 'Guardar'}
+                </button>
+                <button type="button" onClick={() => setEditando(false)} disabled={guardandoEd}
+                  style={{ padding: '5px 12px', border: `1px solid ${theme.colors.border}`, background: '#fff', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.85rem', color: theme.colors.textPrimary }}>
+                  {tarea.titulo}
+                </p>
+                {puedeEditar && !terminada && (
+                  <button
+                    type="button"
+                    onClick={abrirEdicion}
+                    title="Corregir el nombre y la descripción de la actividad"
+                    style={{ border: `1px solid ${theme.colors.border}`, background: 'transparent', color: theme.colors.textSecondary, borderRadius: '5px', padding: '1px 7px', fontSize: '0.66rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
+                  >
+                    Editar
+                  </button>
+                )}
+                {/* Un solo botón para las dos salidas. Se intenta borrar; si el
+                    servidor dice que ya hay trabajo encima, ofrece cancelar. */}
+                {puedeEditar && !terminada && (
+                  <button
+                    type="button"
+                    onClick={intentarBorrar}
+                    disabled={quitando}
+                    title="Quitar esta actividad del evento"
+                    style={{ border: `1px solid ${theme.colors.border}`, background: 'transparent', color: theme.colors.alert.red, borderRadius: '5px', padding: '1px 7px', fontSize: '0.66rem', fontWeight: 700, cursor: quitando ? 'wait' : 'pointer', fontFamily: theme.font.family }}
+                  >
+                    Quitar
+                  </button>
+                )}
+              </div>
+              {tarea.descripcion && (
+                <p style={{ margin: '3px 0 0', fontSize: '0.76rem', color: theme.colors.textSecondary, lineHeight: 1.4 }}>
+                  {tarea.descripcion}
+                </p>
+              )}
+              {/* El porqué va a la vista, no escondido en un historial: es lo que
+                  necesita saber quien la tenía asignada para no quedarse pensando
+                  que se le desechó el esfuerzo. */}
+              {cancelada && tarea.motivo_cancelacion && (
+                <p style={{ margin: '4px 0 0', fontSize: '0.74rem', color: '#6B6560', fontStyle: 'italic', lineHeight: 1.4 }}>
+                  <Icono nombre="alerta" inline />Cancelada: {tarea.motivo_cancelacion}
+                </p>
+              )}
+              {errorQuitar && !cancelando && (
+                <p style={{ margin: '4px 0 0', fontSize: '0.74rem', color: theme.colors.alert.red, lineHeight: 1.4 }}>
+                  <Icono nombre="alerta" inline />{errorQuitar}
+                </p>
+              )}
+              {cancelando && (
+                <div style={{ marginTop: '8px', padding: '10px 12px', backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {errorQuitar && (
+                    <p style={{ margin: 0, fontSize: '0.74rem', color: '#92400E', lineHeight: 1.4 }}>{errorQuitar}</p>
+                  )}
+                  <input
+                    value={motivoCanc}
+                    onChange={(e) => setMotivoCanc(e.target.value)}
+                    placeholder="¿Por qué se cancela?"
+                    style={{ width: '100%', padding: '6px 9px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.78rem', fontFamily: theme.font.family }}
+                  />
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button type="button" onClick={confirmarCancelar} disabled={quitando || !motivoCanc.trim()}
+                      style={{ padding: '5px 12px', border: 'none', backgroundColor: theme.colors.primary, color: '#fff', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: quitando ? 'wait' : 'pointer', opacity: !motivoCanc.trim() ? 0.5 : 1, fontFamily: theme.font.family }}>
+                      {quitando ? 'Cancelando…' : 'Cancelar actividad'}
+                    </button>
+                    <button type="button" onClick={() => { setCancelando(false); setErrorQuitar(null); setMotivoCanc(''); }}
+                      style={{ padding: '5px 12px', border: `1px solid ${theme.colors.border}`, background: '#fff', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>
+                      Dejarla
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>
+                <Icono nombre="persona" inline />{tarea.asignado_a_nombre}
+              </p>
+            </>
+          )}
         </div>
 
         {/* Badge estado */}

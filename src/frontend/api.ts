@@ -44,7 +44,28 @@ export async function login(email: string, password: string) {
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ email, password }),
   });
-  return handleResponse<{ token: string; user: import('./types').AuthUser }>(res);
+  return handleResponse<{
+    token: string;
+    user: import('./types').AuthUser;
+    debe_cambiar_password?: boolean;
+  }>(res);
+}
+
+/**
+ * Cambia la contraseña de quien está en sesión.
+ *
+ * Al terminar, el token deja de valer —el servidor invalida todo lo firmado antes
+ * del cambio—, así que quien llame a esto tiene que cerrar la sesión y mandar a
+ * iniciar de nuevo. No es un efecto secundario: es lo que expulsa a cualquier otra
+ * sesión que siguiera abierta con la contraseña anterior.
+ */
+export async function cambiarMiPassword(password_actual: string, password_nueva: string) {
+  const res = await fetch(`${BASE}/usuarios/mi-password`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ password_actual, password_nueva }),
+  });
+  return handleResponse<{ message: string }>(res);
 }
 
 // ── Oficios ──────────────────────────────────────────────────────────────────
@@ -745,6 +766,10 @@ export interface UsuarioAdmin {
   oficina_id:     number;   // alias de unidad_id en el JWT
   unidad_id:      number;   // campo real devuelto por /admin/usuarios
   oficina_nombre: string;
+  /** La contraseña actual la puso un tercero y el usuario aún no la ha cambiado. */
+  password_debe_cambiar?: boolean;
+  /** Cuándo se fijó la contraseña actual; con la bandera arriba, desde cuándo espera. */
+  password_cambiada_en?:  string | null;
 }
 
 export interface OficinaAdmin {
@@ -793,7 +818,7 @@ export async function adminCrearUsuario(body: {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   });
-  return handleResponse<{ data: UsuarioAdmin; message: string }>(res);
+  return handleResponse<{ data: UsuarioAdmin; aviso?: string | null; message: string }>(res);
 }
 
 export async function adminEditarUsuario(
@@ -805,7 +830,7 @@ export async function adminEditarUsuario(
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
   });
-  return handleResponse<{ data: UsuarioAdmin; message: string }>(res);
+  return handleResponse<{ data: UsuarioAdmin; aviso?: string | null; message: string }>(res);
 }
 
 export async function adminToggleActivo(id: number) {
@@ -816,13 +841,19 @@ export async function adminToggleActivo(id: number) {
   return handleResponse<{ message: string; activo: boolean }>(res);
 }
 
-export async function adminResetPassword(id: number, nueva_password: string) {
+/**
+ * Genera una contraseña temporal para alguien que perdió la suya.
+ *
+ * Ya no se manda ninguna contraseña: la elige el servidor y la devuelve EN CLARO
+ * una sola vez, porque la base guarda solo el hash y después no hay forma de
+ * volver a consultarla. Quien la reciba tiene que anotarla antes de cerrar.
+ */
+export async function adminResetPassword(id: number) {
   const res = await fetch(`${BASE}/admin/usuarios/${id}/reset-password`, {
     method:  'PATCH',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ nueva_password }),
   });
-  return handleResponse<{ message: string }>(res);
+  return handleResponse<{ data: { password_temporal: string; usuario: string }; message: string }>(res);
 }
 
 export async function adminListarOficinas() {
@@ -1200,6 +1231,37 @@ export async function registrarEntregaPaquete(token: string, codigo: string) {
   const res = await fetch(`${CORR}/publico/${token}/entrega`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ codigo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+// ── Eventos: quitar trabajo del tablero ──────────────────────────────────────
+
+/**
+ * Borra una actividad. El servidor solo lo permite si nadie la tocó; en cuanto
+ * tiene avances, comentarios o ya arrancó, responde 409 pidiendo cancelarla.
+ */
+export async function borrarTareaEvento(eventoId: number, tareaId: number) {
+  const res = await fetch(`${BASE}/eventos/${eventoId}/tareas/${tareaId}`, {
+    method: 'DELETE', headers: { ...authHeaders() },
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Cancela una actividad. El motivo es obligatorio: sin él el servidor responde 422. */
+export async function cancelarTareaEvento(eventoId: number, tareaId: number, motivo: string) {
+  const res = await fetch(`${BASE}/eventos/${eventoId}/tareas/${tareaId}/cancelar`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ motivo }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
+/** Borra un evento. Solo su creador, y solo si no tiene actividades dentro. */
+export async function borrarEvento(eventoId: number) {
+  const res = await fetch(`${BASE}/eventos/${eventoId}`, {
+    method: 'DELETE', headers: { ...authHeaders() },
   });
   return handleResponse<{ message: string }>(res);
 }

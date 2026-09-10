@@ -39,6 +39,9 @@ const ESTADO_TAREA_CFG: Record<string, { bg: string; text: string; label: string
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
   COMPLETADA:     { bg: '#D1FAE5', text: '#065F46', label: 'Completada'     },
   FINALIZADO:     { bg: '#D1FAE5', text: '#065F46', label: 'Finalizado'     },
+  // Sin este renglón el `?? PENDIENTE` de abajo la disfrazaría de pendiente, que
+  // es lo contrario de lo que pasó: nadie la va a hacer.
+  CANCELADA:      { bg: '#EDE9E4', text: '#6B6560', label: 'Cancelada'      },
 };
 
 interface DirectorOpcion { id: number; nombre: string; oficina_nombre?: string }
@@ -136,6 +139,53 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
     }
   };
 
+  /**
+   * Edición del título y la descripción del evento.
+   *
+   * Lo que se escribe al crear un evento quedaba congelado: un nombre mal puesto
+   * obligaba a cerrarlo y levantar otro, arrastrando las actividades. Se edita
+   * aquí, dentro del «Abrir», que es donde ya vive todo lo que se administra.
+   */
+  const [editando,    setEditando]    = useState(false);
+  const [edTitulo,    setEdTitulo]    = useState('');
+  const [edDesc,      setEdDesc]      = useState('');
+  const [guardando,   setGuardando]   = useState(false);
+  const [errorEdicion, setErrorEdicion] = useState<string | null>(null);
+
+  const tituloActual = detalle?.titulo      ?? resumen.titulo;
+  const descActual   = detalle?.descripcion ?? resumen.descripcion;
+
+  const abrirEdicion = () => {
+    setEdTitulo(tituloActual ?? '');
+    setEdDesc(descActual ?? '');
+    setErrorEdicion(null);
+    setEditando(true);
+  };
+
+  const guardarEdicion = async () => {
+    if (!edTitulo.trim()) { setErrorEdicion('El título es obligatorio'); return; }
+    setGuardando(true);
+    setErrorEdicion(null);
+    try {
+      const res = await fetch(`${BASE}/eventos/${resumen.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titulo: edTitulo, descripcion: edDesc }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b?.message ?? `HTTP ${res.status}`);
+      }
+      setEditando(false);
+      cargar();
+      onCambio?.();
+    } catch (err: any) {
+      setErrorEdicion(err.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const cambiarResponsable = async (responsableId: number | null) => {
     setErrorPart(null);
     try {
@@ -179,7 +229,19 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: `1px solid ${theme.colors.border}` }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: theme.colors.textPrimary }}>{resumen.titulo}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: theme.colors.textPrimary }}>{tituloActual}</h3>
+              {puedeGestionar && resumen.estado !== 'CERRADO' && !editando && (
+                <button
+                  type="button"
+                  onClick={abrirEdicion}
+                  title="Corregir el nombre y la descripción"
+                  style={{ border: `1px solid ${theme.colors.border}`, background: 'transparent', color: theme.colors.textSecondary, borderRadius: '6px', padding: '2px 9px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
+                >
+                  Editar
+                </button>
+              )}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: '20px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: resumen.estado === 'ABIERTO' ? '#D1FAE5' : '#EDE9E4', color: resumen.estado === 'ABIERTO' ? '#065F46' : '#3D3935', textTransform: 'uppercase' }}>
                 {resumen.estado === 'ABIERTO' ? '● Abierto' : '● Cerrado'}
@@ -195,9 +257,46 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
         {/* Cuerpo */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px 22px' }}>
 
-          {resumen.descripcion && (
-            <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: theme.colors.textPrimary, lineHeight: 1.5, backgroundColor: '#F9FAFB', padding: '10px 12px', borderRadius: '8px' }}>{resumen.descripcion}</p>
-          )}
+          {editando ? (
+            <div style={{ margin: '0 0 16px', padding: '12px 14px', backgroundColor: '#F9FAFB', border: `1px solid ${theme.colors.border}`, borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                  Nombre del evento <span style={{ color: theme.colors.alert.red }}>*</span>
+                </label>
+                <input
+                  value={edTitulo}
+                  onChange={(e) => setEdTitulo(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                  Descripción <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span>
+                </label>
+                <textarea
+                  value={edDesc}
+                  onChange={(e) => setEdDesc(e.target.value)}
+                  rows={3}
+                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: theme.font.family, resize: 'vertical' }}
+                />
+              </div>
+              {errorEdicion && (
+                <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.alert.red }}><Icono nombre="alerta" inline />{errorEdicion}</p>
+              )}
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setEditando(false)} disabled={guardando}
+                  style={{ padding: '7px 14px', border: `1px solid ${theme.colors.border}`, background: '#fff', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: theme.font.family }}>
+                  Cancelar
+                </button>
+                <button type="button" onClick={guardarEdicion} disabled={guardando || !edTitulo.trim()}
+                  style={{ padding: '7px 14px', border: 'none', backgroundColor: theme.colors.primary, color: '#fff', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: guardando ? 'wait' : 'pointer', opacity: !edTitulo.trim() ? 0.5 : 1, fontFamily: theme.font.family }}>
+                  {guardando ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          ) : descActual ? (
+            <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: theme.colors.textPrimary, lineHeight: 1.5, backgroundColor: '#F9FAFB', padding: '10px 12px', borderRadius: '8px' }}>{descActual}</p>
+          ) : null}
 
           {/* Avance */}
           <div style={{ marginBottom: '18px' }}>
@@ -361,6 +460,11 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                         {t.fecha_programada
                           ? <span><Icono nombre="calendario" inline />Programada: {t.fecha_programada}</span>
                           : <span style={{ fontStyle: 'italic' }}>Sin fecha límite</span>}
+                        {t.estado === 'CANCELADA' && t.motivo_cancelacion && (
+                          <span style={{ fontStyle: 'italic', color: '#6B6560' }}>
+                            <Icono nombre="alerta" inline />{t.motivo_cancelacion}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );

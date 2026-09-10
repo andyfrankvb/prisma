@@ -319,8 +319,12 @@ export async function listarEventos(
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'PENDIENTE')::int AS tareas_pendiente`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'EN_PROGRESO')::int AS tareas_en_progreso`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado IN ('COMPLETADA','FINALIZADO'))::int AS tareas_completada`),
-        db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO') AND t.fecha_programada < CURRENT_DATE)::int AS tareas_vencidas`),
-        db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO') AND t.fecha_programada BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days')::int AS tareas_proximas`),
+        // CANCELADA entra en la lista de terminados: nadie la va a hacer, así que
+        // no es trabajo atrasado ni por vencer. Sin esto, cancelar una actividad
+        // dejaría el evento marcado en rojo para siempre.
+        db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO','CANCELADA') AND t.fecha_programada < CURRENT_DATE)::int AS tareas_vencidas`),
+        db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO','CANCELADA') AND t.fecha_programada BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days')::int AS tareas_proximas`),
+        db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'CANCELADA')::int AS tareas_canceladas`),
       )
       .orderBy('e.fecha_creacion', 'desc');
 
@@ -394,6 +398,9 @@ export async function obtenerEvento(
         't.estado',
         't.fecha_programada',
         't.fecha_compromiso',
+        // Sin esto, una actividad cancelada llega a la pantalla sin su porqué, que es
+        // lo único que le explica a quien la tenía asignada qué pasó con su trabajo.
+        't.motivo_cancelacion',
         't.fecha_actualizacion',
       )
       .where('t.evento_id', id);
@@ -484,6 +491,338 @@ export async function obtenerEvento(
         directores_participantes: directoresParticipantes,
       },
     });
+  } catch (err) { next(err); }
+}
+
+// ── PATCH /eventos/:id ────────────────────────────────────────
+/**
+ * Corrige el título y la descripción de un evento.
+ *
+ * No existía: lo que se escribía al crearlo quedaba congelado para siempre. Un
+ * nombre mal puesto o una descripción que se quedó corta obligaban a cerrar el
+ * evento y levantar otro, arrastrando o perdiendo las actividades ya repartidas.
+ *
+ * Solo cambia esos dos campos. Ni el estado, ni la fecha, ni el encargado, ni los
+ * participantes: cada uno tiene su propia función porque cada uno tiene sus
+ * propias consecuencias. Body: { titulo?, descripcion? }
+ */
+export async function editarEvento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { titulo, descripcion } = req.body as { titulo?: string; descripcion?: string | null };
+
+    const evento = await db('eventos').where({ id }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se puede editar un evento cerrado', 409);
+    }
+    // Como en el resto del módulo: el guardia de rol va después de leer el evento,
+    // porque el encargado coordina aunque no sea director.
+    if (evento.responsable_id !== req.user!.id) requireDirector(req);
+
+    const idDG        = await getIdDireccionGeneral();
+    const esDGReq     = req.user!.oficina_id === idDG && actuaComoDG(req.user);
+    const esDueno     = evento.creado_por_id === req.user!.id;
+    const esEncargado = evento.responsable_id === req.user!.id;
+
+    if (!esDGReq && !esDueno && !esEncargado) {
+      throw new AppError('Solo quien creó el evento o su encargado pueden editarlo', 403);
+    }
+    if (esDGReq && !evento.requiere_aprobacion_dg) {
+      throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
+    }
+
+    // Se distingue «no lo mandaron» de «lo mandaron vacío»: omitir el campo lo deja
+    // como está; mandarlo vacío borra la descripción a propósito.
+    const cambios: Record<string, unknown> = {};
+    if (titulo !== undefined) {
+      if (!titulo?.trim()) throw new AppError('El título del evento es requerido', 422);
+      cambios.titulo = titulo.trim();
+    }
+    if (descripcion !== undefined) {
+      cambios.descripcion = descripcion?.trim() || null;
+    }
+    if (Object.keys(cambios).length === 0) {
+      throw new AppError('No se indicó nada que cambiar', 422);
+    }
+
+    const [actualizado] = await db('eventos').where({ id }).update(cambios)
+      .returning(['id', 'titulo', 'descripcion']);
+
+    res.json({ data: actualizado, message: 'Evento actualizado' });
+  } catch (err) { next(err); }
+}
+
+// ── PATCH /eventos/:id/tareas/:tareaId ────────────────────────
+/**
+ * Corrige el título y la descripción de una actividad.
+ *
+ * Mismo hueco que en el evento: lo escrito al repartir el trabajo no se podía
+ * enmendar. La encomienda se redacta rápido y muchas veces se afina después de
+ * hablarlo con quien la va a hacer.
+ *
+ * Lo puede hacer quien coordina —los mismos que pueden repartir actividades—, no
+ * quien la tiene asignada: la actividad describe lo que se le pidió, y dejar que
+ * el propio asignado reescriba el encargo cambiaría a qué se comprometió.
+ *
+ * Una actividad ya terminada no se toca: reescribir lo que se pidió cuando el
+ * trabajo ya se entregó y se aprobó deja el historial contando otra cosa.
+ */
+export async function editarTarea(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+    const tareaId  = parseInt(req.params.tareaId, 10);
+    const { titulo, descripcion } = req.body as { titulo?: string; descripcion?: string | null };
+
+    const evento = await db('eventos').where({ id: eventoId }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se pueden editar actividades de un evento cerrado', 409);
+    }
+
+    const tarea = await db('tareas_evento').where({ id: tareaId, evento_id: eventoId }).first();
+    if (!tarea) throw new AppError('Actividad no encontrada', 404);
+    if (tarea.estado === 'FINALIZADO' || tarea.estado === 'COMPLETADA') {
+      throw new AppError('Esa actividad ya está terminada; su encomienda no se puede reescribir', 409);
+    }
+
+    const esResponsable = evento.responsable_id === req.user!.id;
+    if (!esResponsable) requireDirector(req);
+
+    // Las mismas llaves que para repartir la actividad, en el mismo orden.
+    const idDG            = await getIdDireccionGeneral();
+    const usuarioEsDG     = req.user!.oficina_id === idDG;
+    const esCreadorEvento = req.user!.id === evento.creado_por_id;
+
+    if (!usuarioEsDG && !esCreadorEvento && !esResponsable) {
+      const participa = await db('evento_directores')
+        .where({ evento_id: eventoId, director_id: req.user!.id })
+        .first();
+      if (!participa) {
+        throw new AppError('Solo quien coordina el evento puede editar sus actividades', 403);
+      }
+    }
+
+    const cambios: Record<string, unknown> = {};
+    if (titulo !== undefined) {
+      if (!titulo?.trim()) throw new AppError('El título de la actividad es requerido', 422);
+      cambios.titulo = titulo.trim();
+    }
+    if (descripcion !== undefined) {
+      cambios.descripcion = descripcion?.trim() || null;
+    }
+    if (Object.keys(cambios).length === 0) {
+      throw new AppError('No se indicó nada que cambiar', 422);
+    }
+    cambios.fecha_actualizacion = db.fn.now();
+
+    const [actualizada] = await db('tareas_evento').where({ id: tareaId }).update(cambios)
+      .returning(['id', 'titulo', 'descripcion']);
+
+    res.json({ data: actualizada, message: 'Actividad actualizada' });
+  } catch (err) { next(err); }
+}
+
+/**
+ * Quién coordina el evento, y por tanto puede tocar sus actividades.
+ *
+ * Es el mismo grupo que puede repartirlas: la Dirección General en los suyos,
+ * quien creó el evento, su encargado, o un director que participa. Vive aquí
+ * porque lo usan cuatro operaciones y tenerlo repetido acabaría con versiones
+ * distintas de la misma regla — que es como se rompió la bandeja de firmas.
+ */
+async function requireCoordinaEvento(req: Request, evento: any): Promise<void> {
+  const esResponsable = evento.responsable_id === req.user!.id;
+  if (!esResponsable) requireDirector(req);
+
+  const idDG            = await getIdDireccionGeneral();
+  const usuarioEsDG     = req.user!.oficina_id === idDG;
+  const esCreadorEvento = req.user!.id === evento.creado_por_id;
+
+  if (!usuarioEsDG && !esCreadorEvento && !esResponsable) {
+    const participa = await db('evento_directores')
+      .where({ evento_id: evento.id, director_id: req.user!.id })
+      .first();
+    if (!participa) {
+      throw new AppError('Solo quien coordina el evento puede hacer eso', 403);
+    }
+  }
+}
+
+/**
+ * ¿Alguien trabajó ya esta actividad?
+ *
+ * Es lo que decide entre borrarla y cancelarla, y por eso no se le pregunta a
+ * quien pulsa el botón: se mira si dejó rastro. Cuenta el historial de revisión
+ * —donde viven los avances y los documentos— y los comentarios.
+ */
+async function rastroDeTarea(tareaId: number): Promise<{ avances: number; comentarios: number }> {
+  const [h] = await db('historial_revision_tarea').where({ tarea_id: tareaId }).count('id as n');
+  const [c] = await db('comentarios_tarea').where({ tarea_id: tareaId }).count('id as n');
+  return { avances: Number(h?.n ?? 0), comentarios: Number(c?.n ?? 0) };
+}
+
+// ── DELETE /eventos/:id/tareas/:tareaId ───────────────────────
+/**
+ * Borra una actividad — solo si nadie la tocó.
+ *
+ * Existe para el duplicado y el dedazo: se repartió en el evento equivocado, o a
+ * la persona equivocada, y todavía no ha pasado nada. Dejar rastro de algo que
+ * nunca existió solo ensucia el tablero.
+ *
+ * En cuanto hay trabajo encima, se niega y manda a cancelar. No es prudencia
+ * excesiva: de `tareas_evento` cuelgan en cascada el historial, los comentarios y
+ * las notificaciones, y los documentos del historial viven en la carpeta
+ * compartida, no en la base — borrar el renglón deja el archivo huérfano en el
+ * disco para siempre, sin que nadie sepa de qué era.
+ */
+export async function borrarTarea(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+    const tareaId  = parseInt(req.params.tareaId, 10);
+
+    const evento = await db('eventos').where({ id: eventoId }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se pueden borrar actividades de un evento cerrado', 409);
+    }
+
+    const tarea = await db('tareas_evento').where({ id: tareaId, evento_id: eventoId }).first();
+    if (!tarea) throw new AppError('Actividad no encontrada', 404);
+
+    await requireCoordinaEvento(req, evento);
+
+    const { avances, comentarios } = await rastroDeTarea(tareaId);
+    const arrancada = tarea.estado !== 'PENDIENTE';
+
+    if (avances > 0 || comentarios > 0 || arrancada) {
+      const motivos: string[] = [];
+      if (arrancada)        motivos.push('ya se empezó a trabajar');
+      if (avances > 0)      motivos.push(`tiene ${avances} avance${avances === 1 ? '' : 's'} registrado${avances === 1 ? '' : 's'}`);
+      if (comentarios > 0)  motivos.push(`tiene ${comentarios} comentario${comentarios === 1 ? '' : 's'}`);
+      throw new AppError(
+        `Esa actividad no se puede borrar porque ${motivos.join(' y ')}. `
+        + 'Cancélala: se queda a la vista, con su historial y el motivo.',
+        409,
+      );
+    }
+
+    await db('tareas_evento').where({ id: tareaId }).del();
+    res.json({ message: 'Actividad borrada' });
+  } catch (err) { next(err); }
+}
+
+// ── PATCH /eventos/:id/tareas/:tareaId/cancelar ───────────────
+/**
+ * Cancela una actividad: deja de esperar trabajo, pero no desaparece.
+ *
+ * Para lo que sí ocurrió y ya no aplica. Conserva el historial, los comentarios y
+ * los documentos —el trabajo de una persona no se borra porque el asunto se
+ * cayera— y deja escrito el porqué, que es lo que quien la tenía asignada
+ * necesita saber para no quedarse pensando que se le desechó el esfuerzo.
+ *
+ * Deja de contar como pendiente, vencida o por vencer.
+ */
+export async function cancelarTarea(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+    const tareaId  = parseInt(req.params.tareaId, 10);
+    const { motivo } = req.body as { motivo?: string };
+
+    if (!motivo?.trim()) {
+      throw new AppError('Explica por qué se cancela: quien la tenía asignada necesita saberlo', 422);
+    }
+
+    const evento = await db('eventos').where({ id: eventoId }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+    if (evento.estado === 'CERRADO') {
+      throw new AppError('No se pueden cancelar actividades de un evento cerrado', 409);
+    }
+
+    const tarea = await db('tareas_evento').where({ id: tareaId, evento_id: eventoId }).first();
+    if (!tarea) throw new AppError('Actividad no encontrada', 404);
+    if (tarea.estado === 'CANCELADA') throw new AppError('Esa actividad ya está cancelada', 409);
+    if (tarea.estado === 'FINALIZADO' || tarea.estado === 'COMPLETADA') {
+      throw new AppError('Esa actividad ya está terminada; cancelarla no cambiaría nada', 409);
+    }
+
+    await requireCoordinaEvento(req, evento);
+
+    const [actualizada] = await db('tareas_evento').where({ id: tareaId }).update({
+      estado:              'CANCELADA',
+      motivo_cancelacion:  motivo.trim(),
+      cancelada_en:        db.fn.now(),
+      cancelada_por_id:    req.user!.id,
+      fecha_actualizacion: db.fn.now(),
+    }).returning(['id', 'estado', 'motivo_cancelacion']);
+
+    res.json({ data: actualizada, message: 'Actividad cancelada' });
+  } catch (err) { next(err); }
+}
+
+// ── DELETE /eventos/:id ───────────────────────────────────────
+/**
+ * Borra un evento — solo si está vacío.
+ *
+ * Con actividades dentro no se borra: se cierra, que es la función que ya existe y
+ * que además exige justificación y guarda quién lo hizo. Borrar arrastraría en
+ * cascada las actividades y, con ellas, historiales, comentarios y avisos.
+ *
+ * A diferencia de editar o repartir, esto NO lo puede el encargado: administrar el
+ * evento y hacerlo desaparecer son cosas de distinta categoría.
+ */
+export async function borrarEvento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    const evento = await db('eventos').where({ id }).first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+
+    requireDirector(req);
+
+    const idDG    = await getIdDireccionGeneral();
+    const esDGReq = req.user!.oficina_id === idDG && actuaComoDG(req.user);
+    const esDueno = evento.creado_por_id === req.user!.id;
+
+    if (!esDGReq && !esDueno) {
+      throw new AppError('Solo quien creó el evento puede borrarlo', 403);
+    }
+    if (esDGReq && !evento.requiere_aprobacion_dg) {
+      throw new AppError('Ese evento es privado de su área: no lo administra la Dirección General', 422);
+    }
+
+    const [{ n }] = await db('tareas_evento').where({ evento_id: id }).count('id as n');
+    const cuantas = Number(n ?? 0);
+    if (cuantas > 0) {
+      throw new AppError(
+        `Ese evento tiene ${cuantas} actividad${cuantas === 1 ? '' : 'es'} y no se puede borrar. `
+        + 'Ciérralo: queda con su justificación y su historia completa.',
+        409,
+      );
+    }
+
+    await db('eventos').where({ id }).del();
+    res.json({ message: 'Evento borrado' });
   } catch (err) { next(err); }
 }
 
@@ -1039,6 +1378,9 @@ export async function listarTareasArea(
         't.estado',
         't.fecha_programada',
         't.fecha_compromiso',
+        // Sin esto, una actividad cancelada llega a la pantalla sin su porqué, que es
+        // lo único que le explica a quien la tenía asignada qué pasó con su trabajo.
+        't.motivo_cancelacion',
         't.fecha_actualizacion',
       )
       // El usuario ve las tareas asignadas a él directamente O delegadas a él

@@ -104,7 +104,7 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response, next: NextFun
       .where({ 'u.email': usuario })
       .select(
         'u.id', 'u.nombre', 'u.email', 'u.password_hash',
-        'u.rol', 'u.unidad_id', 'u.activo',
+        'u.rol', 'u.unidad_id', 'u.activo', 'u.password_debe_cambiar',
         'cu.tipo as unidad_tipo',
       )
       .first();
@@ -139,6 +139,9 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response, next: NextFun
 
     res.json({
       token,
+      // La pantalla necesita saberlo aquí para llevarlo directo al cambio. Si no,
+      // entraría al tablero y recibiría un 403 detrás de otro sin entender por qué.
+      debe_cambiar_password: Boolean(user.password_debe_cambiar),
       user: {
         id:          user.id,
         nombre:      user.nombre,

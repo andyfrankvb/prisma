@@ -50,28 +50,6 @@ async function createAuditLog(
   });
 }
 
-/**
- * Código de nomenclatura de la oficina para el folio (va después de la fecha).
- * Se resuelve por el NOMBRE de la unidad (robusto entre entornos, donde los ids
- * pueden diferir). Coincidencia por palabra clave, sin acentos.
- */
-function codigoDeUnidad(nombre: string): string {
-  const n = (nombre ?? '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  if (n.includes('GENERAL'))                                              return 'DG';
-  if (n.includes('JURIDIC'))                                              return 'DJ';
-  if (n.includes('OTHON') || n.includes('OHTON') || n.includes('BLANCO')) return 'OPB';
-  if (n.includes('PLAYA'))                                                return 'PDC';
-  if (n.includes('COZUMEL'))                                              return 'CZ';
-  if (n.includes('BENITO'))                                               return 'BJ';
-  if (n.includes('INNOVAC') || n.includes('INFORMAT') || n.includes('ARCHIVO') || n.includes('TICS')) return 'DTICS';
-  if (n.includes('ADMINISTRAT'))                                          return 'DA';
-  // Sin este renglón el respaldo daría «DDP» —las iniciales de «Dirección De
-  // Planeación»—, que no es como se nombra el área.
-  if (n.includes('PLANEAC'))                                              return 'DP';
-  // Sin coincidencia: iniciales de las primeras palabras (fallback).
-  const inic = n.replace(/[^A-Z ]/g, '').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 4);
-  return inic || 'NA';
-}
 
 /** Returns the current estatus of an oficio or throws 404 */
 async function getOficioOrFail(trx: any, id: number) {
@@ -1755,9 +1733,23 @@ export async function crearOficio(
     const areaDestino = await db('usuarios as u')
       .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
       .where('u.id', Number(dirigido_a_id) || 0)
-      .select('cu.id as unidad_id', 'cu.nombre as unidad_nombre')
+      .select('cu.id as unidad_id', 'cu.nombre as unidad_nombre', 'cu.codigo_folio')
       .first();
-    const codigo = codigoDeUnidad(areaDestino?.unidad_nombre ?? '');
+
+    /**
+     * El código lo dice el área, ya no lo adivina el sistema.
+     *
+     * Aquí vivía una cadena de condiciones sobre el nombre —«si dice JURIDIC,
+     * entonces DJ»— con un último recurso que armaba iniciales. Funcionaba, pero
+     * ataba el alta de un área nueva a un cambio de código y un despliegue: sin su
+     * renglón, sus folios salían con unas iniciales que nadie usa. Ahora es una
+     * columna que se captura al crear el área.
+     *
+     * El `?? 'NA'` es para un caso que no debería ocurrir —la columna es
+     * obligatoria—: un oficio dirigido a alguien sin unidad. Antes ese caso también
+     * caía en 'NA'.
+     */
+    const codigo = areaDestino?.codigo_folio ?? 'NA';
 
     /**
      * El número se pide a la tabla `folio_secuencia`, no se calcula contando.

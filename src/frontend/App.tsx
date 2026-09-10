@@ -13,6 +13,7 @@ import { SeleccionModulo }    from './views/SeleccionModulo';
 import { Dashboard_Oficial }  from './views/Dashboard_Oficial';
 import { Dashboard_Gestion }  from './views/Dashboard_Gestion';
 import { EscaneoPaquete }     from './views/EscaneoPaquete';
+import { CambiarPassword }    from './views/CambiarPassword';
 import { SeccionCorrespondencia } from './views/SeccionCorrespondencia';
 import { Dashboard_Juridico } from './views/Dashboard_Juridico';
 import { SeccionCatalogos }  from './views/SeccionCatalogos';
@@ -28,7 +29,7 @@ import { theme } from './theme';
 // ── Protected route wrapper ──────────────────────────────────────────────────
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, debeCambiarPassword } = useAuth();
 
   if (loading) {
     return (
@@ -48,6 +49,16 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
+  /**
+   * Con una contraseña puesta por un tercero no se ve nada más.
+   *
+   * Va aquí, en la puerta de TODAS las rutas protegidas, y no como una ruta a la
+   * que se redirige: así no hay dirección que teclear para saltárselo. El servidor
+   * lo impone igual —responde 403 a cualquier otro endpoint—, pero sin esto la
+   * persona vería el tablero vacío y un error tras otro sin entender por qué.
+   */
+  if (debeCambiarPassword) return <CambiarPassword forzado />;
 
   return <>{children}</>;
 };
@@ -173,6 +184,10 @@ function App() {
             }
           />
 
+          <Route
+            path="/mi-contrasena"
+            element={<ProtectedRoute><CambiarPassword /></ProtectedRoute>}
+          />
           <Route path="/" element={<Navigate to="/seleccionar-modulo" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

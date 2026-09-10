@@ -76,7 +76,11 @@ export const AppShell: React.FC<Props> = ({ children }) => {
 
           {/* Botón: volver a selección de módulos */}
           <button
-            onClick={() => navigate('/seleccionar-modulo', { replace: true })}
+            /* `?elegir=1` le dice a la pantalla que se muestre en vez de saltar
+               sola al único módulo del usuario. Sin eso, para las 31 personas que
+               solo tienen uno este botón no hacía nada: entraban y salían rebotados
+               al mismo lugar, y nunca alcanzaban lo que vive en esa pantalla. */
+            onClick={() => navigate('/seleccionar-modulo?elegir=1', { replace: true })}
             aria-label="Cambiar módulo"
             style={{
               background:    'transparent',

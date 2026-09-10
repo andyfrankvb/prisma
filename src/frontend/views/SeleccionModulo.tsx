@@ -148,8 +148,21 @@ export const SeleccionModulo: React.FC = () => {
 
         setRolesFlujo(rolesFlujo);
 
-        if (habilitados.length === 1) {
-          // Un solo módulo → redirigir automáticamente
+        /**
+         * Con un solo módulo se entra directo, salvo que la persona haya venido a
+         * propósito.
+         *
+         * El salto automático ahorra un clic al iniciar sesión, pero convertía esta
+         * pantalla en inalcanzable para quien tiene un único módulo —la mayoría—: el
+         * botón «Módulos» de la cabecera los traía aquí y el salto los devolvía al
+         * instante. Y aquí vive lo que no pertenece a ningún módulo, como cambiar la
+         * propia contraseña.
+         *
+         * `?elegir=1` distingue las dos llegadas: entrar al sistema, o venir a esta
+         * pantalla queriendo.
+         */
+        const vinoAElegir = new URLSearchParams(window.location.search).get('elegir') === '1';
+        if (habilitados.length === 1 && !vinoAElegir) {
           const ruta = getRutaModulo(habilitados[0].clave, user.rol, user.unidad_tipo, rolesFlujo);
           navigate(ruta, { replace: true });
           return;
@@ -373,8 +386,27 @@ export const SeleccionModulo: React.FC = () => {
           })}
         </div>
 
-        {/* Footer */}
-        <div style={{ textAlign: 'center', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px' }}>
+        {/* Footer.
+            Aquí viven las dos acciones que son de la CUENTA y no del trabajo. En
+            la cabecera estorbaban: compiten en tamaño con «Módulos» y se ven en
+            todas las pantallas, cuando cambiar la contraseña se hace una vez cada
+            varios meses. */}
+        <div style={{ textAlign: 'center', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => navigate('/mi-contrasena')}
+            style={{
+              background:  'none',
+              border:      'none',
+              color:       theme.colors.textSecondary,
+              fontSize:    '0.8rem',
+              cursor:      'pointer',
+              fontFamily:  theme.font.family,
+              textDecoration: 'underline',
+            }}
+          >
+            Cambiar mi contraseña
+          </button>
+          <span aria-hidden="true" style={{ color: theme.colors.border, fontSize: '0.8rem' }}>·</span>
           <button
             onClick={logout}
             style={{

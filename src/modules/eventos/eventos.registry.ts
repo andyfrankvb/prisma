@@ -19,7 +19,9 @@ import { moduleRegistry } from '../module-registry/module.registry';
 import { db }             from '../../db';
 
 // Estados en los que una tarea ya está terminada (no cuentan como pendientes)
-const ESTADOS_TERMINADOS = ['COMPLETADA', 'FINALIZADO'];
+// CANCELADA cuenta como terminada aunque nadie la haya hecho: lo que importa
+// para el tablero es que ya no espera trabajo de nadie.
+const ESTADOS_TERMINADOS = ['COMPLETADA', 'FINALIZADO', 'CANCELADA'];
 
 export function registerSupervisionEventos(): void {
   moduleRegistry.register('supervision_eventos', async () => {
