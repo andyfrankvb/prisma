@@ -5,6 +5,9 @@ creó una sola área, y esa pantalla tocaría la columna vertebral del sistema �
 `catalogo_unidades` cuelgan oficios, usuarios, turnos, paquetes y trámites— para
 usarse dos veces al año. Se hace por SQL, con este procedimiento.
 
+> El `sh -c` no es adorno: sin él, `$DATABASE_URL` la expande el shell de la VM
+> —que no la tiene— y `psql` termina buscando un servidor local que no existe.
+
 **No hace falta desplegar nada.** Desde que el código del folio es una columna, un
 área nueva es un renglón de datos.
 
@@ -15,7 +18,7 @@ usarse dos veces al año. Se hace por SQL, con este procedimiento.
 En el servidor, dentro de `/opt/prisma`. Ajusta los seis valores antes de correrlo.
 
 ```bash
-docker run --rm -i --env-file .env postgres:16-alpine psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+docker run --rm -i --env-file .env postgres:16-alpine sh -c 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f -' <<'SQL'
 INSERT INTO catalogo_unidades
   (nombre,                    clave,          tipo,        codigo_folio, vobo_por,    activo, recibe_direcciones_area)
 VALUES
@@ -74,7 +77,7 @@ Nunca se borra: hay oficios, usuarios y turnos colgando de ella, y `DELETE`
 arrastraría o rompería todo eso.
 
 ```bash
-docker run --rm -i --env-file .env postgres:16-alpine psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+docker run --rm -i --env-file .env postgres:16-alpine sh -c 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f -' <<'SQL'
 UPDATE catalogo_unidades SET activo = false WHERE clave = 'dir_cultura';
 SQL
 ```
