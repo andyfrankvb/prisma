@@ -78,6 +78,12 @@ function getRutaModulo(
       // Módulo de monitoreo: Panel de Dirección con métricas, supervisión y bandeja
       return '/dashboard/director';
 
+    case 'reportes_satq':
+      return '/dashboard/reportes';
+
+    case 'carga_datos_reportes':
+      return '/dashboard/carga-datos';
+
     default:
       return '/dashboard/gestion';
   }
@@ -94,6 +100,8 @@ const MODULO_CFG: Record<string, { icon: NombreIcono; color: string; desc: strin
   tramites_seguimiento: { icon: 'documento',  color: theme.colors.gold,        desc: 'Seguimiento de resoluciones entre delegaciones y Dirección Jurídica' },
   tablero_direccion:    { icon: 'grafica',    color: theme.colors.primaryDark, desc: 'Métricas, supervisión y monitoreo general de Dirección' },
   catalogos:            { icon: 'lista',      color: theme.colors.goldLight,   desc: 'Depurar dependencias, sub-unidades, remitentes y correos' },
+  reportes_satq:        { icon: 'grafica',    color: theme.colors.gold,        desc: 'Reportes ejecutivos: conciliación de ingresos, FRE y más' },
+  carga_datos_reportes: { icon: 'subir',      color: theme.colors.charcoal,    desc: 'Subir reportes SATQ, editar la estimación SEFIPLAN y configurar SIQROO' },
 };
 
 function getModuloCfg(clave: string) {

@@ -7,6 +7,20 @@ import type {
   Oficio,
   Abogado,
   PaginatedResponse,
+  SatqDetalleFila,
+  SatqConcepto,
+  SatqDetalleResponse,
+  ResumenSatq,
+  ComparativoAnualSatq,
+  DiagnosticoConciliacionSatq,
+  EstimacionMesSatq,
+  ProyeccionAnualSatq,
+  ResumenFre,
+  FreDetalleResponse,
+  ResumenCargaSatq,
+  MesEstimacion,
+  CargaDatosLogFila,
+  IntegracionSiqrooConfig,
 } from './types';
 import type { Compresion } from './utils/compresion';
 
@@ -1264,4 +1278,201 @@ export async function borrarEvento(eventoId: number) {
     method: 'DELETE', headers: { ...authHeaders() },
   });
   return handleResponse<{ message: string }>(res);
+}
+
+// ── SATQ — ingresos y conciliación con RPP ──────────────────────────────────
+
+export async function getSatqDetalle(params: {
+  desde?:      string;
+  hasta?:      string;
+  municipio?:  string;
+  id_concepto?: number;
+  programa?:   string;
+  tipo_acto?:  string;
+  delegacion?: string;
+  conciliado?: 'true' | 'false';
+  subsidio?:   'true' | 'false';
+  estatus_conciliacion?: string;
+  page?:       number;
+  limit?:      number;
+}): Promise<SatqDetalleResponse> {
+  const qs = new URLSearchParams();
+  if (params.desde)       qs.set('desde', params.desde);
+  if (params.hasta)       qs.set('hasta', params.hasta);
+  if (params.municipio)   qs.set('municipio', params.municipio);
+  if (params.id_concepto) qs.set('id_concepto', String(params.id_concepto));
+  if (params.programa)    qs.set('programa', params.programa);
+  if (params.tipo_acto)   qs.set('tipo_acto', params.tipo_acto);
+  if (params.delegacion)  qs.set('delegacion', params.delegacion);
+  if (params.conciliado)  qs.set('conciliado', params.conciliado);
+  if (params.subsidio)    qs.set('subsidio', params.subsidio);
+  if (params.estatus_conciliacion) qs.set('estatus_conciliacion', params.estatus_conciliacion);
+  if (params.page)        qs.set('page', String(params.page));
+  if (params.limit)       qs.set('limit', String(params.limit));
+
+  const res = await fetch(`${BASE}/satq/detalle?${qs}`, { headers: authHeaders() });
+  return handleResponse<SatqDetalleResponse>(res);
+}
+
+export async function getSatqConceptos(): Promise<{ data: SatqConcepto[] }> {
+  const res = await fetch(`${BASE}/satq/conceptos`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqMunicipios(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/satq/municipios`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqDelegaciones(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/satq/delegaciones`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqProgramas(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/satq/programas`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqTiposActo(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/satq/tipos-acto`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqResumen(params: { desde: string; hasta: string }): Promise<{ data: ResumenSatq }> {
+  const qs = new URLSearchParams({ desde: params.desde, hasta: params.hasta });
+  const res = await fetch(`${BASE}/satq/resumen?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqComparativoAnual(): Promise<{ data: ComparativoAnualSatq[] }> {
+  const res = await fetch(`${BASE}/satq/comparativo-anual`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqDiagnosticoConciliacion(params: { desde: string; hasta: string }): Promise<{ data: DiagnosticoConciliacionSatq }> {
+  const qs = new URLSearchParams({ desde: params.desde, hasta: params.hasta });
+  const res = await fetch(`${BASE}/satq/diagnostico-conciliacion?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqEstimacionVsRecaudacion(anio: number): Promise<{ data: EstimacionMesSatq[] }> {
+  const qs = new URLSearchParams({ anio: String(anio) });
+  const res = await fetch(`${BASE}/satq/estimacion-vs-recaudacion?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getSatqProyeccionAnual(anio: number): Promise<{ data: ProyeccionAnualSatq }> {
+  const qs = new URLSearchParams({ anio: String(anio) });
+  const res = await fetch(`${BASE}/satq/proyeccion-anual?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+// ── FRE (Folio Registral Electrónico) ───────────────────────────
+
+export async function getFreResumen(params: {
+  anio_desde?: number;
+  anio_hasta?: number;
+  tipo_folio?: string;
+  oficina?:    string;
+}): Promise<{ data: ResumenFre }> {
+  const qs = new URLSearchParams();
+  if (params.anio_desde) qs.set('anio_desde', String(params.anio_desde));
+  if (params.anio_hasta) qs.set('anio_hasta', String(params.anio_hasta));
+  if (params.tipo_folio) qs.set('tipo_folio', params.tipo_folio);
+  if (params.oficina)    qs.set('oficina', params.oficina);
+
+  const res = await fetch(`${BASE}/fre/resumen?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getFreTipos(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/fre/tipos`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getFreOficinas(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/fre/oficinas`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getFreDetalle(params: {
+  anio_desde?: number;
+  anio_hasta?: number;
+  tipo_folio?: string;
+  oficina?:    string;
+  sin_anio?:   boolean;
+  page?:       number;
+  limit?:      number;
+}): Promise<FreDetalleResponse> {
+  const qs = new URLSearchParams();
+  if (params.anio_desde) qs.set('anio_desde', String(params.anio_desde));
+  if (params.anio_hasta) qs.set('anio_hasta', String(params.anio_hasta));
+  if (params.tipo_folio) qs.set('tipo_folio', params.tipo_folio);
+  if (params.oficina)    qs.set('oficina', params.oficina);
+  if (params.sin_anio)   qs.set('sin_anio', 'true');
+  if (params.page)       qs.set('page', String(params.page));
+  if (params.limit)      qs.set('limit', String(params.limit));
+
+  const res = await fetch(`${BASE}/fre/detalle?${qs}`, { headers: authHeaders() });
+  return handleResponse<FreDetalleResponse>(res);
+}
+
+// ── Carga de Datos (Reportes) ───────────────────────────────────
+
+export async function postCargaSatqIngresos(file: File, dryRun: boolean): Promise<{ data: ResumenCargaSatq }> {
+  const fd = new FormData();
+  fd.append('archivo', file);
+  fd.append('dry_run', String(dryRun));
+  const res = await fetch(`${BASE}/carga-datos/satq-ingresos`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: fd,
+  });
+  return handleResponse(res);
+}
+
+export async function getCargaEstimacion(anio: number): Promise<{ data: { anio: number; meses: MesEstimacion[] } }> {
+  const res = await fetch(`${BASE}/carga-datos/estimacion?anio=${anio}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function putCargaEstimacion(anio: number, meses: MesEstimacion[]): Promise<{ data: { anio: number; meses_guardados: number } }> {
+  const res = await fetch(`${BASE}/carga-datos/estimacion`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ anio, meses }),
+  });
+  return handleResponse(res);
+}
+
+export async function getIntegracionSiqroo(): Promise<{ data: IntegracionSiqrooConfig }> {
+  const res = await fetch(`${BASE}/carga-datos/integracion-siqroo`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function putIntegracionSiqroo(body: { api_base_url?: string; api_key?: string; activo: boolean }): Promise<{ message: string }> {
+  const res = await fetch(`${BASE}/carga-datos/integracion-siqroo`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return handleResponse(res);
+}
+
+export async function postSincronizarSiqroo(): Promise<{ data: { estado: 'exitoso' | 'error' | 'omitido'; detalle: string } }> {
+  const res = await fetch(`${BASE}/carga-datos/integracion-siqroo/sincronizar`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+export async function getCargaDatosLog(params: { tipo?: string; page?: number; limit?: number }): Promise<{ data: CargaDatosLogFila[]; meta: { total: number; page: number; limit: number } }> {
+  const qs = new URLSearchParams();
+  if (params.tipo)  qs.set('tipo', params.tipo);
+  if (params.page)  qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${BASE}/carga-datos/log?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
 }

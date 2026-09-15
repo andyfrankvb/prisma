@@ -26,6 +26,11 @@ import recursosRouter       from './modules/recursos/recursos.routes';
 import eventosRouter        from './modules/eventos/eventos.routes';
 import correspondenciaRouter from './modules/correspondencia/paquetes.routes';
 import tramitesRouter       from './modules/tramites/tramites.routes';
+import satqRouter           from './modules/satq/satq.routes';
+import freRouter             from './modules/fre/fre.routes';
+import cargaDatosRouter      from './modules/carga-datos/carga-datos.routes';
+import cron from 'node-cron';
+import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { startNotificationService } from './notifications';
 import { AppError } from './utils/AppError';
 import { logger }   from './utils/logger';
@@ -173,6 +178,9 @@ app.use('/api/v1/director',       directorRouter);
 app.use('/api/v1/admin',          adminRouter);
 app.use('/api/v1/eventos',        eventosRouter);
 app.use('/api/v1/tramites',       tramitesRouter);
+app.use('/api/v1/satq',           satqRouter);
+app.use('/api/v1/fre',            freRouter);
+app.use('/api/v1/carga-datos',    cargaDatosRouter);
 
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {
@@ -211,6 +219,27 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 // ── Start ─────────────────────────────────────────────────────
 const server = http.createServer(app);
 startNotificationService(server);
+
+// ── Sincronización mensual con SIQROO ──────────────────────────
+// Corre aquí (dentro de app_api) y no en el worker separado porque, a
+// diferencia del scheduler de vencimientos, este proyecto no tiene un
+// contenedor de worker corriendo en local todavía — para un cron mensual
+// (muy baja frecuencia) vale más tenerlo garantizado corriendo que "en el
+// proceso correcto". Si más adelante se conteneriza el worker, mover este
+// registro a src/worker/index.ts es un cambio de una línea: runSiqrooSync
+// ya vive en src/integraciones/, no acoplado a este archivo.
+// runSiqrooSync ya revisa sola si la integración está configurada/activa —
+// si no, no hace nada (no falla, no manda alertas de más).
+const CRON_SYNC_SIQROO = '0 3 1 * *'; // 03:00, día 1 de cada mes
+if (cron.validate(CRON_SYNC_SIQROO)) {
+  cron.schedule(CRON_SYNC_SIQROO, () => {
+    logger.info('Cron: iniciando sincronización mensual con SIQROO…');
+    runSiqrooSync(null).catch((err) => logger.error({ err }, 'Error inesperado en la sincronización mensual con SIQROO'));
+  });
+  logger.info(`Cron de sincronización SIQROO registrado (${CRON_SYNC_SIQROO})`);
+} else {
+  logger.error('Expresión de cron inválida para la sincronización SIQROO — no se registró');
+}
 
 // ── Registrar módulos en el ModuleRegistry ────────────────────
 registerOficialiaPartes();

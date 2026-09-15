@@ -38,6 +38,7 @@ const PIEZAS: {
 export const FondoGlifos: React.FC = () => (
   <div
     aria-hidden="true"
+    className="no-imprimir"
     style={{
       position:      'fixed',
       inset:         0,
