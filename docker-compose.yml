@@ -9,6 +9,16 @@
 #   docker compose up --build
 # ─────────────────────────────────────────────────────────────
 
+# El nombre del proyecto va fijo y no se deduce de la carpeta.
+#
+# Sin esta línea, Docker lo toma del nombre del directorio, y de ahí salen los
+# volúmenes (`prisma_postgres_data`, que es la base de pruebas local) y la red
+# (`prisma_app_net`). Si la carpeta se renombra o se clona con otro nombre, el
+# proyecto pasa a llamarse distinto, Docker crea volúmenes nuevos y vacíos, y la
+# base parece haber desaparecido — sigue ahí, pero nadie la usa.
+# También dejaría sin red al contenedor `db16`, que se conecta a `prisma_app_net`.
+name: prisma
+
 volumes:
   postgres_data:
   redis_data:

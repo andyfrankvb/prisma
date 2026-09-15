@@ -20,7 +20,7 @@ versión. De paso, la base de pruebas nunca se pisa.
 Si `db16` no existe todavía, se crea una sola vez:
 
 ```bash
-docker run -d --name db16 --network odg_app_net -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=prisma_prod -p 5433:5432 -v prisma_db16:/var/lib/postgresql/data postgres:16-alpine
+docker run -d --name db16 --network prisma_app_net -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=prisma_prod -p 5433:5432 -v prisma_db16:/var/lib/postgresql/data postgres:16-alpine
 ```
 
 ---
@@ -67,7 +67,7 @@ scp 'maquina@10.1.100.155:~/prisma-*.dump' ~/respaldos-prisma/
 **5. Cargarlo.** Toma automáticamente el respaldo más reciente.
 
 ```bash
-DUMP=$(ls -t ~/respaldos-prisma/prisma-*.dump | head -1) && docker run --rm --network odg_app_net -v "$HOME/respaldos-prisma:/r" postgres:16-alpine pg_restore -d postgresql://postgres:postgres@db16:5432/prisma_prod --no-owner --no-privileges --clean --if-exists "/r/$(basename "$DUMP")"
+DUMP=$(ls -t ~/respaldos-prisma/prisma-*.dump | head -1) && docker run --rm --network prisma_app_net -v "$HOME/respaldos-prisma:/r" postgres:16-alpine pg_restore -d postgresql://postgres:postgres@db16:5432/prisma_prod --no-owner --no-privileges --clean --if-exists "/r/$(basename "$DUMP")"
 ```
 
 **6. Verificar que llegaron los datos.**
@@ -94,10 +94,11 @@ DATABASE_URL=postgresql://postgres:postgres@db:5432/oficialia_partes docker comp
 
 ## Las tres trampas
 
-**El `.env` local apunta a PRODUCCIÓN.** Tiene `DATABASE_URL` con la dirección de
-`10.1.100.133`. Un `docker compose up -d app_api` **sin** la variable al principio
-hace que la API local escriba en la base real. La variable de la línea de comandos
-gana sobre el `.env`, pero hay que ponerla siempre.
+**El `.env` local no debe apuntar a PRODUCCIÓN.** Si tiene `DATABASE_URL` con la
+dirección de `10.1.100.133`, un `docker compose up -d app_api` **sin** la variable
+al principio hace que la API local escriba en la base real. En la Mac esa línea
+está comentada con `#`, así que sin variable se usa la base de pruebas; aun así,
+ponerla en los pasos 7 y de vuelta deja claro a qué base se conecta.
 
 **Reiniciar nginx después de cambiar de base.** `docker compose up -d app_api` no
 reinicia el contenedor: lo **recrea**, y al recrearse cambia de IP. Nginx resuelve
