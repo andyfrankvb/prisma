@@ -4,11 +4,13 @@
  *
  * Endpoints
  * ─────────────────────────────────────────────────────────────
- *  GET  /usuarios          → listado filtrable por rol
- *  GET  /usuarios/:id      → detalle de un usuario
+ *  GET   /usuarios              → listado filtrable por rol
+ *  GET   /usuarios/:id          → detalle de un usuario
+ *  PATCH /usuarios/mi-password  → cada quien cambia la suya
  */
 
 import { Request, Response, NextFunction } from 'express';
+import bcrypt       from 'bcrypt';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
 import type { RolUsuario } from '../oficialia_partes/oficios.types';
@@ -156,5 +158,61 @@ export async function getMisRolesFlujo(
     }
 
     res.json({ data: roles });
+  } catch (err) { next(err); }
+}
+
+// ── PATCH /usuarios/mi-password ───────────────────────────────
+/**
+ * El usuario cambia su propia contraseña.
+ *
+ * Es el único lugar del sistema donde la contraseña la elige su dueño. Todo lo
+ * demás —el alta y el restablecimiento del superadmin— la pone un tercero, y por
+ * eso deja encendida la bandera que obliga a pasar por aquí.
+ *
+ * Pide la contraseña ACTUAL además de la nueva, y eso no es trámite: sin ella,
+ * una sesión abierta y olvidada en una computadora ajena bastaría para quedarse
+ * con la cuenta. Con ella, hay que saber la contraseña, no solo tener la pantalla
+ * enfrente.
+ *
+ * Body: { password_actual, password_nueva }
+ */
+export async function cambiarMiPassword(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { password_actual, password_nueva } = req.body as {
+      password_actual?: string; password_nueva?: string;
+    };
+
+    if (!password_actual) throw new AppError('Escribe tu contraseña actual', 422);
+    if (!password_nueva || password_nueva.length < 8) {
+      throw new AppError('La nueva contraseña debe tener al menos 8 caracteres', 422);
+    }
+    if (password_actual === password_nueva) {
+      throw new AppError('La nueva contraseña debe ser distinta de la actual', 422);
+    }
+
+    const usuario = await db('usuarios')
+      .where({ id: req.user!.id })
+      .select('id', 'password_hash')
+      .first();
+    if (!usuario) throw new AppError('Usuario no encontrado', 404);
+
+    const correcta = await bcrypt.compare(password_actual, usuario.password_hash);
+    if (!correcta) throw new AppError('Tu contraseña actual no es correcta', 401);
+
+    await db('usuarios').where({ id: usuario.id }).update({
+      password_hash:         await bcrypt.hash(password_nueva, 12),
+      password_debe_cambiar: false,
+      // Deja fuera a cualquier otra sesión abierta con la contraseña anterior,
+      // incluida la de quien la hubiera estado usando sin permiso. La de quien
+      // cambia sigue valiendo: su token se firmó... antes, así que también cae, y
+      // por eso la pantalla lo manda a iniciar sesión de nuevo.
+      password_cambiada_en:  db.fn.now(),
+    });
+
+    res.json({ message: 'Contraseña actualizada. Vuelve a iniciar sesión.' });
   } catch (err) { next(err); }
 }

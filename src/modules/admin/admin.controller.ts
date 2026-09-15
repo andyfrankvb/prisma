@@ -16,6 +16,7 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt    from 'bcrypt';
 import { db }    from '../../db';
 import { AppError } from '../../utils/AppError';
+import { generarPasswordTemporal } from '../../utils/passwordTemporal';
 
 type RolUsuario = 'OFICIAL' | 'ENCARGADO' | 'JURIDICO' | 'SECRETARIA' | 'DIRECTOR' | 'SUPERADMIN' | 'OPERATIVO' | 'PARTICULAR';
 
@@ -50,6 +51,10 @@ export async function listarUsuariosAdmin(
         'u.rol',
         'u.activo',
         'u.unidad_id',
+        // Para mostrar quién trae una temporal sin estrenar, y desde cuándo. La
+        // temporal no caduca, así que sin este dato el riesgo sería invisible.
+        'u.password_debe_cambiar',
+        'u.password_cambiada_en',
         db.raw("COALESCE(cu.nombre, '—') as oficina_nombre"),
         db.raw("cu.tipo as unidad_tipo"),
       );
@@ -113,6 +118,43 @@ export async function obtenerUsuarioAdmin(
   }
 }
 
+/**
+ * ¿Este nombramiento deja al área con dos titulares?
+ *
+ * No lo impide: una transición de unos días —el que llega y el que se va— es
+ * legítima. Pero avisarlo importa, porque con dos titulares activos **el sistema
+ * obedece siempre al de id más bajo**, o sea al anterior. Quien nombre un titular
+ * nuevo creyendo que con eso cambió el área se llevaría la sorpresa de que los
+ * oficios le siguen cayendo al de antes.
+ *
+ * Se resuelve así en dos lugares distintos: `resolverEncargadoN1` (quién aprueba,
+ * con ORDER BY id ASC) y `destinosPermitidos` (a quién queda dirigido el turno,
+ * con DISTINCT ON … ORDER BY id ASC).
+ *
+ * Devuelve el aviso, o null si no hay nada que decir.
+ */
+async function avisoDeSegundoTitular(
+  usuarioId: number,
+  rol: string | undefined,
+  unidadId: number | undefined,
+): Promise<string | null> {
+  if (rol !== 'DIRECTOR' || !unidadId) return null;
+
+  const otros = await db('usuarios')
+    .where({ unidad_id: unidadId, rol: 'DIRECTOR', activo: true })
+    .andWhereNot({ id: usuarioId })
+    .orderBy('id', 'asc')
+    .pluck('nombre');
+
+  if (otros.length === 0) return null;
+
+  return otros.length === 1
+    ? `Esa área ya tiene titular: ${otros[0]}. Mientras siga activo, los oficios le `
+      + 'seguirán llegando a él. Desactívalo para completar el cambio.'
+    : `Esa área ya tiene ${otros.length} titulares activos: ${otros.join(', ')}. Los oficios `
+      + 'le llegarán al más antiguo. Desactiva a los que ya no correspondan.';
+}
+
 // ── POST /admin/usuarios ──────────────────────────────────────
 
 export async function crearUsuario(
@@ -145,13 +187,17 @@ export async function crearUsuario(
         nombre:     nombre.trim(),
         email:      email.toLowerCase().trim(),
         password_hash,
+        // La eligió el administrador, no su dueño: al entrar hay que cambiarla.
+        password_debe_cambiar: true,
+        password_cambiada_en:  db.fn.now(),
         rol,
         unidad_id:  Number(oficina_id),
         activo:     true,
       })
       .returning(['id', 'nombre', 'email', 'rol', 'activo', 'unidad_id']);
 
-    res.status(201).json({ data: usuario, message: 'Usuario creado correctamente' });
+    const aviso = await avisoDeSegundoTitular(usuario.id, rol, Number(oficina_id));
+    res.status(201).json({ data: usuario, aviso, message: 'Usuario creado correctamente' });
   } catch (err) {
     next(err);
   }
@@ -209,7 +255,10 @@ export async function editarUsuario(
       .update(updates)
       .returning(['id', 'nombre', 'email', 'rol', 'activo', 'unidad_id']);
 
-    res.json({ data: actualizado, message: 'Usuario actualizado correctamente' });
+    const aviso = await avisoDeSegundoTitular(
+      actualizado.id, actualizado.rol, actualizado.unidad_id,
+    );
+    res.json({ data: actualizado, aviso, message: 'Usuario actualizado correctamente' });
   } catch (err) {
     next(err);
   }
@@ -268,19 +317,38 @@ export async function resetPassword(
 ): Promise<void> {
   try {
     const id = parseInt(req.params.id, 10);
-    const { nueva_password } = req.body;
 
-    if (!nueva_password || nueva_password.length < 8) {
-      throw new AppError('La nueva contraseña debe tener al menos 8 caracteres', 400);
-    }
-
-    const usuario = await db('usuarios').where({ id }).first();
+    const usuario = await db('usuarios').where({ id }).select('id', 'nombre').first();
     if (!usuario) throw new AppError('Usuario no encontrado', 404);
 
-    const password_hash = await bcrypt.hash(nueva_password, 12);
-    await db('usuarios').where({ id }).update({ password_hash });
+    /**
+     * La temporal la genera el sistema, no quien la restablece.
+     *
+     * Antes la escribía el superadmin, y eso traía dos vicios: terminaban siendo
+     * todas la misma —fácil de recordar es fácil de adivinar— y quedaba escrita en
+     * el chat por donde se la dictaba. Generada al azar con dos palabras y tres
+     * dígitos, se dicta igual de fácil pero no se deduce de las anteriores.
+     *
+     * Se devuelve EN CLARO una sola vez, aquí, porque la base guarda el hash: ni
+     * este endpoint ni ningún otro puede volver a mostrarla después. Si se pierde
+     * antes de dictarla, se genera otra.
+     */
+    const temporal      = generarPasswordTemporal();
+    const password_hash = await bcrypt.hash(temporal, 12);
 
-    res.json({ message: 'Contraseña actualizada correctamente' });
+    await db('usuarios').where({ id }).update({
+      password_hash,
+      password_debe_cambiar: true,
+      // Fija la contraseña actual y, con ella, cierra las sesiones que siguieran
+      // abiertas: si el motivo del restablecimiento fue un acceso indebido, el
+      // intruso queda fuera de inmediato y no ocho horas después.
+      password_cambiada_en:  db.fn.now(),
+    });
+
+    res.json({
+      data: { password_temporal: temporal, usuario: usuario.nombre },
+      message: 'Contraseña temporal generada. Anótala: no se puede volver a consultar.',
+    });
   } catch (err) {
     next(err);
   }

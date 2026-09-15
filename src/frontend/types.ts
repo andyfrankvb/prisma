@@ -247,7 +247,7 @@ export interface ResumenModulo {
 // ── Eventos ───────────────────────────────────────────────────
 
 export type EstadoEvento = 'ABIERTO' | 'CERRADO';
-export type EstadoTarea  = 'PENDIENTE' | 'EN_PROGRESO' | 'COMPLETADA' | 'EN_REVISION' | 'EN_REVISION_DG' | 'DEVUELTO' | 'DEVUELTO_DG' | 'FINALIZADO';
+export type EstadoTarea  = 'PENDIENTE' | 'EN_PROGRESO' | 'COMPLETADA' | 'EN_REVISION' | 'EN_REVISION_DG' | 'DEVUELTO' | 'DEVUELTO_DG' | 'FINALIZADO' | 'CANCELADA';
 
 export interface TareaEvento {
   id:                  number;
@@ -262,6 +262,8 @@ export interface TareaEvento {
   /** Opcional: una actividad puede repartirse sin plazo. */
   fecha_programada:    string | null;
   fecha_compromiso:    string | null;
+  /** Por qué se canceló. Solo viene con estado CANCELADA. */
+  motivo_cancelacion?: string | null;
   fecha_actualizacion: string;
   vencida:             boolean;
   proxima_a_vencer:    boolean;

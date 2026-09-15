@@ -61,6 +61,9 @@ const ESTADO_CFG: Record<EstadoTarea, { bg: string; text: string; label: string 
   EN_REVISION_DG: { bg: '#FDE8EF', text: '#8A0730', label: 'En Revisión DG' },
   DEVUELTO:       { bg: '#FEE2E2', text: '#991B1B', label: 'Devuelto'       },
   DEVUELTO_DG:    { bg: '#FFEDD5', text: '#9A3412', label: 'Devuelto por DG' },
+  // Gris apagado a propósito: cancelada no es un error ni un logro, es trabajo
+  // que dejó de esperarse. No debe competir por atención con lo que sigue vivo.
+  CANCELADA:      { bg: '#EDE9E4', text: '#6B6560', label: 'Cancelada'      },
 };
 
 // EN_PROGRESO y DEVUELTO ya no avanzan directamente; abren el modal de revisión.
@@ -216,6 +219,20 @@ export const Dashboard_DirectorArea: React.FC = () => {
   };
 
   // Conteos para los pills — respeta también el filtro de evento activo
+  /**
+   * Lo que de verdad espera trabajo de esta persona.
+   *
+   * El número de la pestaña contaba TODO lo que devuelve la API, incluidas las
+   * actividades ya finalizadas — así que decía «3» a quien no tenía nada que
+   * hacer. Al agregar las canceladas eso se notaría más: alguien vería un aviso de
+   * trabajo pendiente por actividades que precisamente ya no lo esperan.
+   *
+   * Las terminadas y las canceladas siguen apareciendo en la lista, que es donde
+   * se consultan; lo que dejan de hacer es reclamar atención desde la pestaña.
+   */
+  const TERMINALES: EstadoTarea[] = ['COMPLETADA', 'FINALIZADO', 'CANCELADA'];
+  const actividadesVivas = actividades.filter((t) => !TERMINALES.includes(t.estado as EstadoTarea));
+
   const conteoPorCategoria = (cat: FiltroCategoria) => {
     const base = filtroEvento
       ? actividades.filter((t) => t.evento_id === filtroEvento)
@@ -282,9 +299,9 @@ export const Dashboard_DirectorArea: React.FC = () => {
               }}
             >
               <Icono nombre={icon} size={15} /> {label}
-              {key === 'actividades' && actividades.length > 0 && (
+              {key === 'actividades' && actividadesVivas.length > 0 && (
                 <span style={{ backgroundColor: theme.colors.primary, color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '0.7rem', fontWeight: 700 }}>
-                  {actividades.length}
+                  {actividadesVivas.length}
                 </span>
               )}
             </button>
@@ -764,6 +781,13 @@ const TareaRow: React.FC<TareaRowProps> = ({ tarea, isLast, onAvanzar, advancing
         <div style={{ flex: 1, minWidth: '160px' }}>
           <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem', color: theme.colors.textPrimary }}>{tarea.titulo}</p>
           {tarea.descripcion && <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>{tarea.descripcion}</p>}
+          {/* Quien la tenía asignada es justo quien necesita saber por qué se
+              canceló; sin esto vería su actividad apagada y sin explicación. */}
+          {tarea.estado === 'CANCELADA' && tarea.motivo_cancelacion && (
+            <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: '#6B6560', fontStyle: 'italic', lineHeight: 1.4 }}>
+              <Icono nombre="alerta" inline />Cancelada: {tarea.motivo_cancelacion}
+            </p>
+          )}
         </div>
 
         {/* Badge estado */}

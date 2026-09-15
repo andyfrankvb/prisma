@@ -26,6 +26,11 @@ import {
   setResponsable,
   agregarDirector,
   quitarDirector,
+  editarEvento,
+  editarTarea,
+  borrarTarea,
+  cancelarTarea,
+  borrarEvento,
 } from './eventos.controller';
 
 // 200 MB — acepta PDF, imágenes y video
@@ -70,6 +75,8 @@ router.get('/mis-tareas', listarTareasArea);
 router.post('/',           crearEvento);
 router.get('/',            listarEventos);
 router.get('/:id',         obtenerEvento);
+router.patch ('/:id',             editarEvento);   // corregir título y descripción
+router.delete('/:id',             borrarEvento);   // solo si está vacío
 router.patch('/:id/cerrar',       cerrarEvento);
 router.patch('/:id/responsable',  setResponsable);
 router.post  ('/:id/directores',              agregarDirector);  // sumar participante
@@ -77,6 +84,9 @@ router.delete('/:id/directores/:directorId', quitarDirector);   // sacarlo del e
 
 // Tareas
 router.post('/:id/tareas',                             agregarTarea);
+router.patch ('/:id/tareas/:tareaId',                  editarTarea);    // corregir título y descripción
+router.delete('/:id/tareas/:tareaId',                  borrarTarea);    // solo si nadie la tocó
+router.patch ('/:id/tareas/:tareaId/cancelar',         cancelarTarea);  // deja de esperar trabajo, no desaparece
 router.patch('/:id/tareas/:tareaId/estado',            actualizarEstadoTarea);
 router.patch('/:id/tareas/:tareaId/reasignar',         reasignarTarea);
 

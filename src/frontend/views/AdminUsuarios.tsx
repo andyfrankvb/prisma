@@ -83,6 +83,9 @@ const FORM_EMPTY = {
   email:      '',
   password:   '',
   oficina_id: '' as number | '',
+  // Arranca en el rol de la mayoría: casi todas las altas son personal operativo,
+  // y quien dé de alta a un titular tiene que elegirlo a propósito.
+  rol:        'OPERATIVO' as RolUsuario,
 };
 
 export const AdminUsuarios: React.FC = () => {
@@ -121,6 +124,8 @@ export const AdminUsuarios: React.FC = () => {
   const [resetting,   setResetting]   = useState(false);
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  /** Advertencia del servidor tras guardar. Hoy solo una: el área ya tenía titular. */
+  const [aviso,     setAviso]     = useState<string | null>(null);
 
   const fetchUsuarios = useCallback(async () => {
     setLoading(true); setListError(null);
@@ -155,15 +160,16 @@ export const AdminUsuarios: React.FC = () => {
     if (!createForm.oficina_id) return;
     setCreating(true); setCreateError(null);
     try {
-      await adminCrearUsuario({
+      const r = await adminCrearUsuario({
         nombre:     createForm.nombre,
         email:      createForm.email,
         password:   createForm.password,
-        rol:        'OPERATIVO',
+        rol:        createForm.rol,
         oficina_id: Number(createForm.oficina_id),
       });
       setShowCreate(false);
       setCreateForm(FORM_EMPTY);
+      setAviso(r.aviso ?? null);
       setActionMsg('Usuario creado correctamente');
       fetchUsuarios();
     } catch (err: any) { setCreateError(err.message); }
@@ -173,7 +179,7 @@ export const AdminUsuarios: React.FC = () => {
   // ── Edit ──────────────────────────────────────────────────
   const openEdit = (u: UsuarioAdmin) => {
     setEditTarget(u);
-    setEditForm({ nombre: u.nombre, email: u.email, password: '', oficina_id: u.oficina_id });
+    setEditForm({ nombre: u.nombre, email: u.email, password: '', oficina_id: u.oficina_id, rol: u.rol });
     setEditError(null);
     setShowEdit(true);
   };
@@ -183,12 +189,14 @@ export const AdminUsuarios: React.FC = () => {
     if (!editTarget) return;
     setEditing(true); setEditError(null);
     try {
-      await adminEditarUsuario(editTarget.id, {
+      const r = await adminEditarUsuario(editTarget.id, {
         nombre:     editForm.nombre,
         email:      editForm.email,
+        rol:        editForm.rol,
         oficina_id: editForm.oficina_id ? Number(editForm.oficina_id) : undefined,
       });
       setShowEdit(false);
+      setAviso(r.aviso ?? null);
       setActionMsg('Usuario actualizado correctamente');
       fetchUsuarios();
     } catch (err: any) { setEditError(err.message); }
@@ -220,14 +228,23 @@ export const AdminUsuarios: React.FC = () => {
     setShowReset(true);
   };
 
+  /**
+   * Genera la temporal. Ya no se escribe: la elige el servidor.
+   *
+   * Antes la escribía aquí el superadmin, y de ahí salían dos vicios: terminaban
+   * siendo todas la misma —fácil de recordar es fácil de adivinar— y quedaba
+   * escrita en el chat por donde se dictaba. `newPassword` ahora guarda lo que el
+   * servidor devolvió, para mostrarlo; se ve una sola vez porque la base solo
+   * conserva el hash.
+   */
   const handleReset = async (e: FormEvent) => {
     e.preventDefault();
     if (!resetTarget) return;
     setResetting(true); setResetError(null);
     try {
-      await adminResetPassword(resetTarget.id, newPassword);
-      setShowReset(false);
-      setActionMsg('Contraseña actualizada correctamente');
+      const r = await adminResetPassword(resetTarget.id);
+      setNewPassword(r.data.password_temporal);
+      fetchUsuarios();   // refresca la marca de «temporal pendiente» en la lista
     } catch (err: any) { setResetError(err.message); }
     finally { setResetting(false); }
   };
@@ -256,6 +273,14 @@ export const AdminUsuarios: React.FC = () => {
       {actionMsg && (
         <div role="status" style={{ ...alertSuccess, marginBottom: '16px', cursor: 'pointer' }} onClick={() => setActionMsg(null)}>
           <Icono nombre="check" inline />{actionMsg} <span style={{ opacity: 0.6, fontSize: '0.75rem' }}>(clic para cerrar)</span>
+        </div>
+      )}
+
+      {/* Va aparte del mensaje de éxito y no lo reemplaza: el guardado SÍ ocurrió,
+          pero queda algo por hacer. Fundirlos haría que uno de los dos se perdiera. */}
+      {aviso && (
+        <div role="alert" style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', borderLeft: '4px solid #D97706', borderRadius: '8px', fontSize: '0.83rem', color: '#92400E', lineHeight: 1.5, cursor: 'pointer' }} onClick={() => setAviso(null)}>
+          <Icono nombre="alerta" inline />{aviso} <span style={{ opacity: 0.6, fontSize: '0.75rem' }}>(clic para cerrar)</span>
         </div>
       )}
 
@@ -378,25 +403,44 @@ export const AdminUsuarios: React.FC = () => {
       </Modal>
 
       {/* ── Modal: Reset Password ─────────────────────────── */}
-      <Modal open={showReset} title={`Resetear Contraseña — ${resetTarget?.nombre}`} onClose={() => setShowReset(false)} width={420}>
-        <form onSubmit={handleReset} noValidate>
-          <div style={{ padding: '12px 14px', backgroundColor: '#F5F4F2', border: `1px solid #E2DDD8`, borderLeft: `3px solid #3B82F6`, borderRadius: '8px', marginBottom: '20px', fontSize: '0.82rem', color: '#3D3935' }}>
-            <p style={{ margin: 0, fontWeight: 700 }}><Icono nombre="candado" inline />Nueva contraseña para {resetTarget?.nombre}</p>
-            <p style={{ margin: '4px 0 0' }}>El usuario deberá usar esta contraseña en su próximo inicio de sesión.</p>
+      <Modal open={showReset} title={`Contraseña temporal — ${resetTarget?.nombre}`} onClose={() => { setShowReset(false); setNewPassword(''); }} width={440}>
+        {newPassword ? (
+          <div>
+            <div style={{ padding: '12px 14px', backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', borderLeft: '3px solid #D97706', borderRadius: '8px', marginBottom: '18px', fontSize: '0.82rem', color: '#92400E', lineHeight: 1.5 }}>
+              <strong>Anótala ahora.</strong> El sistema guarda la contraseña cifrada, así que esta es la única vez que puede mostrarse. Si se pierde, genera otra.
+            </div>
+            <p style={{ margin: '0 0 6px', fontSize: '0.75rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Dile a {resetTarget?.nombre} que entre con
+            </p>
+            <div style={{ padding: '14px 16px', backgroundColor: '#F5F4F2', border: `1px solid ${theme.colors.border}`, borderRadius: '8px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '1.15rem', fontWeight: 700, letterSpacing: '0.02em', color: theme.colors.textPrimary, textAlign: 'center', userSelect: 'all' }}>
+              {newPassword}
+            </div>
+            <p style={{ margin: '12px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary, lineHeight: 1.5 }}>
+              Al entrar con ella, el sistema le pedirá que elija una propia antes de dejarlo hacer cualquier otra cosa. Sus sesiones abiertas ya quedaron cerradas.
+            </p>
+            <div style={modalFooter}>
+              <button type="button" onClick={() => { setShowReset(false); setNewPassword(''); setActionMsg('Contraseña temporal generada'); }} style={btnPrimary}>
+                Ya la anoté
+              </button>
+            </div>
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={labelStyle}>Nueva contraseña <span style={{ color: theme.colors.alert.red }}>*</span></label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} placeholder="Mínimo 8 caracteres" style={{ ...inputStyle, width: '100%' }} autoComplete="new-password" />
-            <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: theme.colors.textSecondary }}>{newPassword.length} / 8 mínimo</p>
-          </div>
-          {resetError && <div role="alert" style={alertError}>{resetError}</div>}
-          <div style={modalFooter}>
-            <button type="button" onClick={() => setShowReset(false)} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={resetting || newPassword.length < 8} style={{ ...btnPrimary, backgroundColor: resetting || newPassword.length < 8 ? theme.colors.grayMid : '#3D3935' }}>
-              {resetting ? 'Actualizando…' : 'Actualizar Contraseña'}
-            </button>
-          </div>
-        </form>
+        ) : (
+          <form onSubmit={handleReset} noValidate>
+            <div style={{ padding: '12px 14px', backgroundColor: '#F5F4F2', border: `1px solid #E2DDD8`, borderLeft: `3px solid #3B82F6`, borderRadius: '8px', marginBottom: '20px', fontSize: '0.82rem', color: '#3D3935', lineHeight: 1.5 }}>
+              <p style={{ margin: 0, fontWeight: 700 }}><Icono nombre="candado" inline />Generar una temporal para {resetTarget?.nombre}</p>
+              <p style={{ margin: '6px 0 0' }}>
+                La elige el sistema, con palabras fáciles de dictar por teléfono. Se mostrará una sola vez y cerrará las sesiones que {resetTarget?.nombre} tenga abiertas.
+              </p>
+            </div>
+            {resetError && <div role="alert" style={alertError}>{resetError}</div>}
+            <div style={modalFooter}>
+              <button type="button" onClick={() => setShowReset(false)} style={btnSecondary}>Cancelar</button>
+              <button type="submit" disabled={resetting} style={{ ...btnPrimary, backgroundColor: resetting ? theme.colors.grayMid : '#3D3935' }}>
+                {resetting ? 'Generando…' : 'Generar contraseña temporal'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );
@@ -404,7 +448,7 @@ export const AdminUsuarios: React.FC = () => {
 
 // ── UserFormFields ────────────────────────────────────────────
 
-interface FormState { nombre: string; email: string; password: string; oficina_id: number | ''; }
+interface FormState { nombre: string; email: string; password: string; oficina_id: number | ''; rol: RolUsuario; }
 
 const UserFormFields: React.FC<{ form: FormState; onChange: (p: Partial<FormState>) => void; oficinas: OficinaAdmin[]; showPassword: boolean }> = ({ form, onChange, oficinas, showPassword }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
@@ -429,8 +473,25 @@ const UserFormFields: React.FC<{ form: FormState; onChange: (p: Partial<FormStat
         {oficinas.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
       </select>
     </div>
+
+    {/* Rol.
+        Antes no estaba: el alta mandaba 'OPERATIVO' fijo y una nota decía que el
+        rol se asignaba desde Configuración de Flujos. No era cierto —esa pantalla
+        asigna los roles del FLUJO: encargado, analista, oficial de partes— y por
+        eso nombrar al titular de un área nueva parecía imposible desde el sistema.
+        El servidor siempre aceptó los ocho roles; lo que faltaba era este campo. */}
+    <div>
+      <label style={labelStyle}>Rol <span style={{ color: theme.colors.alert.red }}>*</span></label>
+      <select value={form.rol} onChange={(e) => onChange({ rol: e.target.value as RolUsuario })} required style={{ ...inputStyle, width: '100%' }}>
+        {ROLES.map((r) => <option key={r} value={r}>{ROL_LABEL[r]}</option>)}
+      </select>
+      <p style={{ margin: '5px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary, lineHeight: 1.45 }}>
+        {ROL_AYUDA[form.rol]}
+      </p>
+    </div>
+
     <p style={{ margin: 0, fontSize: '0.75rem', color: theme.colors.textSecondary, backgroundColor: '#F9FAFB', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.colors.border}` }}>
-      <Icono nombre="informacion" inline />El rol del usuario se asigna desde <strong>Configuración de Flujos</strong>.
+      <Icono nombre="informacion" inline />El rol dice <strong>quién es</strong> la persona. Lo que hace en cada trámite —repartir, revisar, capturar— se configura aparte, en <strong>Configuración de Flujos</strong>.
     </p>
   </div>
 );

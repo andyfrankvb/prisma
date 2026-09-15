@@ -6,7 +6,7 @@
 // ── Enums ─────────────────────────────────────────────────────
 
 export type EstadoEvento = 'ABIERTO' | 'CERRADO';
-export type EstadoTarea  = 'PENDIENTE' | 'EN_PROGRESO' | 'EN_REVISION' | 'EN_REVISION_DG' | 'DEVUELTO' | 'DEVUELTO_DG' | 'COMPLETADA' | 'FINALIZADO';
+export type EstadoTarea  = 'PENDIENTE' | 'EN_PROGRESO' | 'EN_REVISION' | 'EN_REVISION_DG' | 'DEVUELTO' | 'DEVUELTO_DG' | 'COMPLETADA' | 'FINALIZADO' | 'CANCELADA';
 
 // ── Entidades ─────────────────────────────────────────────────
 
@@ -133,6 +133,10 @@ export function isValidTransition(actual: EstadoTarea, nuevo: EstadoTarea): bool
     // COMPLETADA se mantiene por compatibilidad con datos existentes
     COMPLETADA:     [],
     FINALIZADO:     [],
+    // Cancelar es terminal: de aquí no se sale. Si el asunto revive, se reparte
+    // una actividad nueva — así queda claro que hubo un corte y no una marcha
+    // atrás silenciosa sobre algo que ya se había dado por muerto.
+    CANCELADA:      [],
   };
   return TRANSICIONES[actual]?.includes(nuevo) ?? false;
 }
@@ -155,7 +159,7 @@ function parseFechaLocal(fecha_programada: string): Date {
  */
 export function isVencida(fecha_programada: string | null, estado: EstadoTarea): boolean {
   if (!fecha_programada) return false;
-  if (estado === 'COMPLETADA') return false;
+  if (estado === 'COMPLETADA' || estado === 'FINALIZADO' || estado === 'CANCELADA') return false;
   const hoy   = new Date();
   hoy.setHours(0, 0, 0, 0);
   const fecha = parseFechaLocal(fecha_programada);
@@ -172,7 +176,7 @@ export function isVencida(fecha_programada: string | null, estado: EstadoTarea):
  */
 export function isProximaAVencer(fecha_programada: string | null, estado: EstadoTarea): boolean {
   if (!fecha_programada) return false;
-  if (estado === 'COMPLETADA') return false;
+  if (estado === 'COMPLETADA' || estado === 'FINALIZADO' || estado === 'CANCELADA') return false;
   const hoy   = new Date();
   hoy.setHours(0, 0, 0, 0);
   const limite = new Date(hoy);
