@@ -21,6 +21,10 @@ import { Dashboard_Director } from './views/Dashboard_Director';
 import { Dashboard_SuperAdmin } from './views/Dashboard_SuperAdmin';
 import { Dashboard_DirectorArea } from './views/Dashboard_DirectorArea';
 import { Dashboard_Tramites }     from './views/Dashboard_Tramites';
+import { Reportes_SATQ }          from './views/Reportes_SATQ';
+import { SeleccionReporte }       from './views/SeleccionReporte';
+import { Reportes_FRE }           from './views/Reportes_FRE';
+import { CargaDatos }             from './views/CargaDatos';
 import { AppShell }           from './components/AppShell';
 
 import { theme } from './theme';
@@ -142,6 +146,42 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><Dashboard_Director /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes"
+            element={
+              <ProtectedRoute>
+                <AppShell><SeleccionReporte /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes/conciliacion-ingresos"
+            element={
+              <ProtectedRoute>
+                <AppShell><Reportes_SATQ /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes/fre"
+            element={
+              <ProtectedRoute>
+                <AppShell><Reportes_FRE /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/carga-datos"
+            element={
+              <ProtectedRoute>
+                <AppShell><CargaDatos /></AppShell>
               </ProtectedRoute>
             }
           />

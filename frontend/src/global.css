@@ -124,3 +124,35 @@ img { max-width: 100%; }
   .btn-login:hover:not(:disabled) { transform: none; }
   .btn-login .spinner { animation-duration: 2s; }
 }
+
+/* ===========================================================
+   IMPRESIÓN — reportes del Módulo de Reportes
+   `.no-imprimir`   → chrome de pantalla (nav, filtros, botones, paginación)
+                       que no tiene sentido en papel.
+   `.solo-impresion`→ el encabezado con logos que solo existe en el papel
+                       (ver EncabezadoImpresion.tsx).
+   `.reporte-imprimible` marca la zona cuyo contenido sí debe imprimirse.
+   =========================================================== */
+.solo-impresion { display: none; }
+
+@media print {
+  @page { margin: 14mm 12mm; }
+
+  html, body { background: #fff !important; }
+
+  .no-imprimir   { display: none !important; }
+  .solo-impresion{ display: block !important; }
+
+  .reporte-imprimible {
+    max-width: none !important;
+    margin:    0 !important;
+    padding:   0 !important;
+  }
+
+  /* Sombras y fondos con degradado cuestan tinta y no aportan en papel */
+  .reporte-imprimible * { box-shadow: none !important; }
+
+  /* Evita que una tarjeta o fila de tabla se corte a la mitad entre páginas */
+  .reporte-imprimible table tr,
+  .reporte-imprimible > div > div { break-inside: avoid; }
+}

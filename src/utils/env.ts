@@ -21,6 +21,7 @@ const API_VARS: EnvSpec[] = [
   { key: 'APP_URL',         required: false                 },
   { key: 'STORAGE_LOCAL_PATH', required: false              },
   { key: 'TZ',              required: false                 },
+  { key: 'INTEGRACIONES_ENCRYPTION_KEY', required: false, secret: true },
 ];
 
 const WORKER_VARS: EnvSpec[] = [

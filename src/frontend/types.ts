@@ -339,3 +339,296 @@ export interface UsuarioDisponible {
   rol:          RolUsuario;
   unidad_nombre: string;
 }
+
+// ── SATQ — ingresos y conciliación con RPP ──────────────────────
+
+export interface SatqDetalleFila {
+  id:                number;
+  referencia:        string;
+  no_operacion:      string;
+  fecha_contable:    string;
+  municipio:         string;
+  id_concepto:       number;
+  concepto:          string;
+  importe:           number;
+  total_referencia:  number;
+  conciliado:        boolean;
+  programa:          string;
+  tipo_acto:         string;
+  es_subsidio:       boolean;
+  /** 'Conciliado' | 'En trámite en RPP' | 'Cancelado en RPP' | 'No ha ingresado a RPP' */
+  estatus_conciliacion: string;
+  /** delegación de RPP (Benito Juárez, Playa del Carmen, Cozumel, Othón P. Blanco); null si no está en RPP */
+  delegacion:        string | null;
+}
+
+export interface SatqConcepto {
+  id_concepto: number;
+  concepto:    string;
+}
+
+export interface SatqDetalleResponse {
+  data: SatqDetalleFila[];
+  meta: { total: number; page: number; limit: number; suma_importe: number };
+}
+
+export interface ConceptoResumenSatq {
+  id_concepto: number | null;
+  concepto:    string;
+  monto:       number;
+  cantidad:    number;
+}
+
+export interface MunicipioResumenSatq {
+  municipio: string;
+  monto:     number;
+  cantidad:  number;
+  monto_anio_anterior: number | null;
+  pct_variacion_anio_anterior: number | null;
+}
+
+export interface DelegacionResumenSatq {
+  delegacion: string;
+  monto:      number;
+  cantidad:   number;
+}
+
+export interface ConciliacionResumenSatq {
+  conciliado:           number;
+  en_tramite_rpp:        number;
+  cancelado_rpp:         number;
+  no_ingresado_rpp:      number;
+  pct_conciliado:        number;
+  pct_en_tramite_rpp:    number;
+  pct_cancelado_rpp:     number;
+  pct_no_ingresado_rpp:  number;
+  monto_conciliado:        number;
+  monto_en_tramite_rpp:     number;
+  monto_cancelado_rpp:      number;
+  monto_no_ingresado_rpp:   number;
+}
+
+export interface ComparativoAnioAnteriorSatq {
+  periodo:       { desde: string; hasta: string };
+  ingreso_total: number;
+  pct_variacion: number | null;
+}
+
+export interface DesgloseCategoriaSatq {
+  categoria:      string;
+  cargo_bruto:    number;
+  subsidio:       number;
+  neto:           number;
+  pct_subsidiado: number;
+  cantidad:       number;
+  tramites_rpp_cargo:    number;
+  tramites_rpp_subsidio: number;
+  neto_anio_anterior: number | null;
+  pct_variacion_anio_anterior: number | null;
+}
+
+export interface ComparativoAnualSatq {
+  anio:              number;
+  cargo_bruto:       number | null;
+  subsidio:          number | null;
+  ingreso_neto:      number | null;
+  tiene_datos_satq:  boolean;
+  rango_satq:        { desde: string; hasta: string } | null;
+  tramites_rpp:      number;
+  rango_rpp:         { desde: string; hasta: string } | null;
+}
+
+export interface DiagnosticoDiaSatq {
+  fecha:         string;
+  total:         number;
+  sin_match:     number;
+  pct_sin_match: number;
+}
+
+export interface DiagnosticoConceptoSatq {
+  id_concepto:      number | null;
+  concepto:         string;
+  total:            number;
+  sin_match:        number;
+  pct_sin_match:    number;
+  monto_sin_match:  number;
+}
+
+export interface DiagnosticoConciliacionSatq {
+  periodo:      { desde: string; hasta: string };
+  por_dia:      DiagnosticoDiaSatq[];
+  por_concepto: DiagnosticoConceptoSatq[];
+}
+
+export interface EstimacionMesSatq {
+  anio:     number;
+  mes:      number;
+  estimado: number;
+  reportado_excel: number | null;
+  recaudado_bd:    number | null;
+  diferencia_bd_vs_estimado: number | null;
+  pct_diferencia_bd_vs_estimado: number | null;
+  es_decremento: boolean;
+  diferencia_bd_vs_excel: number | null;
+  monto_subsidios: number | null;
+  gran_total: number | null;
+  diferencia_gran_total_vs_estimado: number | null;
+  pct_diferencia_gran_total_vs_estimado: number | null;
+}
+
+export interface EscenarioAnualSatq {
+  proyeccion_restante: number;
+  total_anual:         number;
+  diferencia_vs_meta_anual: number;
+  pct_vs_meta_anual:        number;
+}
+
+export interface ProyeccionAnualSatq {
+  anio: number;
+  meses_con_datos: number;
+  meses_restantes: number;
+  recaudado_acumulado: number;
+  estimado_transcurrido: number;
+  deficit_acumulado: number;
+  pct_variacion_promedio: number;
+  estimado_restante: number;
+  estimado_total_anual: number;
+  escenario_meta:      EscenarioAnualSatq;
+  escenario_tendencia: EscenarioAnualSatq;
+  monto_necesario_resto_anio: number;
+  pct_necesario_sobre_estimado_restante: number;
+}
+
+export interface ResumenSatq {
+  periodo:             { desde: string; hasta: string };
+  ingreso_total:       number;
+  /** ingreso_total + monto_subsidios — valor total del trabajo de RPP, cobrado o subsidiado */
+  ingreso_bruto:       number;
+  total_referencias:   number;
+  monto_subsidios:     number;
+  pct_subsidios:       number;
+  tramites_rpp:        number;
+  tramites_subsidiados: number;
+  pct_conciliado:      number;
+  monto_no_conciliado: number;
+  alerta_conciliacion: boolean;
+  conciliacion:        ConciliacionResumenSatq;
+  comparativo_anio_anterior: ComparativoAnioAnteriorSatq;
+  top_conceptos:       ConceptoResumenSatq[];
+  por_municipio:       MunicipioResumenSatq[];
+  por_delegacion:      DelegacionResumenSatq[];
+  por_programa:        DesgloseCategoriaSatq[];
+  por_tipo_acto:       DesgloseCategoriaSatq[];
+}
+
+// ── FRE (Folio Registral Electrónico) ───────────────────────────
+
+export interface TipoFolioResumen {
+  tipo_folio: string;
+  cantidad:   number;
+  pct:        number;
+}
+
+export interface OficinaFolioResumen {
+  oficina:  string;
+  cantidad: number;
+  pct:      number;
+}
+
+export interface AnioFolioResumen {
+  anio:     number;
+  cantidad: number;
+  por_tipo: Record<string, number>;
+}
+
+export interface CruceOficinaTipo {
+  oficina:    string;
+  tipo_folio: string;
+  cantidad:   number;
+}
+
+export interface ComparativoAnioFolio {
+  anio:          number;
+  cantidad:      number;
+  anio_anterior: number;
+  cantidad_anio_anterior: number | null;
+  pct_variacion: number | null;
+}
+
+export interface ResumenFre {
+  filtros: {
+    anio_desde: number | null;
+    anio_hasta: number | null;
+    tipo_folio: string | null;
+    oficina:    string | null;
+  };
+  total_folios:      number;
+  folios_sin_anio:   number;
+  oficinas_activas:  number;
+  comparativo_anio_anterior: ComparativoAnioFolio | null;
+  por_tipo:      TipoFolioResumen[];
+  por_oficina:   OficinaFolioResumen[];
+  tendencia_anual: AnioFolioResumen[];
+  cruce_oficina_tipo: CruceOficinaTipo[];
+}
+
+export interface FreDetalleFila {
+  id:            number;
+  fre:           string;
+  tipo_folio:    string;
+  oficina:       string;
+  anio:          number | null;
+  fecha:         string | null;
+  razon_social:  string | null;
+}
+
+export interface FreDetalleResponse {
+  data: FreDetalleFila[];
+  meta: { total: number; page: number; limit: number };
+}
+
+// ── Carga de Datos (Reportes) ───────────────────────────────────
+
+export interface ResumenCargaSatq {
+  dry_run:            boolean;
+  filas_total:        number;
+  filas_nuevas:        number;
+  filas_actualizadas:  number;
+  filas_sin_cambio:    number;
+  fecha_desde:         string | null;
+  fecha_hasta:         string | null;
+  hojas_procesadas:    string[];
+  hojas_omitidas:      string[];
+}
+
+export interface MesEstimacion {
+  mes:             number;
+  estimado:        number | null;
+  reportado_excel: number | null;
+}
+
+export interface CargaDatosLogFila {
+  id:                 number;
+  tipo:               string;
+  usuario_id:         number | null;
+  usuario_nombre?:    string | null;
+  archivo_nombre:     string | null;
+  filas_nuevas:       number | null;
+  filas_actualizadas: number | null;
+  filas_total:        number | null;
+  fecha_desde:        string | null;
+  fecha_hasta:        string | null;
+  estado:             string;
+  detalle:            string | null;
+  creado_en:          string;
+}
+
+export interface IntegracionSiqrooConfig {
+  api_base_url:          string | null;
+  api_key_ultimos4:      string | null;
+  api_key_configurada:   boolean;
+  activo:                boolean;
+  ultima_sincronizacion: string | null;
+  ultimo_estado:         string | null;
+  ultimo_detalle:        string | null;
+}

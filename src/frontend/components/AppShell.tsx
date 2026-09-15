@@ -31,7 +31,9 @@ export const AppShell: React.FC<Props> = ({ children }) => {
       <FondoGlifos />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
-      <header style={{
+      {/* `no-imprimir`: al imprimir un reporte, este chrome se oculta — cada
+          reporte trae su propio encabezado (ver EncabezadoImpresion). */}
+      <header className="no-imprimir" style={{
         background:    theme.colors.white,
         padding:       isMobile ? '0 12px' : '0 26px',
         height:        '58px',

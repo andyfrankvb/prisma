@@ -19,6 +19,7 @@ import { TerminoTimer } from '../components/TerminoTimer';
 import { theme }        from '../theme';
 import type { EstatusOficio } from '../types';
 import { SeccionSupervision } from './SeccionSupervision';
+import { SeccionIngresosSatq } from '../components/SeccionIngresosSatq';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 // ── API calls ─────────────────────────────────────────────────
@@ -386,6 +387,11 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
       {/* ── Distribución por estatus ─────────────────────── */}
       <CollapsibleCard id="distribucion" title="Distribución por Estatus" icon="grafica" accent={theme.colors.primary}>
         <DonutChart data={metricas.por_estatus} total={metricas.total_general} />
+      </CollapsibleCard>
+
+      {/* ── Ingresos SATQ / RPP ───────────────────────────── */}
+      <CollapsibleCard id="ingresos_satq" title="Ingresos SATQ / RPP" icon="grafica" accent={theme.colors.gold}>
+        <SeccionIngresosSatq />
       </CollapsibleCard>
 
       {/* ── Tendencia ────────────────────────────────────── */}
