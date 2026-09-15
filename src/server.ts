@@ -28,6 +28,7 @@ import correspondenciaRouter from './modules/correspondencia/paquetes.routes';
 import tramitesRouter       from './modules/tramites/tramites.routes';
 import satqRouter           from './modules/satq/satq.routes';
 import freRouter             from './modules/fre/fre.routes';
+import actosRouter           from './modules/actos/actos.routes';
 import cargaDatosRouter      from './modules/carga-datos/carga-datos.routes';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
@@ -180,6 +181,7 @@ app.use('/api/v1/eventos',        eventosRouter);
 app.use('/api/v1/tramites',       tramitesRouter);
 app.use('/api/v1/satq',           satqRouter);
 app.use('/api/v1/fre',            freRouter);
+app.use('/api/v1/actos',          actosRouter);
 app.use('/api/v1/carga-datos',    cargaDatosRouter);
 
 // ── 404 handler ───────────────────────────────────────────────

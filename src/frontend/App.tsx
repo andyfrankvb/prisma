@@ -25,6 +25,7 @@ import { Dashboard_Tramites }     from './views/Dashboard_Tramites';
 import { Reportes_SATQ }          from './views/Reportes_SATQ';
 import { SeleccionReporte }       from './views/SeleccionReporte';
 import { Reportes_FRE }           from './views/Reportes_FRE';
+import { Reportes_Actos }         from './views/Reportes_Actos';
 import { CargaDatos }             from './views/CargaDatos';
 import { AppShell }           from './components/AppShell';
 
@@ -184,6 +185,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><Reportes_FRE /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes/actos"
+            element={
+              <ProtectedRoute>
+                <AppShell><Reportes_Actos /></AppShell>
               </ProtectedRoute>
             }
           />
