@@ -17,6 +17,9 @@ import type {
   ProyeccionAnualSatq,
   ResumenFre,
   FreDetalleResponse,
+  ResumenActos,
+  ActoCatalogoFila,
+  ActoDetalleResponse,
   ResumenCargaSatq,
   MesEstimacion,
   CargaDatosLogFila,
@@ -1416,6 +1419,63 @@ export async function getFreDetalle(params: {
 
   const res = await fetch(`${BASE}/fre/detalle?${qs}`, { headers: authHeaders() });
   return handleResponse<FreDetalleResponse>(res);
+}
+
+// ── Universo de Actos Registrales (RPPC) ─────────────────────────
+
+export interface ActosFiltros {
+  anio_desde?:   number;
+  anio_hasta?:   number;
+  tipo_tramite?: string;
+  acto?:         string;
+  oficina?:      string;
+  estatus_acto?: string;
+  es_acervo?:    boolean;
+}
+
+function actosQueryString(params: ActosFiltros): URLSearchParams {
+  const qs = new URLSearchParams();
+  if (params.anio_desde)   qs.set('anio_desde', String(params.anio_desde));
+  if (params.anio_hasta)   qs.set('anio_hasta', String(params.anio_hasta));
+  if (params.tipo_tramite) qs.set('tipo_tramite', params.tipo_tramite);
+  if (params.acto)         qs.set('acto', params.acto);
+  if (params.oficina)      qs.set('oficina', params.oficina);
+  if (params.estatus_acto) qs.set('estatus_acto', params.estatus_acto);
+  if (params.es_acervo !== undefined) qs.set('es_acervo', String(params.es_acervo));
+  return qs;
+}
+
+export async function getActosResumen(params: ActosFiltros): Promise<{ data: ResumenActos }> {
+  const res = await fetch(`${BASE}/actos/resumen?${actosQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getActosCatalogo(): Promise<{ data: ActoCatalogoFila[] }> {
+  const res = await fetch(`${BASE}/actos/catalogo`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getActosTipos(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/actos/tipos`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getActosOficinas(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/actos/oficinas`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getActosEstatus(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/actos/estatus`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getActosDetalle(params: ActosFiltros & { page?: number; limit?: number }): Promise<ActoDetalleResponse> {
+  const qs = actosQueryString(params);
+  if (params.page)  qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${BASE}/actos/detalle?${qs}`, { headers: authHeaders() });
+  return handleResponse<ActoDetalleResponse>(res);
 }
 
 // ── Carga de Datos (Reportes) ───────────────────────────────────

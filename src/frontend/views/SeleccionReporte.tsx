@@ -45,6 +45,15 @@ const REPORTES: ReporteCfg[] = [
     color:       theme.colors.primaryDark,
     disponible:  true,
   },
+  {
+    clave:       'actos',
+    ruta:        '/dashboard/reportes/actos',
+    titulo:      'Universo de Actos Registrales',
+    descripcion: 'Los 5.5 millones de actos del RPPC por tipo de trámite, código de acto, oficina y estatus.',
+    icon:        'historial',
+    color:       theme.colors.charcoal,
+    disponible:  true,
+  },
 ];
 
 export const SeleccionReporte: React.FC = () => {

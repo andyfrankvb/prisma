@@ -589,6 +589,94 @@ export interface FreDetalleResponse {
   meta: { total: number; page: number; limit: number };
 }
 
+// ── Universo de Actos Registrales (RPPC) ─────────────────────────
+
+export interface TipoTramiteResumen {
+  tipo_tramite: string;
+  cantidad:     number;
+  pct:          number;
+}
+
+export interface ActoResumen {
+  acto:     string;
+  des_acto: string;
+  cantidad: number;
+  pct:      number;
+}
+
+export interface OficinaActoResumen {
+  oficina:  string;
+  cantidad: number;
+  pct:      number;
+}
+
+export interface EstatusActoResumen {
+  estatus_acto: string;
+  cantidad:     number;
+  pct:          number;
+}
+
+export interface AnioActoResumen {
+  anio:     number;
+  cantidad: number;
+  por_tipo: Record<string, number>;
+}
+
+export interface ComparativoAnioActo {
+  anio:          number;
+  cantidad:      number;
+  anio_anterior: number;
+  cantidad_anio_anterior: number | null;
+  pct_variacion: number | null;
+}
+
+export interface ResumenActos {
+  filtros: {
+    anio_desde:   number | null;
+    anio_hasta:   number | null;
+    tipo_tramite: string | null;
+    acto:         string | null;
+    oficina:      string | null;
+    estatus_acto: string | null;
+  };
+  total_actos:  number;
+  actos_acervo: number;
+  pct_acervo:   number;
+  oficinas_activas: number;
+  comparativo_anio_anterior: ComparativoAnioActo | null;
+  por_tipo:     TipoTramiteResumen[];
+  top_actos:    ActoResumen[];
+  por_oficina:  OficinaActoResumen[];
+  por_estatus:  EstatusActoResumen[];
+  tendencia_anual: AnioActoResumen[];
+}
+
+export interface ActoCatalogoFila {
+  acto:         string;
+  des_acto:     string;
+  tipo_tramite: string;
+  cantidad:     number;
+}
+
+export interface ActoDetalleFila {
+  id:             number;
+  id_origen:      number | null;
+  acto:           string;
+  des_acto:       string;
+  tipo_tramite:   string;
+  fecha_registro: string | null;
+  anio:           number | null;
+  es_acervo:      boolean;
+  oficina:        string;
+  fre:            string | null;
+  estatus_acto:   string | null;
+}
+
+export interface ActoDetalleResponse {
+  data: ActoDetalleFila[];
+  meta: { total: number; page: number; limit: number };
+}
+
 // ── Carga de Datos (Reportes) ───────────────────────────────────
 
 export interface ResumenCargaSatq {
