@@ -21,11 +21,13 @@ import { Icono } from '../components/Icono';
 import { Modal } from '../components/Modal';
 import { PDFPreviewer } from '../components/PDFPreviewer';
 import { HistorialModal } from '../components/HistorialModal';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { GuiaPaqueteImpresa } from '../components/GuiaPaqueteImpresa';
 import { useDialogo } from '../context/DialogoContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
   getPaquetes, getPaquete, getDestinatariosPaquete, crearPaquete,
-  agregarAPaquete, quitarDePaquete, cerrarPaquete, cancelarPaquete,
+  agregarAPaquete, quitarDePaquete, cerrarPaquete, cancelarPaquete, getEtiquetaPaquete,
   buscarOficiosParaPaquete,
 } from '../api';
 import type { Paquete, VistaPaquetes, OficioEnPaquete, MovimientoPaquete } from '../api';
@@ -57,9 +59,11 @@ const NOMBRE_ESTADO: Record<string, string> = {
   ABIERTO: 'Armando', EN_TRANSITO: 'En tránsito',
   ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
 };
+// Lenguaje formal: el recorrido es la bitácora del paquete y se lee en pantalla
+// y en papel. Debe mantenerse igual en EscaneoPaquete.tsx, que muestra lo mismo.
 const ETIQUETA_MOV: Record<string, string> = {
-  CREADO: 'Se armó', CERRADO: 'Salió', TRASLADO: 'Lo llevó',
-  ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
+  CREADO: 'Integrado', CERRADO: 'Enviado', TRASLADO: 'En traslado',
+  RELEVO: 'Entrega ofrecida', ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
 };
 
 export const SeccionCorrespondencia: React.FC = () => {
@@ -92,10 +96,40 @@ export const SeccionCorrespondencia: React.FC = () => {
   // El historial del oficio, con el MISMO componente del detalle del oficio.
   const [historial, setHistorial] = useState<Candidato | null>(null);
 
-  // La etiqueta para imprimir
-  const [etiqueta, setEtiqueta] = useState<{ folio: string; codigo: string; qr: string; url: string } | null>(null);
+  // La guía para imprimir y pegar al sobre. Guarda los datos del paquete al
+  // momento de cerrarlo: el detalle se recarga enseguida y no conviene que la
+  // guía cambie de contenido mientras está en pantalla.
+  const [etiqueta, setEtiqueta] = useState<{
+    folio: string; codigo: string; qr: string; url: string;
+    remitente: string; unidadOrigen: string;
+    destinatario: string; unidadDestino: string;
+    documentos: number; observaciones: string | null; fecha: string;
+    /** Entregado: la guía ya no se imprime, se ve como acuse con su contenido. */
+    entregado: boolean;
+    contenido: OficioEnPaquete[];
+  } | null>(null);
 
   const notificar = (m: string) => { setAviso(m); setTimeout(() => setAviso(null), 5000); };
+
+  /**
+   * Imprime SOLO la guía de papel (GuiaPaqueteImpresa), no la pantalla.
+   * Sin esto, `window.print()` manda al papel toda la pantalla, incluido el
+   * código de recepción — y ese código es justo lo que no debe ir en el sobre:
+   * quien lo trae en la mano podría darse por destinatario.
+   * La regla vive en frontend/src/global.css (body.imprimiendo-etiqueta).
+   */
+  const imprimirEtiqueta = () => {
+    document.body.classList.add('imprimiendo-etiqueta');
+    const limpiar = () => {
+      document.body.classList.remove('imprimiendo-etiqueta');
+      window.removeEventListener('afterprint', limpiar);
+    };
+    window.addEventListener('afterprint', limpiar);
+    window.print();
+    // Respaldo: algunos navegadores no disparan `afterprint` si se cancela
+    // el diálogo, y la pantalla se quedaría en blanco al volver.
+    setTimeout(limpiar, 1000);
+  };
 
   const cargar = useCallback(() => {
     setCargando(true); setError(null);
@@ -177,9 +211,52 @@ export const SeccionCorrespondencia: React.FC = () => {
       // «localhost», que al escanearlo apunta al propio teléfono y no lleva a
       // ningún lado. Se imprimiría un papel con una dirección inservible.
       const qr = await QRCode.toDataURL(r.data.url_qr, { width: 520, margin: 1 });
-      setEtiqueta({ folio: r.data.folio, codigo: r.data.codigo, qr, url: r.data.url_qr });
+      setEtiqueta({
+        folio: r.data.folio, codigo: r.data.codigo, qr, url: r.data.url_qr,
+        entregado: false,
+        contenido: detalle.oficios,
+        remitente:     detalle.creado_por_nombre    ?? '—',
+        unidadOrigen:  detalle.unidad_origen_nombre ?? '—',
+        destinatario:  detalle.destinatario_nombre,
+        unidadDestino: detalle.destinatario_unidad  ?? '—',
+        documentos:    detalle.oficios.length,
+        observaciones: detalle.observaciones,
+        fecha:         new Date().toLocaleString('es-MX', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }),
+      });
       notificar(r.message);
       refrescarDetalle();
+    } catch (e: any) { setError(e.message); }
+  };
+
+  /**
+   * Vuelve a mostrar la guía de un paquete que ya salió. El QR se dibuja otra vez
+   * con el MISMO token, así que el papel reimpreso equivale al original.
+   */
+  const verGuia = async () => {
+    if (!detalle) return;
+    try {
+      const r  = await getEtiquetaPaquete(detalle.id);
+      const qr = await QRCode.toDataURL(r.data.url_qr, { width: 520, margin: 1 });
+      setEtiqueta({
+        folio: r.data.folio, codigo: r.data.codigo ?? '', qr, url: r.data.url_qr,
+        entregado: r.data.estado === 'ENTREGADO',
+        contenido: detalle.oficios,
+        remitente:     detalle.creado_por_nombre    ?? '—',
+        unidadOrigen:  detalle.unidad_origen_nombre ?? '—',
+        destinatario:  detalle.destinatario_nombre,
+        unidadDestino: detalle.destinatario_unidad  ?? '—',
+        documentos:    detalle.oficios.length,
+        observaciones: detalle.observaciones,
+        // La fecha de la guía es la de salida del paquete, no la de hoy: una
+        // reimpresión no cambia cuándo se envió.
+        fecha: new Date(detalle.cerrado_en ?? detalle.creado_en).toLocaleString('es-MX', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }),
+      });
     } catch (e: any) { setError(e.message); }
   };
 
@@ -294,12 +371,18 @@ export const SeccionCorrespondencia: React.FC = () => {
         <div style={{ display: 'grid', gap: '14px', marginBottom: '18px' }}>
           <div>
             <label style={rotulo}>¿Para quién es? <span style={{ color: theme.colors.alert.red }}>*</span></label>
-            <select value={destino} onChange={(e) => setDestino(e.target.value)} style={campo}>
-              <option value="">— Elige a la persona —</option>
-              {personas.map((p) => (
-                <option key={p.id} value={p.id}>{p.nombre}{p.unidad ? ` · ${p.unidad}` : ''}</option>
-              ))}
-            </select>
+            {/* Con buscador: la lista de destinatarios es larga (decenas de personas)
+                y se busca indistintamente por nombre o por área, porque la etiqueta
+                de cada opción lleva ambos («Nombre · Área»). */}
+            <SearchableSelect
+              value={destino}
+              options={personas.map((p) => ({
+                value: String(p.id),
+                label: `${p.nombre}${p.unidad ? ` · ${p.unidad}` : ''}`,
+              }))}
+              onChange={setDestino}
+              placeholder="— Elige a la persona —"
+            />
             <p style={pie}>
               Un paquete va dirigido a una sola persona. Si a la misma oficina van documentos
               para tres, arma tres paquetes: viajan juntos pero se rastrean por separado.
@@ -386,7 +469,7 @@ export const SeccionCorrespondencia: React.FC = () => {
             {/* Recorrido */}
             {detalle.recorrido.length > 0 && (
               <div>
-                <span style={rotuloSeccion}>Por dónde ha pasado</span>
+                <span style={rotuloSeccion}>Recorrido del paquete</span>
                 <div style={{ display: 'grid', gap: '2px', marginTop: '8px' }}>
                   {detalle.recorrido.map((m) => (
                     <div key={m.id} style={renglonRecorrido}>
@@ -419,6 +502,18 @@ export const SeccionCorrespondencia: React.FC = () => {
                 </button>
                 <button onClick={cerrar} disabled={detalle.oficios.length === 0} style={btnPrimario}>
                   Cerrar e imprimir código
+                </button>
+              </div>
+            )}
+
+            {/* Ya salió: la guía se puede volver a ver cuantas veces haga falta —
+                el papel se pierde o se arruga y reimprimirlo no cambia nada, es el
+                mismo token. Un paquete cancelado no tiene guía que mostrar. */}
+            {detalle.estado !== 'ABIERTO' && detalle.estado !== 'CANCELADO' && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={verGuia} style={btnSecundario}>
+                  <Icono nombre="documento" size={14} />
+                  {detalle.estado === 'ENTREGADO' ? 'Ver acuse' : 'Ver guía'}
                 </button>
               </div>
             )}
@@ -567,45 +662,143 @@ export const SeccionCorrespondencia: React.FC = () => {
         </div>
       )}
 
-      {/* ── La etiqueta para pegar al sobre ── */}
-      <Modal open={!!etiqueta} title="Etiqueta del paquete"
+      {/* ── La guía: para pegar al sobre mientras viaja; como acuse si ya llegó ── */}
+      <Modal open={!!etiqueta} title={etiqueta?.entregado ? 'Paquete entregado' : 'Guía del paquete'}
              onClose={() => setEtiqueta(null)} width={420}>
-        {etiqueta && (
+        {etiqueta && etiqueta.entregado && (
+          /* Ya llegó: la guía no se imprime —el sobre está abierto y el código
+             cumplió su función—. Lo que importa ahora es qué documentos llegaron,
+             así que la ventana muestra el contenido. */
           <div>
+            <p style={{ margin: 0, fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.12em',
+                        textTransform: 'uppercase', color: theme.colors.gold }}>
+              Entregado
+            </p>
+            <p style={{ margin: '2px 0 12px', fontSize: '1.05rem', fontWeight: 800,
+                        color: theme.colors.primaryDark }}>{etiqueta.folio}</p>
+
+            <div style={{ ...bloqueEtiqueta, marginTop: 0 }}>
+              <div style={rotuloEtiqueta}>Entregado a</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>{etiqueta.destinatario}</div>
+              <div style={{ fontSize: '0.8rem', color: theme.colors.textSecondary }}>{etiqueta.unidadDestino}</div>
+            </div>
+
+            <div style={{ ...bloqueEtiqueta }}>
+              <div style={rotuloEtiqueta}>
+                {etiqueta.contenido.length === 1 ? 'Documento entregado' : 'Documentos entregados'}
+              </div>
+              <div style={{ display: 'grid', gap: '6px', marginTop: '4px' }}>
+                {etiqueta.contenido.map((o) => (
+                  <div key={o.contenido_id} style={{ fontSize: '0.84rem' }}>
+                    {o.folio ? (
+                      <>
+                        <strong>{o.folio}</strong>
+                        {o.remitente && (
+                          <span style={{ color: theme.colors.textSecondary }}> · {o.remitente}</span>
+                        )}
+                      </>
+                    ) : o.descripcion}
+                  </div>
+                ))}
+              </div>
+              {etiqueta.observaciones && (
+                <div style={{ marginTop: '8px', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                  {etiqueta.observaciones}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button onClick={() => setEtiqueta(null)} style={btnSecundario}>Cerrar</button>
+            </div>
+          </div>
+        )}
+        {/* La versión de papel: invisible en pantalla, es lo único que sale al
+            imprimir. Ver GuiaPaqueteImpresa y global.css (#guia-impresion). */}
+        {etiqueta && !etiqueta.entregado && (
+          <GuiaPaqueteImpresa
+            folio={etiqueta.folio} fecha={etiqueta.fecha} qr={etiqueta.qr} url={etiqueta.url}
+            remitente={etiqueta.remitente} unidadOrigen={etiqueta.unidadOrigen}
+            destinatario={etiqueta.destinatario} unidadDestino={etiqueta.unidadDestino}
+            observaciones={etiqueta.observaciones} contenido={etiqueta.contenido}
+          />
+        )}
+        {etiqueta && !etiqueta.entregado && (
+          <div>
+            {/* Guía de envío, al estilo de una paquetería: de un vistazo se ve de
+                dónde sale, a dónde va y qué lleva. El código de recepción NO va
+                aquí (ver más abajo). */}
             <div id="etiqueta-para-imprimir" style={hojaEtiqueta}>
-              <p style={{ margin: 0, fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.12em',
-                          textTransform: 'uppercase', color: theme.colors.gold }}>
-                Control de Correspondencia
-              </p>
-              <p style={{ margin: '4px 0 12px', fontSize: '1.15rem', fontWeight: 800,
-                          color: theme.colors.primaryDark }}>{etiqueta.folio}</p>
-              <img src={etiqueta.qr} alt={`Código del paquete ${etiqueta.folio}`}
-                   style={{ width: '210px', height: '210px', display: 'block', margin: '0 auto' }} />
-              <p style={{ margin: '12px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
-                Escanea este código con la cámara para registrar que lo traes.
-              </p>
-              {/* La dirección a la vista: si algún día el QR sale con «localhost»
-                  o con un servidor equivocado, se ve ANTES de imprimir y pegar el
-                  papel en un sobre que ya salió. */}
-              <p style={{ margin: '6px 0 0', fontSize: '0.66rem', color: theme.colors.grayMid,
-                          wordBreak: 'break-all' }}>
-                {etiqueta.url}
-              </p>
+              <div style={filaEtiqueta}>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.12em',
+                              textTransform: 'uppercase', color: theme.colors.gold }}>
+                    Control de Correspondencia
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '1.15rem', fontWeight: 800,
+                              color: theme.colors.primaryDark }}>{etiqueta.folio}</p>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: '0.68rem', color: theme.colors.textSecondary }}>
+                  <div style={rotuloEtiqueta}>Fecha de envío</div>
+                  <div style={{ fontWeight: 700, color: theme.colors.textPrimary }}>{etiqueta.fecha}</div>
+                </div>
+              </div>
+
+              <div style={bloqueEtiqueta}>
+                <div style={rotuloEtiqueta}>De</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 700 }}>{etiqueta.remitente}</div>
+                <div style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>{etiqueta.unidadOrigen}</div>
+              </div>
+
+              <div style={{ ...bloqueEtiqueta, backgroundColor: theme.colors.background }}>
+                <div style={rotuloEtiqueta}>Para</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{etiqueta.destinatario}</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{etiqueta.unidadDestino}</div>
+              </div>
+
+              <div style={bloqueEtiqueta}>
+                <div style={rotuloEtiqueta}>Contenido</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>
+                  {etiqueta.documentos === 1 ? '1 documento' : `${etiqueta.documentos} documentos`}
+                </div>
+                {etiqueta.observaciones && (
+                  <div style={{ marginTop: '4px', fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                    {etiqueta.observaciones}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ textAlign: 'center', marginTop: '10px' }}>
+                <img src={etiqueta.qr} alt={`Código del paquete ${etiqueta.folio}`}
+                     style={{ width: '170px', height: '170px', display: 'block', margin: '0 auto' }} />
+                <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary }}>
+                  Escanea este código con la cámara para registrar que lo traes.
+                </p>
+                {/* La dirección a la vista: si algún día el QR sale con «localhost»
+                    o con un servidor equivocado, se ve ANTES de imprimir y pegar el
+                    papel en un sobre que ya salió. */}
+                <p style={{ margin: '4px 0 0', fontSize: '0.62rem', color: theme.colors.grayMid,
+                            wordBreak: 'break-all' }}>
+                  {etiqueta.url}
+                </p>
+              </div>
             </div>
 
             {/* El código NO va en la etiqueta a propósito: si estuviera impreso en el
                 sobre, cualquiera que lo tuviera en la mano podría darse por
                 destinatario, y es lo único que distingue recibir de transportar. */}
-            <div style={{ ...cajaCodigo, marginTop: '14px' }}>
-              Código de recepción: <strong style={{ letterSpacing: '0.2em' }}>{etiqueta.codigo}</strong>
-              <div style={{ marginTop: '4px', fontSize: '0.76rem', fontWeight: 400 }}>
-                Lo tiene el destinatario en su pantalla. No lo imprimas en el sobre.
+            {etiqueta.codigo && (
+              <div style={{ ...cajaCodigo, marginTop: '14px' }}>
+                Código de recepción: <strong style={{ letterSpacing: '0.2em' }}>{etiqueta.codigo}</strong>
+                <div style={{ marginTop: '4px', fontSize: '0.76rem', fontWeight: 400 }}>
+                  Lo tiene el destinatario en su pantalla. No lo imprimas en el sobre.
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
               <button onClick={() => setEtiqueta(null)} style={btnSecundario}>Cerrar</button>
-              <button onClick={() => window.print()} style={btnPrimario}>
+              <button onClick={imprimirEtiqueta} style={btnPrimario}>
                 <Icono nombre="documento" size={14} />Imprimir
               </button>
             </div>
@@ -772,8 +965,23 @@ const btnAgregarChico: React.CSSProperties = {
 };
 
 const hojaEtiqueta: React.CSSProperties = {
-  padding: '20px', borderRadius: '10px', textAlign: 'center',
+  padding: '16px', borderRadius: '10px', textAlign: 'left',
   border: `2px solid ${theme.colors.charcoal}`, backgroundColor: theme.colors.white,
+};
+
+const filaEtiqueta: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+  gap: '12px', paddingBottom: '10px', borderBottom: `1px solid ${theme.colors.border}`,
+};
+
+const bloqueEtiqueta: React.CSSProperties = {
+  padding: '8px 10px', marginTop: '8px', borderRadius: '6px',
+  border: `1px solid ${theme.colors.border}`,
+};
+
+const rotuloEtiqueta: React.CSSProperties = {
+  fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.12em',
+  textTransform: 'uppercase', color: theme.colors.grayMid, marginBottom: '2px',
 };
 
 export default SeccionCorrespondencia;

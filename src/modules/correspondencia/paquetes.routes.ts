@@ -20,8 +20,8 @@ import { authenticate } from '../../middleware/auth.middleware';
 import {
   listarPaquetes, obtenerPaquete, crearPaquete,
   agregarOficio, quitarOficio, cerrarPaquete, cancelarPaquete,
-  listarDestinatarios, buscarOficiosParaPaquete,
-  rastrearPorToken, personasParaEscaneo, registrarTraslado, registrarEntrega,
+  listarDestinatarios, buscarOficiosParaPaquete, etiquetaPaquete,
+  rastrearPorToken, personasParaEscaneo, registrarTraslado, registrarEntrega, ofrecerRelevo,
 } from './paquetes.controller';
 
 const router = Router();
@@ -35,8 +35,10 @@ const router = Router();
 router.get ('/publico/personas',          personasParaEscaneo);
 /** Lo que ve quien acaba de escanear: qué paquete es, qué lleva y por dónde ha pasado. */
 router.get ('/publico/:token',            rastrearPorToken);
-/** «Lo traigo yo» — un toque, identidad declarada. */
+/** «Lo traigo yo» — un toque. Solo si nadie lo trae o si a esa persona se lo entregaron. */
 router.post('/publico/:token/traslado',   registrarTraslado);
+/** «Se lo entrego a…» — quien lo trae elige a la siguiente persona; ella confirma. */
+router.post('/publico/:token/relevo',     ofrecerRelevo);
 /** La entrega: exige el código de cuatro dígitos del destinatario. */
 router.post('/publico/:token/entrega',    registrarEntrega);
 
@@ -53,6 +55,9 @@ router.get   ('/paquetes/:id',                      authenticate, obtenerPaquete
 
 router.post  ('/paquetes/:id/oficios',              authenticate, agregarOficio);
 router.delete('/paquetes/:id/contenido/:contenidoId', authenticate, quitarOficio);
+
+/** Volver a ver la guía de uno que ya salió: mismo token, mismo QR. */
+router.get   ('/paquetes/:id/etiqueta',             authenticate, etiquetaPaquete);
 
 router.patch ('/paquetes/:id/cerrar',               authenticate, cerrarPaquete);
 router.patch ('/paquetes/:id/cancelar',             authenticate, cancelarPaquete);

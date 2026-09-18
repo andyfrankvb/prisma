@@ -156,3 +156,35 @@ img { max-width: 100%; }
   .reporte-imprimible table tr,
   .reporte-imprimible > div > div { break-inside: avoid; }
 }
+
+/* ===========================================================
+   IMPRESIÓN — guía del paquete (Control de Correspondencia)
+   Se imprime SOLO `#guia-impresion` (GuiaPaqueteImpresa.tsx): media carta
+   horizontal, centrada, con línea de corte. El código de recepción queda
+   fuera a propósito —impreso en el sobre, cualquiera que lo cargue podría
+   darse por destinatario. La clase `imprimiendo-etiqueta` la pone y la quita
+   la pantalla al imprimir.
+   =========================================================== */
+/* La versión de papel vive aparte (GuiaPaqueteImpresa, montada en <body>) y en
+   pantalla no se ve nunca. */
+#guia-impresion { display: none; }
+
+/* Página propia para la guía: margen cero hace que el navegador no imprima su
+   encabezado y pie (título, dirección, fecha, «1 de 2»). Los reportes siguen
+   usando su @page con margen; esta regla solo aplica a la guía. */
+@page guia { size: letter portrait; margin: 0; }
+
+@media print {
+  /* Todo lo demás fuera del papel con display:none, no visibility:hidden: lo
+     oculto con visibility sigue ocupando lugar y empujaba la guía a otra hoja. */
+  body.imprimiendo-etiqueta > *:not(#guia-impresion) { display: none !important; }
+
+  body.imprimiendo-etiqueta #guia-impresion {
+    display: block;
+    page: guia;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.imprimiendo-etiqueta #guia-impresion > div { break-inside: avoid; }
+}

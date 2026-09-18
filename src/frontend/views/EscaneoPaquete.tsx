@@ -22,7 +22,7 @@ import { theme } from '../theme';
 import { Icono } from '../components/Icono';
 import {
   rastrearPaquete, personasParaEscaneo,
-  registrarTrasladoPaquete, registrarEntregaPaquete,
+  registrarTrasladoPaquete, registrarEntregaPaquete, ofrecerRelevoPaquete,
 } from '../api';
 import type { PaqueteEscaneado } from '../api';
 
@@ -49,6 +49,8 @@ export const EscaneoPaquete: React.FC = () => {
   const [quien,    setQuien]    = useState<Quien | null>(() => leerQuien());
   const [personas, setPersonas] = useState<{ id: number; nombre: string; unidad: string | null }[]>([]);
   const [eligiendo, setEligiendo] = useState(false);
+  // Lista abierta para elegir a quién se le entrega el paquete (relevo de custodia).
+  const [entregandoA, setEntregandoA] = useState(false);
   const [busca,    setBusca]    = useState('');
 
   const [codigo,   setCodigo]   = useState('');
@@ -89,6 +91,31 @@ export const EscaneoPaquete: React.FC = () => {
     finally { setOcupado(false); }
   };
 
+  /** Abre la lista para elegir a quién se le entrega el paquete. */
+  const abrirEntregaOtro = () => {
+    setEntregandoA(true);
+    if (!personas.length) personasParaEscaneo().then((r) => setPersonas(r.data)).catch(() => {});
+  };
+
+  /**
+   * Ofrece el paquete a otra persona. NO cambia de manos aquí: el paquete sigue
+   * a nombre de quien lo trae hasta que el otro escanee y confirme.
+   */
+  const entregarA = async (paraId: number) => {
+    if (!quien) { abrirEleccion(); return; }
+    setOcupado(true); setError(null);
+    try {
+      const r = await ofrecerRelevoPaquete(token, quien.id
+        ? { usuario_id: quien.id }
+        : { nombre_declarado: quien.nombre }, paraId);
+      setListo(r.message);
+      setEntregandoA(false);
+      setBusca('');
+      cargar();
+    } catch (e: any) { setError(e.message); }
+    finally { setOcupado(false); }
+  };
+
   const entrega = async () => {
     setOcupado(true); setError(null);
     try {
@@ -119,6 +146,11 @@ export const EscaneoPaquete: React.FC = () => {
   }
 
   const esParaMi   = quien?.id != null && quien.id === paquete.destinatario_id;
+  // Quién trae el paquete AHORA y qué le toca hacer a quien está escaneando.
+  const sinCustodio     = !paquete.custodio_nombre;
+  const soyElCustodio   = quien?.id != null && quien.id === paquete.custodio_id;
+  const relevoPendiente = paquete.relevo != null;
+  const meLoEntregan    = quien?.id != null && paquete.relevo?.para_id === quien.id;
   const entregado  = paquete.estado === 'ENTREGADO';
   const cancelado  = paquete.estado === 'CANCELADO';
   const sinSalir   = paquete.estado === 'ABIERTO';
@@ -138,6 +170,34 @@ export const EscaneoPaquete: React.FC = () => {
           <Dato titulo="Lo trae" valor={paquete.custodio_nombre} />
         )}
       </div>
+
+      {/* ── Qué lleva dentro ──────────────────────────────────────────────────
+          A la vista antes de confirmar la recepción: quien firma de recibido
+          tiene derecho a cotejar contra lo que trae el sobre, sin entrar al
+          sistema desde una computadora. No se muestran los documentos, solo su
+          identificación: esta pantalla la abre cualquiera que tenga el QR. */}
+      {paquete.oficios.length > 0 && (
+        <div style={{ marginTop: '14px' }}>
+          <p style={etiqueta}>Contenido</p>
+          <div style={listaContenido}>
+            {paquete.oficios.map((o, i) => (
+              <div key={i} style={renglonContenido}>
+                {o.folio ? (
+                  <>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{o.folio}</div>
+                    <div style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>
+                      {o.remitente}
+                      {o.dependencia_origen ? ` · ${o.dependencia_origen}` : ''}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '0.88rem' }}>{o.descripcion}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Avisos ── */}
       {listo && (
@@ -180,13 +240,26 @@ export const EscaneoPaquete: React.FC = () => {
         </div>
       )}
 
-      {circulando && (
+      {circulando && !quien && (
+        /* Sin identificarse no hay nada que se pueda hacer: todo lo que sigue
+           depende de saber quién escanea —si lo trae, si se lo entregan o si es
+           suyo—. Antes esto era un renglón discreto arriba y la gente se quedaba
+           mirando estados que no le decían qué hacer. */
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <p style={{ margin: 0, fontSize: '0.9rem', color: theme.colors.textSecondary }}>
+            Para registrar un movimiento, primero identifícate.
+          </p>
+          <button onClick={abrirEleccion} style={btnGrande}>Identificarme</button>
+        </div>
+      )}
+
+      {circulando && quien && (
         <>
-          {/* Quién soy. Se elige una vez y queda. */}
+          {/* Identificación ya elegida. Se guarda en el teléfono y se puede cambiar. */}
           <div style={quienCaja}>
-            <span style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>Eres</span>
+            <span style={{ fontSize: '0.78rem', color: theme.colors.textSecondary }}>Usuario</span>
             <button onClick={abrirEleccion} style={btnQuien}>
-              {quien ? quien.nombre : 'Toca para decir quién eres'}
+              {quien.nombre}
               <Icono nombre="editar" size={13} />
             </button>
           </div>
@@ -197,7 +270,7 @@ export const EscaneoPaquete: React.FC = () => {
           {esParaMi ? (
             <div style={{ display: 'grid', gap: '10px' }}>
               <p style={{ margin: 0, fontSize: '0.9rem', color: theme.colors.textSecondary }}>
-                Este paquete es para ti. Dicta o escribe tu código de recepción.
+                Este paquete está dirigido a usted. Capture su código de recepción.
               </p>
               <input
                 value={codigo}
@@ -209,20 +282,60 @@ export const EscaneoPaquete: React.FC = () => {
                 style={campoCodigo}
               />
               <button onClick={entrega} disabled={ocupado || codigo.length < 4} style={btnGrande}>
-                {ocupado ? 'Registrando…' : 'Confirmar que lo recibí'}
+                {ocupado ? 'Registrando…' : 'Confirmar recepción'}
               </button>
               <button onClick={traslado} disabled={ocupado} style={btnSecundario}>
-                Solo lo traigo, no es para mí
+                Solo lo traslado, no es para mí
               </button>
             </div>
-          ) : (
+          ) : meLoEntregan ? (
+            /* A quien escanea se lo están entregando: solo tiene que confirmarlo.
+               Hasta que lo haga, el paquete sigue a nombre de quien lo trae. */
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <p style={{ margin: 0, fontSize: '0.9rem' }}>
+                <strong>{paquete.relevo?.de_nombre ?? 'Quien lo traslada'}</strong> le está entregando
+                este paquete. Confirme la recepción para que quede bajo su resguardo.
+              </p>
+              <button onClick={traslado} disabled={ocupado} style={btnGrande}>
+                {ocupado ? 'Registrando…' : 'Confirmar recepción'}
+              </button>
+            </div>
+          ) : soyElCustodio ? (
+            /* Quien lo trae no vuelve a declararse portador: lo que sigue es
+               entregárselo a alguien, y ese alguien lo confirma. */
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: theme.colors.textSecondary }}>
+                Usted tiene este paquete en resguardo. Si lo entrega a otra persona, selecciónela:
+                quedará a su nombre cuando confirme la recepción.
+              </p>
+              {relevoPendiente && (
+                <p style={{ margin: 0, fontSize: '0.85rem', color: theme.colors.gold }}>
+                  Entrega registrada a {paquete.relevo?.para_nombre}. Pendiente de que confirme.
+                </p>
+              )}
+              <button onClick={abrirEntregaOtro} disabled={ocupado} style={btnGrande}>
+                Entregar a otra persona
+              </button>
+            </div>
+          ) : sinCustodio ? (
+            /* Nadie lo trae todavía: el primero que lo levanta lo registra. */
             <div style={{ display: 'grid', gap: '10px' }}>
               <button onClick={traslado} disabled={ocupado} style={btnGrande}>
-                {ocupado ? 'Registrando…' : 'Lo traigo yo'}
+                {ocupado ? 'Registrando…' : 'Tomar el traslado'}
               </button>
               <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.grayMid, textAlign: 'center' }}>
-                Si eres {paquete.destinatario_nombre.split(' ').slice(0, 2).join(' ')}, di quién eres
-                arriba para confirmar la recepción con tu código.
+                Si usted es {paquete.destinatario_nombre.split(' ').slice(0, 2).join(' ')}, identifíquese arriba
+                para confirmar la recepción con su código.
+              </p>
+            </div>
+          ) : (
+            /* Lo trae alguien más y a quien escanea no se lo han entregado. */
+            <div style={{ ...cierre, backgroundColor: theme.colors.background, color: theme.colors.textSecondary }}>
+              <p style={{ margin: 0, fontWeight: 700 }}>Lo trae {paquete.custodio_nombre}</p>
+              <p style={{ margin: '4px 0 0', fontSize: '0.84rem' }}>
+                {relevoPendiente
+                  ? `Entrega registrada a ${paquete.relevo?.para_nombre}, pendiente de confirmación.`
+                  : 'Para recibirlo, pídale que escanee el paquete y registre la entrega a su nombre.'}
               </p>
             </div>
           )}
@@ -232,7 +345,7 @@ export const EscaneoPaquete: React.FC = () => {
       {/* ── Por dónde ha pasado ── */}
       {paquete.recorrido.length > 0 && (
         <div style={{ marginTop: '26px' }}>
-          <p style={etiqueta}>Por dónde ha pasado</p>
+          <p style={etiqueta}>Recorrido del paquete</p>
           <div style={{ display: 'grid', gap: '2px' }}>
             {paquete.recorrido.map((m, i) => (
               <div key={i} style={renglonRecorrido}>
@@ -252,14 +365,47 @@ export const EscaneoPaquete: React.FC = () => {
       )}
 
       {/* ── Elegir quién soy ── */}
-      {eligiendo && (
-        <div style={capa} onClick={() => setEligiendo(false)}>
+      {/* A quién se le entrega. Solo personas del sistema: alguien tiene que poder
+          escanear y confirmar, y un nombre escrito a mano no confirma nada. */}
+      {entregandoA && (
+        <div style={capa} onClick={() => setEntregandoA(false)}>
           <div style={hoja} onClick={(e) => e.stopPropagation()}>
-            <p style={{ ...etiqueta, marginTop: 0 }}>¿Quién eres?</p>
+            <p style={{ ...etiqueta, marginTop: 0 }}>¿A quién entrega el paquete?</p>
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Escribe tu nombre…"
+              placeholder="Busca por nombre o área…"
+              autoFocus
+              style={campoBusca}
+            />
+            <div style={{ overflowY: 'auto', flex: 1, marginTop: '10px' }}>
+              {personas
+                .filter((p) => p.id !== quien?.id)
+                .filter((p) => `${p.nombre} ${p.unidad ?? ''}`.toLowerCase()
+                  .includes(busca.trim().toLowerCase()))
+                .slice(0, 40)
+                .map((p) => (
+                  <button key={p.id} onClick={() => entregarA(p.id)} disabled={ocupado}
+                          style={renglonPersona}>
+                    <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                    {p.unidad && (
+                      <span style={{ fontSize: '0.74rem', color: theme.colors.grayMid }}>{p.unidad}</span>
+                    )}
+                  </button>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {eligiendo && (
+        <div style={capa} onClick={() => setEligiendo(false)}>
+          <div style={hoja} onClick={(e) => e.stopPropagation()}>
+            <p style={{ ...etiqueta, marginTop: 0 }}>Identifícate</p>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Busca por nombre o área…"
               autoFocus
               style={campoBusca}
             />
@@ -285,10 +431,10 @@ export const EscaneoPaquete: React.FC = () => {
               <button onClick={() => guardarQuien({ id: null, nombre: busca.trim().toUpperCase() })}
                       style={{ ...renglonPersona, borderTop: `1px solid ${theme.colors.border}` }}>
                 <span style={{ fontWeight: 700, color: theme.colors.primary }}>
-                  No estoy en la lista: soy «{busca.trim()}»
+                  No aparezco en la lista: registrar como «{busca.trim()}»
                 </span>
                 <span style={{ fontSize: '0.74rem', color: theme.colors.grayMid }}>
-                  Quedará registrado como nombre declarado
+                  Quedará asentado como nombre declarado
                 </span>
               </button>
             )}
@@ -301,9 +447,11 @@ export const EscaneoPaquete: React.FC = () => {
 
 // ── Piezas ───────────────────────────────────────────────────────────────────
 
+// Mismo lenguaje formal que en SeccionCorrespondencia.tsx: es la misma bitácora
+// vista desde el teléfono de quien escanea.
 const ETIQUETA_MOV: Record<string, string> = {
-  CREADO: 'Se armó', CERRADO: 'Salió', TRASLADO: 'Lo llevó',
-  ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
+  CREADO: 'Integrado', CERRADO: 'Enviado', TRASLADO: 'En traslado',
+  RELEVO: 'Entrega ofrecida', ENTREGADO: 'Entregado', CANCELADO: 'Cancelado',
 };
 
 /** El teléfono se sostiene con una mano: una sola columna, angosta y centrada. */
@@ -350,6 +498,14 @@ const fichaDatos: React.CSSProperties = {
 };
 const txtCentro: React.CSSProperties = {
   textAlign: 'center', color: theme.colors.textSecondary, fontSize: '0.92rem',
+};
+const listaContenido: React.CSSProperties = {
+  display: 'grid', borderRadius: '10px', overflow: 'hidden',
+  border: `1px solid ${theme.colors.border}`, marginTop: '6px',
+};
+const renglonContenido: React.CSSProperties = {
+  padding: '10px 14px', borderBottom: `1px solid ${theme.colors.border}`,
+  backgroundColor: theme.colors.white,
 };
 const titulo: React.CSSProperties = {
   margin: '12px 0 0', fontSize: '1.15rem', fontWeight: 800, color: theme.colors.primaryDark,

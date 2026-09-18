@@ -109,7 +109,7 @@ async function registrarMovimiento(
   trx: any,
   datos: {
     paquete_id: number;
-    tipo: 'CREADO' | 'CERRADO' | 'TRASLADO' | 'ENTREGADO' | 'CANCELADO';
+    tipo: 'CREADO' | 'CERRADO' | 'TRASLADO' | 'ENTREGADO' | 'CANCELADO' | 'RELEVO';
     usuario_id?: number | null;
     nombre_declarado?: string | null;
     unidad_id?: number | null;
@@ -462,6 +462,57 @@ export async function cerrarPaquete(
 }
 
 /**
+ * GET /paquetes/:id/etiqueta — volver a ver la guía de uno que ya salió.
+ *
+ * La guía se muestra al cerrar el paquete, pero esa ventana se cierra y el papel
+ * se pierde, se arruga o se imprime torcido. Sin esto, la única forma de tener
+ * otra sería cerrar otro paquete, que es justo lo que no debe hacerse.
+ *
+ * No genera nada nuevo: devuelve el MISMO token de siempre, así que el QR
+ * reimpreso es idéntico al primero y ambos papeles llevan al mismo lugar.
+ *
+ * La dirección la arma el servidor por la misma razón que al cerrar: el
+ * navegador no sabe cuál es la dirección pública del sistema (ver `cerrarPaquete`).
+ *
+ * El código de recepción solo viaja si quien pide es el destinatario, igual que
+ * en el detalle: es lo único que distingue recibir de transportar.
+ */
+export async function etiquetaPaquete(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const paqueteId = parseInt(req.params.id, 10);
+    const paquete   = await paqueteOFallar(paqueteId);
+
+    if (paquete.estado === 'ABIERTO') {
+      throw new AppError('El paquete todavía se está armando: ciérralo para generar su guía', 409);
+    }
+    if (paquete.estado === 'CANCELADO') {
+      throw new AppError('El paquete está cancelado y ya no tiene guía', 409);
+    }
+
+    // Entregado: el código ya no se devuelve a nadie. Cumplió su función —abrir el
+    // paquete una sola vez— y dejarlo a la vista solo invita a reutilizarlo.
+    const enTransito = paquete.estado === 'EN_TRANSITO';
+
+    const base = process.env.APP_URL?.replace(/\/+$/, '')
+              ?? `${req.protocol}://${req.get('host')}`;
+
+    res.json({
+      data: {
+        folio:  paquete.folio,
+        token:  paquete.token,
+        url_qr: `${base}/p/${paquete.token}`,
+        estado: paquete.estado,
+        codigo: enTransito && paquete.destinatario_id === req.user!.id
+          ? paquete.codigo_recepcion
+          : null,
+      },
+    });
+  } catch (err) { next(err); }
+}
+
+/**
  * PATCH /paquetes/:id/cancelar — solo antes de salir.
  *
  * Un paquete que ya salió NO se cancela: el papel está afuera, y borrarlo del
@@ -555,10 +606,28 @@ export async function rastrearPorToken(
               db.raw('COALESCE(u.nombre, m.nombre_declarado) AS quien'))
       .orderBy('m.id', 'asc');
 
+    // Relevo pendiente: quien lo trae ya eligió a quién se lo entrega, pero esa
+    // persona todavía no lo confirma. Se manda con nombres para que la pantalla
+    // diga «Fulano te está entregando este paquete» sin otra consulta.
+    const fila = await db('paquetes as p')
+      .leftJoin('usuarios as para', 'para.id', 'p.relevo_para_id')
+      .leftJoin('usuarios as de',   'de.id',   'p.relevo_de_id')
+      .where('p.id', paquete.id)
+      .select('p.relevo_para_id', 'p.relevo_solicitado_en',
+              'para.nombre as relevo_para_nombre', 'de.nombre as relevo_de_nombre')
+      .first();
+
+    const relevo = fila?.relevo_para_id ? {
+      para_id:       fila.relevo_para_id,
+      para_nombre:   fila.relevo_para_nombre,
+      de_nombre:     fila.relevo_de_nombre,
+      solicitado_en: fila.relevo_solicitado_en,
+    } : null;
+
     // El código de recepción NO viaja aquí. Esta ruta la abre cualquiera que tenga
     // el QR —incluido quien lo transporta—, y el código es lo único que distingue
     // al destinatario de quien nada más lo trae.
-    res.json({ data: { ...paquete, oficios, recorrido } });
+    res.json({ data: { ...paquete, oficios, recorrido, relevo } });
   } catch (err) { next(err); }
 }
 
@@ -624,13 +693,155 @@ export async function registrarTraslado(
       unidadId = u.unidad_id ?? null;
     }
 
+    /**
+     * El portador no se autoproclama: se releva.
+     *
+     * Si el paquete ya tiene quien lo trae, tomarlo exige que ESA persona lo
+     * entregue desde su teléfono (ver `ofrecerRelevo` y `aceptarRelevo`). De otro
+     * modo bastaría con escanear el sobre ajeno y declararse portador, y el
+     * recorrido diría quién dijo que lo traía, no de manos de quién lo recibió.
+     *
+     * La única excepción es el relevo ya ofrecido a quien escanea: ahí sí toma la
+     * custodia, porque hubo alguien que se la entregó.
+     */
+    const custodioActual = await db('paquete_movimientos')
+      .where({ paquete_id: paquete.id })
+      .whereIn('tipo', ['CERRADO', 'TRASLADO'])
+      .orderBy([{ column: 'registrado_en', order: 'desc' }, { column: 'id', order: 'desc' }])
+      .first();
+
+    const soyElCustodio = usuarioId
+      ? custodioActual?.usuario_id === usuarioId
+      : !custodioActual?.usuario_id
+        && (custodioActual?.nombre_declarado ?? '').toLowerCase() === nombre.toLowerCase();
+
+    const meLoEntregan = usuarioId != null && paquete.relevo_para_id === usuarioId;
+
+    if (custodioActual && !soyElCustodio && !meLoEntregan) {
+      const quienLoTrae = custodioActual.usuario_id
+        ? (await db('usuarios').where({ id: custodioActual.usuario_id }).select('nombre').first())?.nombre
+        : custodioActual.nombre_declarado;
+      throw new AppError(
+        `Este paquete lo trae ${quienLoTrae ?? 'otra persona'}. Pídele que te lo entregue desde su teléfono: `
+        + 'tiene que escanearlo y elegirte a ti.',
+        409,
+      );
+    }
+
+    /**
+     * Si quien escanea YA es el último custodio, no se agrega otro renglón.
+     *
+     * El botón se toca dos o tres veces —el teléfono tarda, la página se
+     * recarga, alguien vuelve a escanear el mismo sobre— y el recorrido se
+     * llenaba de «Lo llevó Fulano» repetidos en el mismo minuto, que no dicen
+     * nada y estorban justo cuando hay que reconstruir dónde estuvo el paquete.
+     *
+     * Solo se ignora si es la MISMA persona: que alguien más lo tome sí es un
+     * traslado nuevo, aunque ocurra un segundo después.
+     */
+    const ultimo = await db('paquete_movimientos')
+      .where({ paquete_id: paquete.id })
+      .orderBy([{ column: 'registrado_en', order: 'desc' }, { column: 'id', order: 'desc' }])
+      .first();
+
+    const mismoQueTrae = ultimo?.tipo === 'TRASLADO' && (
+      usuarioId ? ultimo.usuario_id === usuarioId
+                : !ultimo.usuario_id && (ultimo.nombre_declarado ?? '').toLowerCase() === nombre.toLowerCase()
+    );
+
+    if (mismoQueTrae) {
+      res.json({ message: `Ya estaba registrado que traes el paquete ${paquete.folio}` });
+      return;
+    }
+
     await registrarMovimiento(db, {
       paquete_id: paquete.id, tipo: 'TRASLADO',
       usuario_id: usuarioId, nombre_declarado: usuarioId ? null : nombre,
       unidad_id: unidadId,
     });
 
+    // El relevo se cumplió: se limpia para que el paquete no quede ofrecido a
+    // nadie más. Si quien lo tomó era otro (el mismo custodio reconfirmando), el
+    // relevo pendiente se respeta tal cual.
+    if (meLoEntregan) {
+      await db('paquetes').where({ id: paquete.id }).update({
+        relevo_para_id: null, relevo_de_id: null, relevo_solicitado_en: null,
+      });
+    }
+
     res.json({ message: `Quedó registrado que traes el paquete ${paquete.folio}` });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /publico/:token/relevo — «se lo entrego a esta persona».
+ *
+ * Primer acto del relevo de custodia: quien trae el paquete escanea, elige a
+ * quién se lo da y el paquete queda OFRECIDO. No cambia de manos todavía: hasta
+ * que el otro confirme (ver `aceptarRelevo`), el responsable sigue siendo quien
+ * lo trae. Un paquete no puede quedar sin dueño en el camino.
+ *
+ * Quien ofrece tiene que ser el custodio actual: si no, cualquiera podría
+ * «entregar» un paquete que nunca tuvo en las manos.
+ */
+export async function ofrecerRelevo(
+  req: Request, res: Response, next: NextFunction,
+): Promise<void> {
+  try {
+    const token     = String(req.params.token ?? '');
+    const usuarioId = req.body?.usuario_id ? Number(req.body.usuario_id) : null;
+    const nombre    = String(req.body?.nombre_declarado ?? '').trim();
+    const paraId    = req.body?.para_usuario_id ? Number(req.body.para_usuario_id) : null;
+
+    if (!usuarioId && !nombre) throw new AppError('Dinos quién eres antes de entregarlo', 422);
+    if (!paraId) throw new AppError('Elige a quién le entregas el paquete', 422);
+
+    const paquete = await db('paquetes').where({ token }).first();
+    if (!paquete) throw new AppError('Ese código no corresponde a ningún paquete', 404);
+    if (paquete.estado !== 'EN_TRANSITO') {
+      throw new AppError('Solo se puede entregar un paquete que va en camino', 409);
+    }
+
+    const custodio = await db('paquete_movimientos')
+      .where({ paquete_id: paquete.id })
+      .whereIn('tipo', ['CERRADO', 'TRASLADO'])
+      .orderBy([{ column: 'registrado_en', order: 'desc' }, { column: 'id', order: 'desc' }])
+      .first();
+
+    const soyElCustodio = usuarioId
+      ? custodio?.usuario_id === usuarioId
+      : !custodio?.usuario_id
+        && (custodio?.nombre_declarado ?? '').toLowerCase() === nombre.toLowerCase();
+
+    if (!soyElCustodio) {
+      throw new AppError('Solo quien trae el paquete puede entregárselo a alguien más', 403);
+    }
+    if (usuarioId && paraId === usuarioId) {
+      throw new AppError('No puedes entregarte el paquete a ti mismo', 422);
+    }
+
+    const para = await db('usuarios').where({ id: paraId, activo: true })
+      .select('id', 'nombre').first();
+    if (!para) throw new AppError('Esa persona no está activa en el sistema', 422);
+
+    await db('paquetes').where({ id: paquete.id }).update({
+      relevo_para_id:       para.id,
+      relevo_de_id:         usuarioId,
+      relevo_solicitado_en: db.fn.now(),
+    });
+
+    // Queda constancia aunque el otro nunca confirme: si el paquete se pierde
+    // aquí, el recorrido muestra a quién se le quiso entregar y cuándo.
+    await registrarMovimiento(db, {
+      paquete_id: paquete.id, tipo: 'RELEVO',
+      usuario_id: usuarioId, nombre_declarado: usuarioId ? null : nombre,
+      nota: `Entrega ofrecida a ${para.nombre}`,
+    });
+
+    res.json({
+      message: `${para.nombre} debe escanear el paquete y confirmar que lo recibió. `
+             + 'Mientras tanto sigue a tu nombre.',
+    });
   } catch (err) { next(err); }
 }
 

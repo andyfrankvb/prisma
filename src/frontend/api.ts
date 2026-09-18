@@ -1129,7 +1129,7 @@ export interface OficioEnPaquete {
 
 export interface MovimientoPaquete {
   id: number;
-  tipo: 'CREADO' | 'CERRADO' | 'TRASLADO' | 'ENTREGADO' | 'CANCELADO';
+  tipo: 'CREADO' | 'CERRADO' | 'TRASLADO' | 'ENTREGADO' | 'CANCELADO' | 'RELEVO';
   quien: string | null;
   /** true cuando la persona no está en el sistema y solo dejó su nombre. */
   declarado: boolean;
@@ -1205,6 +1205,18 @@ export async function cerrarPaquete(paqueteId: number) {
   return handleResponse<{ data: { folio: string; token: string; codigo: string; url_qr: string }; message: string }>(res);
 }
 
+/**
+ * La guía de un paquete que ya salió, para volver a verla o reimprimirla.
+ * Devuelve el mismo token de siempre, así que el QR es idéntico al original.
+ * `codigo` solo llega si quien pide es el destinatario.
+ */
+export async function getEtiquetaPaquete(paqueteId: number) {
+  const res = await fetch(`${CORR}/paquetes/${paqueteId}/etiqueta`, { headers: authHeaders() });
+  return handleResponse<{
+    data: { folio: string; token: string; url_qr: string; estado: EstadoPaquete; codigo: string | null };
+  }>(res);
+}
+
 export async function cancelarPaquete(paqueteId: number, motivo: string) {
   const res = await fetch(`${CORR}/paquetes/${paqueteId}/cancelar`, {
     method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -1220,13 +1232,35 @@ export interface PaqueteEscaneado {
   destinatario_id: number; destinatario_nombre: string; destinatario_unidad: string | null;
   custodio_nombre: string | null; custodio_id: number | null;
   cuantos_oficios: number; creado_en: string; cerrado_en: string | null;
-  oficios: { folio: string; remitente: string; dependencia_origen: string | null }[];
+  /** Un renglón es un oficio de PRISMA (folio) o algo descrito a mano (descripcion). */
+  oficios: { folio: string | null; remitente: string | null; dependencia_origen: string | null; descripcion: string | null }[];
   recorrido: { tipo: string; quien: string | null; registrado_en: string }[];
+  /** Entrega ofrecida y todavía sin confirmar. Null = nadie tiene que confirmar nada. */
+  relevo: {
+    para_id: number; para_nombre: string | null;
+    de_nombre: string | null; solicitado_en: string;
+  } | null;
 }
 
 export async function rastrearPaquete(token: string) {
   const res = await fetch(`${CORR}/publico/${token}`);
   return handleResponse<{ data: PaqueteEscaneado }>(res);
+}
+
+/**
+ * «Se lo entrego a esta persona». Deja el paquete ofrecido: el responsable sigue
+ * siendo quien lo trae hasta que el otro lo confirme con `registrarTrasladoPaquete`.
+ */
+export async function ofrecerRelevoPaquete(
+  token: string,
+  quien: { usuario_id?: number; nombre_declarado?: string },
+  paraUsuarioId: number,
+) {
+  const res = await fetch(`${CORR}/publico/${token}/relevo`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...quien, para_usuario_id: paraUsuarioId }),
+  });
+  return handleResponse<{ message: string }>(res);
 }
 
 export async function personasParaEscaneo() {
