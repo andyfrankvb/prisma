@@ -48,6 +48,8 @@ export interface ResumenActos {
   filtros: {
     anio_desde:   number  | null;
     anio_hasta:   number  | null;
+    mes_desde:    number  | null;
+    mes_hasta:    number  | null;
     tipo_tramite: string  | null;
     acto:         string  | null;
     oficina:      string  | null;

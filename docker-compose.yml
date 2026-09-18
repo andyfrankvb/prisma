@@ -21,23 +21,27 @@ networks:
 services:
 
   # ── PostgreSQL ──────────────────────────────────────────────
+  # Instancia compartida de desarrollo local: aloja la BD "prisma" (este
+  # proyecto) y la BD "sid" (proyecto SID, github.com/JEmanuelGX/SID) en el
+  # mismo contenedor. Postgres 16 por compatibilidad con el dump de SID.
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: db
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       oficialia_partes
       POSTGRES_USER:     postgres
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/postgres/init-shared:/docker-entrypoint-initdb.d:ro
+      - ./bd:/dumps/prisma:ro
+      - /Users/carlostah/SID/bd:/dumps/sid:ro
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d oficialia_partes"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -69,9 +73,10 @@ services:
     environment:
       NODE_ENV:     development
       PORT:         3000
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/oficialia_partes}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/prisma}
       REDIS_URL:    redis://redis:6379
       JWT_SECRET:   ${JWT_SECRET:-dev_secret_key_local}
+      INTEGRACIONES_ENCRYPTION_KEY: ${INTEGRACIONES_ENCRYPTION_KEY:-dev_integraciones_key_local_0000000000000000}
       # Dirección con la que el sistema se nombra a sí mismo. Es la que va dentro
       # del código QR de los paquetes, así que «localhost» no sirve para probar
       # con el teléfono: apuntaría al propio teléfono de quien escanea.

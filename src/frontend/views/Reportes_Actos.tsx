@@ -33,6 +33,10 @@ import { getActosResumen, getActosCatalogo, getActosTipos, getActosOficinas, get
 import type { ResumenActos, ActoCatalogoFila, ActoDetalleFila } from '../types';
 
 const NUM = new Intl.NumberFormat('es-MX');
+const MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
 const OFICINA_COLORS = [theme.colors.primary, theme.colors.gold, theme.colors.charcoal, theme.colors.primaryLight, theme.colors.goldLight];
 const TIPO_COLORS: Record<string, string> = {
   'Inmobiliario':   theme.colors.primary,
@@ -60,6 +64,8 @@ export const Reportes_Actos: React.FC = () => {
 
   const [anioDesde, setAnioDesde]   = useState('');
   const [anioHasta, setAnioHasta]   = useState('');
+  const [mesDesde, setMesDesde]     = useState('');
+  const [mesHasta, setMesHasta]     = useState('');
   const [tipoTramite, setTipoTramite] = useState('');
   const [actos, setActos]           = useState<string[]>([]);
   const [oficina, setOficina]       = useState('');
@@ -91,6 +97,8 @@ export const Reportes_Actos: React.FC = () => {
     getActosResumen({
       anio_desde:   anioDesde ? Number(anioDesde) : undefined,
       anio_hasta:   anioHasta ? Number(anioHasta) : undefined,
+      mes_desde:    mesDesde ? Number(mesDesde) : undefined,
+      mes_hasta:    mesHasta ? Number(mesHasta) : undefined,
       tipo_tramite: tipoTramite || undefined,
       acto:         actos.length ? actos.join(',') : undefined,
       oficina:      oficina || undefined,
@@ -101,11 +109,12 @@ export const Reportes_Actos: React.FC = () => {
       .catch((err: any) => { if (!cancelado) setError(err.message); })
       .finally(() => { if (!cancelado) setLoading(false); });
     return () => { cancelado = true; };
-  }, [anioDesde, anioHasta, tipoTramite, actos, oficina, estatusActo, esAcervo]);
+  }, [anioDesde, anioHasta, mesDesde, mesHasta, tipoTramite, actos, oficina, estatusActo, esAcervo]);
 
-  const hayFiltros = !!(anioDesde || anioHasta || tipoTramite || actos.length || oficina || estatusActo || esAcervo);
+  const hayFiltros = !!(anioDesde || anioHasta || mesDesde || mesHasta || tipoTramite || actos.length || oficina || estatusActo || esAcervo);
   const limpiarFiltros = () => {
-    setAnioDesde(''); setAnioHasta(''); setTipoTramite(''); setActos([]); setOficina(''); setEstatusActo(''); setEsAcervo('');
+    setAnioDesde(''); setAnioHasta(''); setMesDesde(''); setMesHasta('');
+    setTipoTramite(''); setActos([]); setOficina(''); setEstatusActo(''); setEsAcervo('');
   };
 
   const actoOptions: SelectOption[] = catalogo.map((c) => ({ value: c.acto, label: `${c.acto} — ${c.des_acto}` }));
@@ -117,9 +126,17 @@ export const Reportes_Actos: React.FC = () => {
     : actos.length <= 3 ? `Actos: ${actos.map((a) => actoOptions.find((o) => o.value === a)?.label ?? a).join(', ')}`
     : `Actos: ${actos.length} seleccionados (${actos.join(', ')})`;
 
+  const mesTextoImpresion = mesDesde && mesHasta && mesDesde === mesHasta
+    ? `Mes: ${MESES[Number(mesDesde) - 1]}`
+    : [
+        mesDesde && `Mes desde: ${MESES[Number(mesDesde) - 1]}`,
+        mesHasta && `Mes hasta: ${MESES[Number(mesHasta) - 1]}`,
+      ].filter(Boolean).join(' · ');
+
   const filtrosImpresion = [
     anioDesde && `Año desde: ${anioDesde}`,
     anioHasta && `Año hasta: ${anioHasta}`,
+    mesTextoImpresion,
     tipoTramite && `Tipo de trámite: ${tipoTramite}`,
     actosTextoImpresion,
     oficina && `Oficina: ${oficina}`,
@@ -176,6 +193,20 @@ export const Reportes_Actos: React.FC = () => {
           <div style={{ minWidth: '100px' }}>
             <label style={labelStyle}>Año hasta</label>
             <input type="number" placeholder="Todos" value={anioHasta} onChange={(e) => setAnioHasta(e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ minWidth: '140px' }}>
+            <label style={labelStyle}>Mes desde</label>
+            <select value={mesDesde} onChange={(e) => setMesDesde(e.target.value)} style={inputStyle}>
+              <option value="">Todos</option>
+              {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+          </div>
+          <div style={{ minWidth: '140px' }}>
+            <label style={labelStyle}>Mes hasta</label>
+            <select value={mesHasta} onChange={(e) => setMesHasta(e.target.value)} style={inputStyle}>
+              <option value="">Todos</option>
+              {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
           </div>
           <div style={{ minWidth: '160px' }}>
             <label style={labelStyle}>Tipo de trámite</label>
