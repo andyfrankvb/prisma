@@ -946,3 +946,84 @@ export interface MaquinaPayload {
   libre:          boolean;
 }
 
+// ── Consulta Pública SIQROO ────────────────────────────────────────
+
+/**
+ * Una fila del histórico de búsquedas — migrado desde SID (`consulta_publica`).
+ * Esquema limpio: sin `nombres`/`apellido` (redundantes con `nombre_completo`),
+ * sin `usuario`/`tramite` (redundantes con `tipo_usuario`) ni `fecha_registro`
+ * (duplicado de `hora_busqueda` con desfase de huso horario) — ver
+ * consultas.types.ts en el backend para el detalle verificado contra la BD real.
+ */
+export interface Consulta {
+  id:              number;
+  /** Id del registro en SID, cuando esta fila vino de la migración de datos. `null` si nació en PRISMA. */
+  origen_id:       number | null;
+  nombre_completo: string;
+  codigo_acceso:   string;
+  busqueda:        Record<string, string | number | boolean | null>;
+  filtro_busqueda: string | null;
+  tipo_usuario:    string | null;
+  /** Código de oficina — texto, igual que la columna real (no es un id numérico). */
+  oficina:         string | null;
+  folio:           string | null;
+  estado_contador: string | null;
+  hora_busqueda:   string;
+}
+
+export interface ConsultasMeta {
+  current_page: number;
+  per_page:     number;
+  total:        number;
+  last_page:    number;
+  from:         number | null;
+  to:           number | null;
+}
+
+export interface ConsultasResponse {
+  data: Consulta[];
+  meta: ConsultasMeta;
+}
+
+// ── Catálogo de Vigilancia y Alertas ─────────────────────────────
+
+export type TipoSujetoVigilado = 'PERSONA' | 'EMPRESA';
+
+export interface SujetoVigilado {
+  id:                  number;
+  nombre_razon_social: string;
+  nombre_normalizado:  string;
+  tipo:                TipoSujetoVigilado;
+  activo:              boolean;
+  creado_por:          number;
+  fecha_creacion:      string;
+}
+
+export interface CrearSujetoVigiladoPayload {
+  nombre_razon_social: string;
+  tipo:                TipoSujetoVigilado;
+}
+
+export interface EditarSujetoVigiladoPayload {
+  nombre_razon_social?: string;
+  tipo?:                TipoSujetoVigilado;
+}
+
+export interface AlertaConsultaConDetalle {
+  id:                         number;
+  consulta_id:                number;
+  sujeto_vigilado_id:         number;
+  coincidencia_detectada:     string;
+  fecha_alerta:               string;
+  leido:                      boolean;
+  sujeto_nombre_razon_social: string;
+  sujeto_tipo:                TipoSujetoVigilado;
+  consulta_nombre_completo:   string;
+  consulta_codigo_acceso:     string;
+  consulta_hora_busqueda:     string;
+}
+
+export interface AlertasConsultaResponse {
+  data: AlertaConsultaConDetalle[];
+  meta: ConsultasMeta;
+}

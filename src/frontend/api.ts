@@ -38,6 +38,13 @@ import type {
   ProgramasDetalleResponse,
   Maquina,
   MaquinaPayload,
+  ConsultasResponse,
+  SujetoVigilado,
+  TipoSujetoVigilado,
+  CrearSujetoVigiladoPayload,
+  EditarSujetoVigiladoPayload,
+  AlertaConsultaConDetalle,
+  AlertasConsultaResponse,
 } from './types';
 import type { Compresion } from './utils/compresion';
 
@@ -1723,3 +1730,99 @@ export async function eliminarMaquina(id: number): Promise<{ message: string }> 
   return handleResponse(res);
 }
 
+// ── Consulta Pública SIQROO ────────────────────────────────────────
+
+export async function getConsultas(params: {
+  codigo_acceso?:   string;
+  filtro_busqueda?: string;
+  nombre_completo?: string;
+  busqueda?:        string;
+  /** Código de oficina — texto, igual que la columna real (no es un id numérico). */
+  oficina?:         string;
+  page?:            number;
+  per_page?:        number;
+} = {}): Promise<ConsultasResponse> {
+  const qs = new URLSearchParams();
+  if (params.codigo_acceso)   qs.set('codigo_acceso',   params.codigo_acceso);
+  if (params.filtro_busqueda) qs.set('filtro_busqueda', params.filtro_busqueda);
+  if (params.nombre_completo) qs.set('nombre_completo', params.nombre_completo);
+  if (params.busqueda)        qs.set('busqueda',        params.busqueda);
+  if (params.oficina)         qs.set('oficina',         params.oficina);
+  if (params.page)            qs.set('page',            String(params.page));
+  if (params.per_page)        qs.set('per_page',        String(params.per_page));
+
+  const res = await fetch(`${BASE}/consultas?${qs}`, { headers: authHeaders() });
+  return handleResponse<ConsultasResponse>(res);
+}
+
+// ── Catálogo de Vigilancia y Alertas ────────────────────────────────
+
+export async function getSujetosVigilados(params: {
+  activo?: boolean;
+  tipo?:   TipoSujetoVigilado;
+  search?: string;
+} = {}): Promise<{ data: SujetoVigilado[] }> {
+  const qs = new URLSearchParams();
+  if (params.activo !== undefined) qs.set('activo', String(params.activo));
+  if (params.tipo)   qs.set('tipo', params.tipo);
+  if (params.search) qs.set('search', params.search);
+
+  const res = await fetch(`${BASE}/consultas/vigilancia?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function crearSujetoVigilado(payload: CrearSujetoVigiladoPayload): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function editarSujetoVigilado(id: number, payload: EditarSujetoVigiladoPayload): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/${id}`, {
+    method:  'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function cambiarEstadoSujetoVigilado(id: number, activo: boolean): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/${id}/activo`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ activo }),
+  });
+  return handleResponse(res);
+}
+
+export async function getAlertasConsulta(params: {
+  desde?:              string;
+  hasta?:              string;
+  sujeto_vigilado_id?: number;
+  leido?:              boolean;
+  page?:               number;
+  per_page?:           number;
+} = {}): Promise<AlertasConsultaResponse> {
+  const qs = new URLSearchParams();
+  if (params.desde)                qs.set('desde', params.desde);
+  if (params.hasta)                qs.set('hasta', params.hasta);
+  if (params.sujeto_vigilado_id)   qs.set('sujeto_vigilado_id', String(params.sujeto_vigilado_id));
+  if (params.leido !== undefined)  qs.set('leido', String(params.leido));
+  if (params.page)                 qs.set('page', String(params.page));
+  if (params.per_page)             qs.set('per_page', String(params.per_page));
+
+  const res = await fetch(`${BASE}/consultas/vigilancia/alertas?${qs}`, { headers: authHeaders() });
+  return handleResponse<AlertasConsultaResponse>(res);
+}
+
+export async function marcarAlertaLeida(id: number, leido: boolean = true): Promise<{ data: AlertaConsultaConDetalle; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/alertas/${id}/leido`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ leido }),
+  });
+  return handleResponse(res);
+}

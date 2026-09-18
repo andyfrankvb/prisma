@@ -33,6 +33,7 @@ import productividadRouter   from './modules/productividad/productividad.routes'
 import programasSocialesRouter from './modules/programas-sociales/programas-sociales.routes';
 import cargaDatosRouter      from './modules/carga-datos/carga-datos.routes';
 import maquinasRouter        from './modules/maquinas/maquinas.routes';
+import consultasRouter       from './modules/consultas/consultas.routes';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { startNotificationService } from './notifications';
@@ -174,6 +175,11 @@ app.use('/api/v1/recursos',       recursosRouter);
 // `authenticate` de aquel las alcanzaba y respondían «Token requerido» — que es
 // justo el aviso del comentario de arriba, cumpliéndose.
 app.use('/api/v1/correspondencia', correspondenciaRouter);
+// Consultas también va aquí arriba por lo mismo: `POST /consultas` la llama el
+// kiosco de Consulta Pública (SIQROO) sin sesión — montada después de
+// `oficiosRouter` respondía «Token requerido» aunque su propio router no pide
+// autenticación para esa ruta.
+app.use('/api/v1/consultas',      consultasRouter);
 app.use('/api/v1',                oficiosRouter);
 app.use('/api/v1/usuarios',       usuariosRouter);
 app.use('/api/v1/files',          filesRouter);

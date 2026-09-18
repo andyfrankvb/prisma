@@ -18,7 +18,7 @@ import { wsServer }              from './ws.server';
 import { startDeadlineScheduler } from './deadline.scheduler';
 import { logger }                 from '../utils/logger';
 
-export { dispatch, notifyVoboAprobado, notifyDeadline1Day, notifyDeadlineOverdue }
+export { dispatch, notifyVoboAprobado, notifyDeadline1Day, notifyDeadlineOverdue, notifyAlertaVigilancia }
   from './notification.dispatcher';
 
 export { wsServer } from './ws.server';
