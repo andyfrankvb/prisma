@@ -41,3 +41,7 @@ db/VISTAS_SUPERSET/
 deploy_actos/
 deploy_actos.zip
 deploy_satq/
+
+# Material de referencia de reportes (PDF/Excel/capturas con datos reales) — nunca a git
+reportes/
+img/
