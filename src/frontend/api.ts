@@ -24,6 +24,27 @@ import type {
   MesEstimacion,
   CargaDatosLogFila,
   IntegracionSiqrooConfig,
+  ResumenProductividad,
+  BandejaResumen,
+  TerminadosResumen,
+  ProductividadDetalleResponse,
+  RezagoResumen,
+  ProgramaCatalogoFila,
+  ResumenProgramasSociales,
+  BandejaProgramaResumen,
+  TerminadosProgramaResumen,
+  DineroProgramaResumen,
+  RezagoProgramaResumen,
+  ProgramasDetalleResponse,
+  Maquina,
+  MaquinaPayload,
+  ConsultasResponse,
+  SujetoVigilado,
+  TipoSujetoVigilado,
+  CrearSujetoVigiladoPayload,
+  EditarSujetoVigiladoPayload,
+  AlertaConsultaConDetalle,
+  AlertasConsultaResponse,
 } from './types';
 import type { Compresion } from './utils/compresion';
 
@@ -1460,6 +1481,8 @@ export async function getFreDetalle(params: {
 export interface ActosFiltros {
   anio_desde?:   number;
   anio_hasta?:   number;
+  mes_desde?:    number;
+  mes_hasta?:    number;
   tipo_tramite?: string;
   acto?:         string;
   oficina?:      string;
@@ -1471,6 +1494,8 @@ function actosQueryString(params: ActosFiltros): URLSearchParams {
   const qs = new URLSearchParams();
   if (params.anio_desde)   qs.set('anio_desde', String(params.anio_desde));
   if (params.anio_hasta)   qs.set('anio_hasta', String(params.anio_hasta));
+  if (params.mes_desde)    qs.set('mes_desde', String(params.mes_desde));
+  if (params.mes_hasta)    qs.set('mes_hasta', String(params.mes_hasta));
   if (params.tipo_tramite) qs.set('tipo_tramite', params.tipo_tramite);
   if (params.acto)         qs.set('acto', params.acto);
   if (params.oficina)      qs.set('oficina', params.oficina);
@@ -1510,6 +1535,139 @@ export async function getActosDetalle(params: ActosFiltros & { page?: number; li
   if (params.limit) qs.set('limit', String(params.limit));
   const res = await fetch(`${BASE}/actos/detalle?${qs}`, { headers: authHeaders() });
   return handleResponse<ActoDetalleResponse>(res);
+}
+
+// ── Productividad por Delegación ─────────────────────────────────
+
+export interface ProductividadFiltros {
+  delegacion?: string;
+  desde?:      string;   // YYYY-MM-DD
+  hasta?:      string;   // YYYY-MM-DD
+  categoria?:  'certificacion' | 'inscripcion';
+}
+
+function productividadQueryString(params: ProductividadFiltros): URLSearchParams {
+  const qs = new URLSearchParams();
+  if (params.delegacion) qs.set('delegacion', params.delegacion);
+  if (params.desde)      qs.set('desde', params.desde);
+  if (params.hasta)      qs.set('hasta', params.hasta);
+  if (params.categoria)  qs.set('categoria', params.categoria);
+  return qs;
+}
+
+export async function getProductividadResumen(params: ProductividadFiltros): Promise<ResumenProductividad> {
+  const res = await fetch(`${BASE}/productividad/resumen?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProductividadBandeja(params: ProductividadFiltros): Promise<BandejaResumen> {
+  const res = await fetch(`${BASE}/productividad/bandeja?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProductividadTerminados(params: ProductividadFiltros): Promise<TerminadosResumen> {
+  const res = await fetch(`${BASE}/productividad/terminados?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProductividadDelegaciones(): Promise<{ data: string[] }> {
+  const res = await fetch(`${BASE}/productividad/delegaciones`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export interface ProductividadDetalleFiltros extends ProductividadFiltros {
+  fuente:      'ingresos' | 'bandeja' | 'terminados';
+  antiguedad?: '0-3' | '3-6' | '6-12' | 'mas-1-anio';  // solo bandeja
+  rezago_tipo?: 'mismo_mes' | 'rezago';                 // solo terminados
+  page?:  number;
+  limit?: number;
+}
+
+export async function getProductividadDetalle(params: ProductividadDetalleFiltros): Promise<ProductividadDetalleResponse> {
+  const qs = productividadQueryString(params);
+  qs.set('fuente', params.fuente);
+  if (params.antiguedad)  qs.set('antiguedad', params.antiguedad);
+  if (params.rezago_tipo) qs.set('rezago_tipo', params.rezago_tipo);
+  if (params.page)  qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${BASE}/productividad/detalle?${qs}`, { headers: authHeaders() });
+  return handleResponse<ProductividadDetalleResponse>(res);
+}
+
+export async function getProductividadRezago(params: ProductividadFiltros): Promise<RezagoResumen> {
+  const res = await fetch(`${BASE}/productividad/rezago?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse<RezagoResumen>(res);
+}
+
+// ── Programas Sociales ────────────────────────────────────────────
+
+export interface ProgramasSocialesFiltros {
+  programa?:   string;
+  delegacion?: string;
+  desde?:      string;   // YYYY-MM-DD
+  hasta?:      string;   // YYYY-MM-DD
+  categoria?:  'certificacion' | 'inscripcion';
+}
+
+function programasSocialesQueryString(params: ProgramasSocialesFiltros): URLSearchParams {
+  const qs = new URLSearchParams();
+  if (params.programa)   qs.set('programa', params.programa);
+  if (params.delegacion) qs.set('delegacion', params.delegacion);
+  if (params.desde)      qs.set('desde', params.desde);
+  if (params.hasta)      qs.set('hasta', params.hasta);
+  if (params.categoria)  qs.set('categoria', params.categoria);
+  return qs;
+}
+
+export async function getProgramasSocialesCatalogo(): Promise<{ data: ProgramaCatalogoFila[] }> {
+  const res = await fetch(`${BASE}/programas-sociales/catalogo`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProgramasSocialesResumen(params: ProgramasSocialesFiltros): Promise<ResumenProgramasSociales> {
+  const res = await fetch(`${BASE}/programas-sociales/resumen?${programasSocialesQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProgramasSocialesBandeja(params: ProgramasSocialesFiltros): Promise<BandejaProgramaResumen> {
+  const res = await fetch(`${BASE}/programas-sociales/bandeja?${programasSocialesQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProgramasSocialesTerminados(params: ProgramasSocialesFiltros): Promise<TerminadosProgramaResumen> {
+  const res = await fetch(`${BASE}/programas-sociales/terminados?${programasSocialesQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProgramasSocialesDinero(params: ProgramasSocialesFiltros): Promise<DineroProgramaResumen> {
+  const res = await fetch(`${BASE}/programas-sociales/dinero?${programasSocialesQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getProgramasSocialesRezago(params: ProgramasSocialesFiltros): Promise<RezagoProgramaResumen> {
+  const res = await fetch(`${BASE}/programas-sociales/rezago?${programasSocialesQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export interface ProgramasSocialesDetalleFiltros extends ProgramasSocialesFiltros {
+  fuente:                 'ingresos' | 'bandeja' | 'terminados' | 'dinero';
+  antiguedad?:             '0-3' | '3-6' | '6-12' | 'mas-1-anio';  // solo bandeja
+  rezago_tipo?:            'mismo_mes' | 'rezago';                 // solo terminados
+  estatus_conciliacion?:   string;                                 // solo dinero
+  page?:  number;
+  limit?: number;
+}
+
+export async function getProgramasSocialesDetalle(params: ProgramasSocialesDetalleFiltros): Promise<ProgramasDetalleResponse> {
+  const qs = programasSocialesQueryString(params);
+  qs.set('fuente', params.fuente);
+  if (params.antiguedad)            qs.set('antiguedad', params.antiguedad);
+  if (params.rezago_tipo)           qs.set('rezago_tipo', params.rezago_tipo);
+  if (params.estatus_conciliacion)  qs.set('estatus_conciliacion', params.estatus_conciliacion);
+  if (params.page)  qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${BASE}/programas-sociales/detalle?${qs}`, { headers: authHeaders() });
+  return handleResponse<ProgramasDetalleResponse>(res);
 }
 
 // ── Carga de Datos (Reportes) ───────────────────────────────────
@@ -1568,5 +1726,137 @@ export async function getCargaDatosLog(params: { tipo?: string; page?: number; l
   if (params.page)  qs.set('page', String(params.page));
   if (params.limit) qs.set('limit', String(params.limit));
   const res = await fetch(`${BASE}/carga-datos/log?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+// ── Máquinas ─────────────────────────────────────────────────────
+
+export async function getMaquinas(params: { search?: string; libre?: boolean } = {}): Promise<{ data: Maquina[] }> {
+  const qs = new URLSearchParams();
+  if (params.search)          qs.set('search', params.search);
+  if (params.libre !== undefined) qs.set('libre', String(params.libre));
+  const res = await fetch(`${BASE}/maquinas?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function crearMaquina(payload: MaquinaPayload): Promise<{ data: Maquina; message: string }> {
+  const res = await fetch(`${BASE}/maquinas`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function editarMaquina(id: number, payload: MaquinaPayload): Promise<{ data: Maquina; message: string }> {
+  const res = await fetch(`${BASE}/maquinas/${id}`, {
+    method:  'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function eliminarMaquina(id: number): Promise<{ message: string }> {
+  const res = await fetch(`${BASE}/maquinas/${id}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+// ── Consulta Pública SIQROO ────────────────────────────────────────
+
+export async function getConsultas(params: {
+  codigo_acceso?:   string;
+  filtro_busqueda?: string;
+  nombre_completo?: string;
+  busqueda?:        string;
+  /** Código de oficina — texto, igual que la columna real (no es un id numérico). */
+  oficina?:         string;
+  page?:            number;
+  per_page?:        number;
+} = {}): Promise<ConsultasResponse> {
+  const qs = new URLSearchParams();
+  if (params.codigo_acceso)   qs.set('codigo_acceso',   params.codigo_acceso);
+  if (params.filtro_busqueda) qs.set('filtro_busqueda', params.filtro_busqueda);
+  if (params.nombre_completo) qs.set('nombre_completo', params.nombre_completo);
+  if (params.busqueda)        qs.set('busqueda',        params.busqueda);
+  if (params.oficina)         qs.set('oficina',         params.oficina);
+  if (params.page)            qs.set('page',            String(params.page));
+  if (params.per_page)        qs.set('per_page',        String(params.per_page));
+
+  const res = await fetch(`${BASE}/consultas?${qs}`, { headers: authHeaders() });
+  return handleResponse<ConsultasResponse>(res);
+}
+
+// ── Catálogo de Vigilancia y Alertas ────────────────────────────────
+
+export async function getSujetosVigilados(params: {
+  activo?: boolean;
+  tipo?:   TipoSujetoVigilado;
+  search?: string;
+} = {}): Promise<{ data: SujetoVigilado[] }> {
+  const qs = new URLSearchParams();
+  if (params.activo !== undefined) qs.set('activo', String(params.activo));
+  if (params.tipo)   qs.set('tipo', params.tipo);
+  if (params.search) qs.set('search', params.search);
+
+  const res = await fetch(`${BASE}/consultas/vigilancia?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function crearSujetoVigilado(payload: CrearSujetoVigiladoPayload): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function editarSujetoVigilado(id: number, payload: EditarSujetoVigiladoPayload): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/${id}`, {
+    method:  'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
+  return handleResponse(res);
+}
+
+export async function cambiarEstadoSujetoVigilado(id: number, activo: boolean): Promise<{ data: SujetoVigilado; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/${id}/activo`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ activo }),
+  });
+  return handleResponse(res);
+}
+
+export async function getAlertasConsulta(params: {
+  desde?:              string;
+  hasta?:              string;
+  sujeto_vigilado_id?: number;
+  leido?:              boolean;
+  page?:               number;
+  per_page?:           number;
+} = {}): Promise<AlertasConsultaResponse> {
+  const qs = new URLSearchParams();
+  if (params.desde)                qs.set('desde', params.desde);
+  if (params.hasta)                qs.set('hasta', params.hasta);
+  if (params.sujeto_vigilado_id)   qs.set('sujeto_vigilado_id', String(params.sujeto_vigilado_id));
+  if (params.leido !== undefined)  qs.set('leido', String(params.leido));
+  if (params.page)                 qs.set('page', String(params.page));
+  if (params.per_page)             qs.set('per_page', String(params.per_page));
+
+  const res = await fetch(`${BASE}/consultas/vigilancia/alertas?${qs}`, { headers: authHeaders() });
+  return handleResponse<AlertasConsultaResponse>(res);
+}
+
+export async function marcarAlertaLeida(id: number, leido: boolean = true): Promise<{ data: AlertaConsultaConDetalle; message: string }> {
+  const res = await fetch(`${BASE}/consultas/vigilancia/alertas/${id}/leido`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ leido }),
+  });
   return handleResponse(res);
 }

@@ -62,11 +62,18 @@ async function requireModuloReportes(req: Request): Promise<void> {
 
 function aplicarFiltros(req: Request, incluirRangoAnio: boolean) {
   let q = db('actos_rpp');
-  const { anio_desde, anio_hasta, tipo_tramite, acto, oficina, estatus_acto, es_acervo } = req.query;
+  const { anio_desde, anio_hasta, mes_desde, mes_hasta, tipo_tramite, acto, oficina, estatus_acto, es_acervo } = req.query;
   if (incluirRangoAnio) {
     if (anio_desde) q = q.andWhere('anio', '>=', Number(anio_desde));
     if (anio_hasta) q = q.andWhere('anio', '<=', Number(anio_hasta));
   }
+  // Mes de fecha_registro — fuera del "incluirRangoAnio": a diferencia del rango de
+  // año (que el comparativo/tendencia ignoran a propósito para siempre mostrar el
+  // año más reciente), si alguien filtra "marzo" espera que el comparativo y los
+  // KPIs también sean solo de marzo. Es independiente del año elegido: "mayo a
+  // agosto" filtra esos meses en cualquier año, no un rango continuo de fechas.
+  if (mes_desde) q = q.andWhereRaw('EXTRACT(MONTH FROM fecha_registro) >= ?', [Number(mes_desde)]);
+  if (mes_hasta) q = q.andWhereRaw('EXTRACT(MONTH FROM fecha_registro) <= ?', [Number(mes_hasta)]);
   if (tipo_tramite) q = q.andWhere('tipo_tramite', tipo_tramite as string);
   // "acto" acepta uno o varios códigos separados por coma (filtro de selección múltiple).
   const actos = acto ? String(acto).split(',').map((a) => a.trim()).filter(Boolean) : [];
@@ -89,6 +96,8 @@ export async function getResumen(
 
     const anioDesde   = req.query.anio_desde   ? Number(req.query.anio_desde) : null;
     const anioHasta   = req.query.anio_hasta   ? Number(req.query.anio_hasta) : null;
+    const mesDesde    = req.query.mes_desde    ? Number(req.query.mes_desde) : null;
+    const mesHasta    = req.query.mes_hasta    ? Number(req.query.mes_hasta) : null;
     const tipoTramite = (req.query.tipo_tramite as string) || null;
     const acto        = (req.query.acto as string) || null;
     const oficina     = (req.query.oficina as string) || null;
@@ -199,7 +208,7 @@ export async function getResumen(
     }
 
     const resumen: ResumenActos = {
-      filtros: { anio_desde: anioDesde, anio_hasta: anioHasta, tipo_tramite: tipoTramite, acto, oficina, estatus_acto: estatusActo },
+      filtros: { anio_desde: anioDesde, anio_hasta: anioHasta, mes_desde: mesDesde, mes_hasta: mesHasta, tipo_tramite: tipoTramite, acto, oficina, estatus_acto: estatusActo },
       total_actos:  totalNum,
       actos_acervo: Number(actos_acervo),
       pct_acervo:   totalNum > 0 ? Math.round((Number(actos_acervo) / totalNum) * 1000) / 10 : 0,

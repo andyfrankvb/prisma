@@ -15,7 +15,8 @@
     "test:coverage": "vitest run --coverage",
     "db:check": "node db/preflight.mjs",
     "db:migrate": "node db/migrate.mjs",
-    "db:seed:admin": "node db/seed-admin.mjs"
+    "db:seed:admin": "node db/seed-admin.mjs",
+    "db:migrate:consultas": "node db/migrate-consultas-sid.mjs"
   },
   "dependencies": {
     "bcrypt": "5.1.1",

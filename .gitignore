@@ -33,3 +33,15 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# Dumps de BD y paquetes de despliegue con datos reales — nunca a git
+# (pueden contener PII de ciudadanos y son demasiado grandes para el historial).
+bd/
+db/VISTAS_SUPERSET/
+deploy_actos/
+deploy_actos.zip
+deploy_satq/
+
+# Material de referencia de reportes (PDF/Excel/capturas con datos reales) — nunca a git
+reportes/
+img/

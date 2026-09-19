@@ -54,6 +54,24 @@ const REPORTES: ReporteCfg[] = [
     color:       theme.colors.charcoal,
     disponible:  true,
   },
+  {
+    clave:       'productividad',
+    ruta:        '/dashboard/reportes/productividad',
+    titulo:      'Productividad por Delegación',
+    descripcion: 'Cuánto entra, cuánto se trabaja y cuánto queda pendiente, por delegación.',
+    icon:        'personas',
+    color:       theme.colors.primaryLight,
+    disponible:  true,
+  },
+  {
+    clave:       'programas_sociales',
+    ruta:        '/dashboard/reportes/programas-sociales',
+    titulo:      'Programas Sociales',
+    descripcion: 'INFONAVIT/FOVISSSTE, INSUS, AGEPROO, SEDETUS y el resto — dinero (SATQ) y productividad (RPP) por programa.',
+    icon:        'edificio',
+    color:       theme.colors.gold,
+    disponible:  true,
+  },
 ];
 
 export const SeleccionReporte: React.FC = () => {

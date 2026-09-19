@@ -634,6 +634,8 @@ export interface ResumenActos {
   filtros: {
     anio_desde:   number | null;
     anio_hasta:   number | null;
+    mes_desde:    number | null;
+    mes_hasta:    number | null;
     tipo_tramite: string | null;
     acto:         string | null;
     oficina:      string | null;
@@ -674,6 +676,210 @@ export interface ActoDetalleFila {
 
 export interface ActoDetalleResponse {
   data: ActoDetalleFila[];
+  meta: { total: number; page: number; limit: number };
+}
+
+// ── Productividad por Delegación ─────────────────────────────────
+
+export interface ProductividadDelegacionResumen {
+  delegacion:              string;
+  ingresados:              number;
+  terminados:              number;
+  firmadas:                number;
+  rechazadas:              number;
+  dias_atencion_promedio:  number | null;
+  pendiente_total:         number;
+}
+
+export interface ResumenProductividad {
+  filtros: {
+    delegacion: string | null;
+    desde:      string | null;
+    hasta:      string | null;
+    categoria:  'certificacion' | 'inscripcion' | null;
+  };
+  data: ProductividadDelegacionResumen[];
+}
+
+export interface ProductividadMensualFila {
+  anio:     number;
+  mes:      number;
+  cantidad: number;
+}
+
+export interface DistribucionFila {
+  etiqueta: string;
+  cantidad: number;
+}
+
+export interface BandejaResumen {
+  total:      number;
+  por_mes:    ProductividadMensualFila[];
+  por_etapa:  DistribucionFila[];
+  por_tipo:   DistribucionFila[];
+  por_origen: DistribucionFila[];
+}
+
+export interface TerminadosResumen {
+  total:                   number;
+  dias_atencion_promedio:  number | null;
+  por_mes:                 ProductividadMensualFila[];
+  por_estatus:             DistribucionFila[];
+  por_origen:              DistribucionFila[];
+  por_tipo_solicitud:      DistribucionFila[];
+}
+
+export interface ProductividadDetalleFila {
+  id:                 number;
+  nci:                string;
+  fecha_ingreso:      string;
+  fecha_firma?:       string | null;
+  delegacion:         string;
+  acto?:              string | null;
+  des_acto?:          string | null;
+  etapa?:             string | null;
+  estatus?:           string | null;
+  estatus_solicitud?: string | null;
+  dias_en_bandeja?:   number | null;
+  dias_atencion?:     number | null;
+  origen?:            string | null;
+  notario?:           string | null;
+  no_notaria?:        string | null;
+  solicitante?:       string | null;
+  folio?:             string | null;
+  fre?:               string | null;
+  oficialia?:         string | null;
+  asignado_a?:        string | null;
+}
+
+export interface ProductividadDetalleResponse {
+  data: ProductividadDetalleFila[];
+  meta: { total: number; page: number; limit: number };
+}
+
+export interface RezagoBucket {
+  bucket:        string;
+  certificacion: number;
+  inscripcion:   number;
+  total:         number;
+}
+
+export interface AvanceRezago {
+  mismo_mes:               number;
+  de_rezago:               number;
+  mismo_mes_pct:           number;
+  de_rezago_pct:           number;
+  mismo_mes_certificacion: number;
+  mismo_mes_inscripcion:   number;
+  de_rezago_certificacion: number;
+  de_rezago_inscripcion:   number;
+}
+
+export interface RezagoResumen {
+  antiguedad: RezagoBucket[];
+  avance:     AvanceRezago;
+}
+
+// ── Programas Sociales ───────────────────────────────────────────
+
+export interface ProgramaCatalogoFila {
+  programa:   string;
+  tramites:   number;
+  pendientes: number;
+  recaudado:  number;
+}
+
+export interface ProgramaResumenFila {
+  programa:                string;
+  ingresados:              number;
+  terminados:              number;
+  firmadas:                number;
+  rechazadas:              number;
+  dias_atencion_promedio:  number | null;
+  pendiente_total:         number;
+  recaudado:               number;
+  subsidio:                number;
+  pct_conciliado:          number;
+}
+
+export interface ResumenProgramasSociales {
+  filtros: {
+    programa:   string | null;
+    delegacion: string | null;
+    desde:      string | null;
+    hasta:      string | null;
+    categoria:  'certificacion' | 'inscripcion' | null;
+  };
+  data: ProgramaResumenFila[];
+}
+
+export interface BandejaProgramaResumen {
+  total:      number;
+  por_mes:    ProductividadMensualFila[];
+  por_etapa:  DistribucionFila[];
+  por_tipo:   DistribucionFila[];
+  por_origen: DistribucionFila[];
+}
+
+export interface TerminadosProgramaResumen {
+  total:                   number;
+  dias_atencion_promedio:  number | null;
+  por_mes:                 ProductividadMensualFila[];
+  por_estatus:             DistribucionFila[];
+  por_origen:              DistribucionFila[];
+  por_tipo_solicitud:      DistribucionFila[];
+}
+
+export interface SerieMensualMontoFila { anio: number; mes: number; monto: number }
+export interface DistribucionMontoFila { etiqueta: string; cantidad: number; monto: number }
+
+export interface DineroProgramaResumen {
+  total_lineas:              number;
+  recaudado:                 number;
+  subsidio:                  number;
+  pct_conciliado:            number;
+  por_mes:                   SerieMensualMontoFila[];
+  por_estatus_conciliacion:  DistribucionMontoFila[];
+}
+
+export interface RezagoProgramaResumen {
+  antiguedad: RezagoBucket[];
+  avance:     AvanceRezago;
+}
+
+export interface ProgramasDetalleFila {
+  id:                     number;
+  nci?:                   string;
+  fecha_ingreso?:         string;
+  fecha_firma?:           string | null;
+  delegacion?:            string | null;
+  acto?:                  string | null;
+  des_acto?:              string | null;
+  etapa?:                 string | null;
+  estatus?:               string | null;
+  estatus_solicitud?:     string | null;
+  dias_en_bandeja?:       number | null;
+  dias_atencion?:         number | null;
+  origen?:                string | null;
+  notario?:               string | null;
+  no_notaria?:            string | null;
+  solicitante?:           string | null;
+  folio?:                 string | null;
+  fre?:                   string | null;
+  oficialia?:             string | null;
+  asignado_a?:            string | null;
+  referencia?:            string;
+  no_operacion?:          string;
+  fecha_contable?:        string;
+  municipio?:             string;
+  concepto?:              string;
+  importe?:               number;
+  es_subsidio?:           boolean;
+  estatus_conciliacion?:  string;
+}
+
+export interface ProgramasDetalleResponse {
+  data: ProgramasDetalleFila[];
   meta: { total: number; page: number; limit: number };
 }
 
@@ -721,4 +927,103 @@ export interface IntegracionSiqrooConfig {
   ultima_sincronizacion: string | null;
   ultimo_estado:         string | null;
   ultimo_detalle:        string | null;
+}
+
+// ── Máquinas ─────────────────────────────────────────────────────
+
+export interface Maquina {
+  id_maquina:     number;
+  numero_maquina: string;
+  oficina:        string;
+  libre:          boolean;
+  fecha_registro: string;
+}
+
+/** Alta y edición usan el mismo payload — la edición reemplaza el recurso completo. */
+export interface MaquinaPayload {
+  numero_maquina: string;
+  oficina:        string;
+  libre:          boolean;
+}
+
+// ── Consulta Pública SIQROO ────────────────────────────────────────
+
+/**
+ * Una fila del histórico de búsquedas — migrado desde SID (`consulta_publica`).
+ * Esquema limpio: sin `nombres`/`apellido` (redundantes con `nombre_completo`),
+ * sin `usuario`/`tramite` (redundantes con `tipo_usuario`) ni `fecha_registro`
+ * (duplicado de `hora_busqueda` con desfase de huso horario) — ver
+ * consultas.types.ts en el backend para el detalle verificado contra la BD real.
+ */
+export interface Consulta {
+  id:              number;
+  /** Id del registro en SID, cuando esta fila vino de la migración de datos. `null` si nació en PRISMA. */
+  origen_id:       number | null;
+  nombre_completo: string;
+  codigo_acceso:   string;
+  busqueda:        Record<string, string | number | boolean | null>;
+  filtro_busqueda: string | null;
+  tipo_usuario:    string | null;
+  /** Código de oficina — texto, igual que la columna real (no es un id numérico). */
+  oficina:         string | null;
+  folio:           string | null;
+  estado_contador: string | null;
+  hora_busqueda:   string;
+}
+
+export interface ConsultasMeta {
+  current_page: number;
+  per_page:     number;
+  total:        number;
+  last_page:    number;
+  from:         number | null;
+  to:           number | null;
+}
+
+export interface ConsultasResponse {
+  data: Consulta[];
+  meta: ConsultasMeta;
+}
+
+// ── Catálogo de Vigilancia y Alertas ─────────────────────────────
+
+export type TipoSujetoVigilado = 'PERSONA' | 'EMPRESA';
+
+export interface SujetoVigilado {
+  id:                  number;
+  nombre_razon_social: string;
+  nombre_normalizado:  string;
+  tipo:                TipoSujetoVigilado;
+  activo:              boolean;
+  creado_por:          number;
+  fecha_creacion:      string;
+}
+
+export interface CrearSujetoVigiladoPayload {
+  nombre_razon_social: string;
+  tipo:                TipoSujetoVigilado;
+}
+
+export interface EditarSujetoVigiladoPayload {
+  nombre_razon_social?: string;
+  tipo?:                TipoSujetoVigilado;
+}
+
+export interface AlertaConsultaConDetalle {
+  id:                         number;
+  consulta_id:                number;
+  sujeto_vigilado_id:         number;
+  coincidencia_detectada:     string;
+  fecha_alerta:               string;
+  leido:                      boolean;
+  sujeto_nombre_razon_social: string;
+  sujeto_tipo:                TipoSujetoVigilado;
+  consulta_nombre_completo:   string;
+  consulta_codigo_acceso:     string;
+  consulta_hora_busqueda:     string;
+}
+
+export interface AlertasConsultaResponse {
+  data: AlertaConsultaConDetalle[];
+  meta: ConsultasMeta;
 }

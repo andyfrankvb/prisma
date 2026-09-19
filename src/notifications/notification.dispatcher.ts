@@ -323,3 +323,40 @@ export async function notifyDelegatorio(payload: {
     recipients:         recipients as any,
   });
 }
+
+// ── Notificaciones de Vigilancia de Consultas ────────────────────────────────
+
+/**
+ * Catálogo de Vigilancia: notifica cuando una búsqueda de Consulta Pública
+ * coincide con un sujeto vigilado activo.
+ *
+ * Destinatarios: SUPERADMIN y DIRECTOR — mismo criterio de "Alta Dirección"
+ * que ya usa el Módulo de Reportes. Todavía no existe un módulo/permiso
+ * dedicado de vigilancia; ajustar este filtro si se define uno.
+ */
+export async function notifyAlertaVigilancia(payload: {
+  alerta_id:   number;
+  sujeto:      string;
+  consulta_id: number;
+}): Promise<void> {
+  const destinatarios: { user_id: number }[] = await db('usuarios')
+    .whereIn('rol', ['SUPERADMIN', 'DIRECTOR'])
+    .andWhere('activo', true)
+    .select('id as user_id');
+
+  await Promise.allSettled(
+    destinatarios.map((d) =>
+      sendInApp({
+        user_id:              d.user_id,
+        type:                 'ALERTA_VIGILANCIA',
+        title:                'Alerta de vigilancia',
+        body:                 `Se detectó una búsqueda relacionada con "${payload.sujeto}" en Consulta Pública.`,
+        alerta_vigilancia_id: payload.alerta_id,
+        read:                 false,
+        created_at:           new Date(),
+      }).catch((err) =>
+        logger.error({ err, user_id: d.user_id, alerta_id: payload.alerta_id }, 'ALERTA_VIGILANCIA in-app falló'),
+      ),
+    ),
+  );
+}

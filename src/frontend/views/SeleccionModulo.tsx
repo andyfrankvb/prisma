@@ -8,7 +8,7 @@
  * Si tiene 0 módulos → muestra mensaje de sin acceso.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Icono } from '../components/Icono';
 import type { NombreIcono } from '../components/Icono';
 import { useNavigate } from 'react-router-dom';
@@ -84,6 +84,9 @@ function getRutaModulo(
     case 'carga_datos_reportes':
       return '/dashboard/carga-datos';
 
+    case 'consultas':
+      return '/consultas';
+
     default:
       return '/dashboard/gestion';
   }
@@ -102,10 +105,42 @@ const MODULO_CFG: Record<string, { icon: NombreIcono; color: string; desc: strin
   catalogos:            { icon: 'lista',      color: theme.colors.goldLight,   desc: 'Depurar dependencias, sub-unidades, remitentes y correos' },
   reportes_satq:        { icon: 'grafica',    color: theme.colors.gold,        desc: 'Reportes ejecutivos: conciliación de ingresos, FRE y más' },
   carga_datos_reportes: { icon: 'subir',      color: theme.colors.charcoal,    desc: 'Subir reportes SATQ, editar la estimación SEFIPLAN y configurar SIQROO' },
+  consultas:            { icon: 'buscar',     color: theme.colors.primaryLight, desc: 'Histórico de búsquedas de Consulta Pública SIQROO y catálogo de vigilancia' },
 };
 
 function getModuloCfg(clave: string) {
   return MODULO_CFG[clave] ?? { icon: 'lista', color: theme.colors.primary, desc: 'Módulo del sistema' };
+}
+
+// ── Categorías del menú ────────────────────────────────────────
+//
+// El menú creció de 2 a 9 módulos y va a seguir creciendo — una sola lista
+// plana ya no escala. Cada módulo nuevo entra a una de estas categorías (o
+// "Otros" si no se le asigna una); no hace falta tocar el layout para
+// agregarlo, solo este mapa.
+type CategoriaClave = 'trabajo_diario' | 'direccion_reportes' | 'administracion' | 'otros';
+
+const CATEGORIA_CFG: Record<CategoriaClave, { titulo: string; icon: NombreIcono; orden: number }> = {
+  trabajo_diario:     { titulo: 'Trabajo diario',       icon: 'documento', orden: 0 },
+  direccion_reportes: { titulo: 'Dirección y reportes', icon: 'grafica',   orden: 1 },
+  administracion:     { titulo: 'Administración',       icon: 'lista',     orden: 2 },
+  otros:              { titulo: 'Otros',                icon: 'lista',     orden: 3 },
+};
+
+const CATEGORIA_POR_MODULO: Record<string, CategoriaClave> = {
+  oficialia_partes:        'trabajo_diario',
+  supervision_eventos:     'trabajo_diario',
+  tramites_seguimiento:    'trabajo_diario',
+  tablero_direccion:       'direccion_reportes',
+  reportes_satq:           'direccion_reportes',
+  consultas:               'direccion_reportes',
+  catalogos:               'administracion',
+  control_correspondencia: 'administracion',
+  carga_datos_reportes:    'administracion',
+};
+
+function getCategoria(clave: string): CategoriaClave {
+  return CATEGORIA_POR_MODULO[clave] ?? 'otros';
 }
 
 // ── Component ─────────────────────────────────────────────────
@@ -120,6 +155,7 @@ export const SeleccionModulo: React.FC = () => {
   const [error,    setError]    = useState<string | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
   const [rolesFlujo, setRolesFlujo] = useState<string[]>([]);
+  const [busqueda, setBusqueda] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -192,6 +228,32 @@ export const SeleccionModulo: React.FC = () => {
     const ruta = getRutaModulo(modulo.clave, user.rol, user.unidad_tipo, rolesFlujo);
     navigate(ruta, { replace: true });
   };
+
+  // Agrupa por categoría y filtra por el buscador — en ese orden, para que
+  // buscar nunca mezcle módulos de categorías distintas bajo un mismo grupo.
+  const gruposFiltrados = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+    const filtrados = termino
+      ? modulos.filter((m) => {
+          const cfg = getModuloCfg(m.clave);
+          return m.nombre_display.toLowerCase().includes(termino)
+              || (m.descripcion ?? cfg.desc).toLowerCase().includes(termino);
+        })
+      : modulos;
+
+    const porCategoria = new Map<CategoriaClave, ModuloConEstado[]>();
+    for (const m of filtrados) {
+      const cat = getCategoria(m.clave);
+      if (!porCategoria.has(cat)) porCategoria.set(cat, []);
+      porCategoria.get(cat)!.push(m);
+    }
+
+    return Array.from(porCategoria.entries()).sort(
+      ([a], [b]) => CATEGORIA_CFG[a].orden - CATEGORIA_CFG[b].orden,
+    );
+  }, [modulos, busqueda]);
+
+  const totalFiltrados = gruposFiltrados.reduce((n, [, mods]) => n + mods.length, 0);
 
   // ── Loading ───────────────────────────────────────────────
 
@@ -277,13 +339,10 @@ export const SeleccionModulo: React.FC = () => {
 
   return (
     <div style={{
-      minHeight:      '100vh',
-      display:        'flex',
-      background:     FONDO_INSTITUCIONAL,
-      alignItems:     'center',
-      justifyContent: 'center',
-      fontFamily:     theme.font.family,
-      padding:        isMobile ? '16px 12px' : '24px',
+      minHeight:  '100vh',
+      background: FONDO_INSTITUCIONAL,
+      fontFamily: theme.font.family,
+      padding:    isMobile ? '20px 12px 32px' : '40px 24px',
     }}>
       <div style={{
         backgroundColor: theme.colors.background,
@@ -291,10 +350,11 @@ export const SeleccionModulo: React.FC = () => {
         boxShadow:       theme.shadow.lg,
         padding:         isMobile ? '24px 18px' : '40px',
         width:           '100%',
-        maxWidth:        '560px',
+        maxWidth:        '980px',
+        margin:          '0 auto',
       }}>
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           {/* El logotipo completo va sin disco detrás: es horizontal y trae su
               propio texto, así que el círculo lo recortaba y competía con él.
               El PNG es transparente y se apoya en el fondo claro de la tarjeta. */}
@@ -319,80 +379,134 @@ export const SeleccionModulo: React.FC = () => {
           </p>
         </div>
 
-        {/* Tarjetas de módulos */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-          {modulos.map((modulo) => {
-            const cfg       = getModuloCfg(modulo.clave);
-            const isLoading = selecting === modulo.clave;
-
-            return (
-              <button
-                key={modulo.id}
-                onClick={() => handleSeleccionar(modulo)}
-                disabled={!!selecting}
-                style={{
-                  display:         'flex',
-                  alignItems:      'center',
-                  gap:             '16px',
-                  padding:         '18px 20px',
-                  backgroundColor: isLoading ? '#FDE8EF' : '#fff',
-                  border:          `2px solid ${isLoading ? theme.colors.primary : theme.colors.border}`,
-                  borderRadius:    theme.radius.md,
-                  cursor:          selecting ? 'not-allowed' : 'pointer',
-                  textAlign:       'left',
-                  width:           '100%',
-                  transition:      'all 0.15s ease',
-                  boxShadow:       isLoading ? theme.shadow.sm : 'none',
-                  opacity:         selecting && !isLoading ? 0.5 : 1,
-                  fontFamily:      theme.font.family,
-                }}
-                onMouseEnter={(e) => {
-                  if (!selecting) {
-                    e.currentTarget.style.borderColor = cfg.color;
-                    e.currentTarget.style.boxShadow   = theme.shadow.sm;
-                    e.currentTarget.style.transform   = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!selecting) {
-                    e.currentTarget.style.borderColor = theme.colors.border;
-                    e.currentTarget.style.boxShadow   = 'none';
-                    e.currentTarget.style.transform   = 'none';
-                  }
-                }}
-              >
-                {/* Icono */}
-                <div style={{
-                  width:           '48px',
-                  height:          '48px',
-                  borderRadius:    '10px',
-                  backgroundColor: `${cfg.color}18`,
-                  display:         'flex',
-                  alignItems:      'center',
-                  justifyContent:  'center',
-                  flexShrink:      0,
-                }}>
-                  <Icono nombre={isLoading ? 'reloj' : cfg.icon} size={24} color={cfg.color} />
-                </div>
-
-                {/* Texto */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: theme.colors.textPrimary }}>
-                    {modulo.nombre_display}
-                  </p>
-                  <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: theme.colors.textSecondary, lineHeight: 1.4 }}>
-                    {modulo.descripcion ?? cfg.desc}
-                  </p>
-                </div>
-
-                {/* Flecha */}
-                <span style={{ color: cfg.color, fontSize: '1.2rem', flexShrink: 0 }}>
-                  {isLoading ? '' : '→'}
-                </span>
-              </button>
-            );
-          })}
+        {/* Buscador */}
+        <div style={{
+          display:      'flex',
+          alignItems:   'center',
+          gap:          '10px',
+          background:   '#fff',
+          border:       `1px solid ${theme.colors.border}`,
+          borderRadius: '999px',
+          padding:      '10px 16px',
+          marginBottom: '24px',
+          maxWidth:     '420px',
+          marginLeft:   'auto',
+          marginRight:  'auto',
+        }}>
+          <Icono nombre="buscar" size={16} color={theme.colors.textSecondary} />
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar módulo…"
+            style={{
+              border: 'none', outline: 'none', background: 'transparent',
+              fontSize: '0.85rem', fontFamily: theme.font.family, color: theme.colors.textPrimary,
+              width: '100%',
+            }}
+          />
+          {busqueda && (
+            <button
+              onClick={() => setBusqueda('')}
+              aria-label="Limpiar búsqueda"
+              style={{ background: 'none', border: 'none', color: theme.colors.textSecondary, cursor: 'pointer', fontSize: '1rem', padding: 0, lineHeight: 1 }}
+            >
+              ×
+            </button>
+          )}
         </div>
+
+        {/* Sin resultados */}
+        {totalFiltrados === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: theme.colors.textSecondary, fontSize: '0.85rem' }}>
+            Ningún módulo coincide con "{busqueda}".
+          </div>
+        )}
+
+        {/* Categorías con sus tarjetas de módulos */}
+        {gruposFiltrados.map(([cat, mods]) => (
+          <div key={cat} style={{ marginBottom: '28px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <Icono nombre={CATEGORIA_CFG[cat].icon} size={15} color={theme.colors.textSecondary} />
+              <h3 style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: theme.colors.textSecondary }}>
+                {CATEGORIA_CFG[cat].titulo}
+              </h3>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+              {mods.map((modulo) => {
+                const cfg       = getModuloCfg(modulo.clave);
+                const isLoading = selecting === modulo.clave;
+
+                return (
+                  <button
+                    key={modulo.id}
+                    onClick={() => handleSeleccionar(modulo)}
+                    disabled={!!selecting}
+                    style={{
+                      display:         'flex',
+                      alignItems:      'center',
+                      gap:             '14px',
+                      padding:         '16px 18px',
+                      backgroundColor: isLoading ? '#FDE8EF' : '#fff',
+                      border:          `2px solid ${isLoading ? theme.colors.primary : theme.colors.border}`,
+                      borderRadius:    theme.radius.md,
+                      cursor:          selecting ? 'not-allowed' : 'pointer',
+                      textAlign:       'left',
+                      width:           '100%',
+                      transition:      'all 0.15s ease',
+                      boxShadow:       isLoading ? theme.shadow.sm : 'none',
+                      opacity:         selecting && !isLoading ? 0.5 : 1,
+                      fontFamily:      theme.font.family,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!selecting) {
+                        e.currentTarget.style.borderColor = cfg.color;
+                        e.currentTarget.style.boxShadow   = theme.shadow.sm;
+                        e.currentTarget.style.transform   = 'translateY(-1px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!selecting) {
+                        e.currentTarget.style.borderColor = theme.colors.border;
+                        e.currentTarget.style.boxShadow   = 'none';
+                        e.currentTarget.style.transform   = 'none';
+                      }
+                    }}
+                  >
+                    {/* Icono */}
+                    <div style={{
+                      width:           '44px',
+                      height:          '44px',
+                      borderRadius:    '10px',
+                      backgroundColor: `${cfg.color}18`,
+                      display:         'flex',
+                      alignItems:      'center',
+                      justifyContent:  'center',
+                      flexShrink:      0,
+                    }}>
+                      <Icono nombre={isLoading ? 'reloj' : cfg.icon} size={22} color={cfg.color} />
+                    </div>
+
+                    {/* Texto */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem', color: theme.colors.textPrimary }}>
+                        {modulo.nombre_display}
+                      </p>
+                      <p style={{ margin: '3px 0 0', fontSize: '0.75rem', color: theme.colors.textSecondary, lineHeight: 1.4 }}>
+                        {modulo.descripcion ?? cfg.desc}
+                      </p>
+                    </div>
+
+                    {/* Flecha */}
+                    <span style={{ color: cfg.color, fontSize: '1.1rem', flexShrink: 0 }}>
+                      {isLoading ? '' : '→'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
         {/* Footer.
             Aquí viven las dos acciones que son de la CUENTA y no del trabajo. En

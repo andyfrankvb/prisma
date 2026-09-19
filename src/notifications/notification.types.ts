@@ -40,7 +40,9 @@ export type NotificationEventType =
   // El área lo trabajó y aprobó, pero la firma le toca a la Directora General
   | 'PASE_FIRMA_ENVIADO'
   | 'PASE_FIRMA_FIRMADO'
-  | 'PASE_FIRMA_DEVUELTO';
+  | 'PASE_FIRMA_DEVUELTO'
+  // Catálogo de Vigilancia: una búsqueda de Consulta Pública coincidió con un sujeto vigilado activo
+  | 'ALERTA_VIGILANCIA';
 
 export interface NotificationPayload {
   event:       NotificationEventType;
@@ -75,15 +77,16 @@ export interface EmailMessage {
 }
 
 export interface InAppMessage {
-  user_id:        number;
-  type:           NotificationEventType;
-  title:          string;
-  body:           string;
-  oficio_id?:     number;
-  folio?:         string;
-  tarea_id?:      number;
-  evento_titulo?: string;
-  tramite_id?:    number;
-  read:           boolean;
-  created_at:     Date;
+  user_id:              number;
+  type:                 NotificationEventType;
+  title:                string;
+  body:                 string;
+  oficio_id?:           number;
+  folio?:               string;
+  tarea_id?:            number;
+  evento_titulo?:       string;
+  tramite_id?:          number;
+  alerta_vigilancia_id?: number;
+  read:                 boolean;
+  created_at:           Date;
 }

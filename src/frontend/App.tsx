@@ -26,7 +26,12 @@ import { Reportes_SATQ }          from './views/Reportes_SATQ';
 import { SeleccionReporte }       from './views/SeleccionReporte';
 import { Reportes_FRE }           from './views/Reportes_FRE';
 import { Reportes_Actos }         from './views/Reportes_Actos';
+import { Reportes_Productividad } from './views/Reportes_Productividad';
+import { Reportes_ProgramasSociales } from './views/Reportes_ProgramasSociales';
 import { CargaDatos }             from './views/CargaDatos';
+import { Maquinas }               from './views/Maquinas';
+import { Consultas }              from './views/Consultas';
+import { VigilanciaConsultas }    from './views/VigilanciaConsultas';
 import { AppShell }           from './components/AppShell';
 
 import { theme } from './theme';
@@ -194,6 +199,55 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><Reportes_Actos /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes/productividad"
+            element={
+              <ProtectedRoute>
+                <AppShell><Reportes_Productividad /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/reportes/programas-sociales"
+            element={
+              <ProtectedRoute>
+                <AppShell><Reportes_ProgramasSociales /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Ruta migrada desde SID (/maquinas) — catálogo operativo de
+              máquinas por oficina registral. */}
+          <Route
+            path="/maquinas"
+            element={
+              <ProtectedRoute>
+                <AppShell><Maquinas /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Ruta migrada desde SID (/consultas) — histórico de búsquedas de
+              Consulta Pública SIQROO. */}
+          <Route
+            path="/consultas"
+            element={
+              <ProtectedRoute>
+                <AppShell><Consultas /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/consultas/vigilancia"
+            element={
+              <ProtectedRoute>
+                <AppShell><VigilanciaConsultas /></AppShell>
               </ProtectedRoute>
             }
           />
