@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
+import { requireModulo } from '../../middleware/modulo.middleware';
 import { listarConsultas, crearConsulta } from './consultas.controller';
 import {
   listarSujetosVigilados, crearSujetoVigilado, editarSujetoVigilado, cambiarEstadoSujetoVigilado,
@@ -18,6 +19,9 @@ const router = Router();
 router.post('/', crearConsulta);
 
 router.use(authenticate);
+// El histórico trae nombres de quienes consultaron y el catálogo de vigilancia es
+// sensible: solo quien tenga el módulo asignado (Admin > Usuarios).
+router.use(requireModulo('consultas', 'Consulta Pública'));
 
 router.get('/', listarConsultas);
 
