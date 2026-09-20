@@ -45,6 +45,15 @@ import type {
   EditarSujetoVigiladoPayload,
   AlertaConsultaConDetalle,
   AlertasConsultaResponse,
+  TicketDetalle,
+  TicketListResponse,
+  FiltrosTicket,
+  CrearTicketPayload,
+  ActualizarTicketPayload,
+  FolioSalida,
+  PermisosFolioSalida,
+  RolFormatoFolio,
+  FolioSalidaHistorialEntry,
 } from './types';
 import type { Compresion } from './utils/compresion';
 
@@ -1852,11 +1861,130 @@ export async function getAlertasConsulta(params: {
   return handleResponse<AlertasConsultaResponse>(res);
 }
 
+// ── Tickets ───────────────────────────────────────────────────
+
+export async function getTickets(filtros: FiltrosTicket = {}): Promise<TicketListResponse> {
+  const params = new URLSearchParams();
+  if (filtros.estado)    params.set('estado', filtros.estado);
+  if (filtros.categoria) params.set('categoria', filtros.categoria);
+  if (filtros.search)    params.set('search', filtros.search);
+  if (filtros.page)      params.set('page', String(filtros.page));
+  if (filtros.limit)     params.set('limit', String(filtros.limit));
+  const res = await fetch(`${BASE}/tickets?${params.toString()}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getTicketById(id: number): Promise<{ data: TicketDetalle }> {
+  const res = await fetch(`${BASE}/tickets/${id}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getTicketDestinatarios(): Promise<{ data: { id: number; nombre: string }[] }> {
+  const res = await fetch(`${BASE}/tickets/destinatarios`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getTicketOpciones<T = { value: string; label?: string }>(
+  catalogo: 'tipos' | 'estados' | 'urgencias' | 'prioridades' | 'impactos' | 'categorias',
+): Promise<{ data: T[] }> {
+  const res = await fetch(`${BASE}/tickets/opciones/${catalogo}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+function ticketFormData(payload: CrearTicketPayload | ActualizarTicketPayload, archivos: File[]): FormData {
+  const fd = new FormData();
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined) return;
+    fd.append(key, value === null ? '' : String(value));
+  });
+  archivos.forEach((file) => fd.append('attachments', file, file.name));
+  return fd;
+}
+
+export async function crearTicket(
+  payload: CrearTicketPayload, archivos: File[] = [],
+): Promise<{ data: TicketDetalle; message: string }> {
+  const res = await fetch(`${BASE}/tickets`, {
+    method:  'POST',
+    headers: authHeaders(),
+    body:    ticketFormData(payload, archivos),
+  });
+  return handleResponse(res);
+}
+
+export async function actualizarTicket(
+  id: number, payload: ActualizarTicketPayload, archivos: File[] = [],
+): Promise<{ data: TicketDetalle; message: string }> {
+  const res = await fetch(`${BASE}/tickets/${id}`, {
+    method:  'PUT',
+    headers: authHeaders(),
+    body:    ticketFormData(payload, archivos),
+  });
+  return handleResponse(res);
+}
+
+export async function descargarArchivoTicket(ticketId: number, fileId: number): Promise<Blob> {
+  const res = await fetch(`${BASE}/tickets/${ticketId}/archivos/${fileId}/descarga`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`No se pudo descargar el archivo (HTTP ${res.status})`);
+  return res.blob();
+}
+
 export async function marcarAlertaLeida(id: number, leido: boolean = true): Promise<{ data: AlertaConsultaConDetalle; message: string }> {
   const res = await fetch(`${BASE}/consultas/vigilancia/alertas/${id}/leido`, {
     method:  'PATCH',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify({ leido }),
   });
+  return handleResponse(res);
+}
+
+// ── Folio de salida (Oficialía de Partes) ───────────────────────────────────
+
+export async function getFolioSalida(oficioId: number): Promise<{ data: FolioSalida | null; permisos: PermisosFolioSalida }> {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/folio-salida`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function reservarFolioSalida(oficioId: number, rol_formato: RolFormatoFolio): Promise<{ message: string; data: FolioSalida }> {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/folio-salida/reservar`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ rol_formato }),
+  });
+  return handleResponse(res);
+}
+
+export async function formalizarFolioSalida(oficioId: number): Promise<{ message: string; data: FolioSalida }> {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/folio-salida/formalizar`, {
+    method:  'POST',
+    headers: authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+export async function cancelarFolioSalida(oficioId: number, motivo: string): Promise<{ message: string }> {
+  const res = await fetch(`${BASE}/oficios/${oficioId}/folio-salida`, {
+    method:  'DELETE',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ motivo }),
+  });
+  return handleResponse(res);
+}
+
+export async function getHistorialFoliosSalida(params?: { page?: number; limit?: number; search?: string }): Promise<{
+  data: FolioSalida[]; total: number; page: number; limit: number;
+}> {
+  const qs = new URLSearchParams();
+  if (params?.page)   qs.set('page',   String(params.page));
+  if (params?.limit)  qs.set('limit',  String(params.limit));
+  if (params?.search) qs.set('search', params.search);
+  const res = await fetch(`${BASE}/folios-salida/historial?${qs}`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+export async function getHistorialDeFolio(folioId: number): Promise<{ data: FolioSalidaHistorialEntry[] }> {
+  const res = await fetch(`${BASE}/folios-salida/${folioId}/historial`, { headers: authHeaders() });
   return handleResponse(res);
 }

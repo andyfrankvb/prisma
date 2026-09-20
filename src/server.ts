@@ -17,6 +17,7 @@ import bcrypt  from 'bcrypt';
 import pinoHttp from 'pino-http';
 
 import oficiosRouter        from './modules/oficialia_partes/oficios.routes';
+import folioSalidaRouter    from './modules/oficialia_partes/folios_salida/folio-salida.routes';
 import usuariosRouter       from './modules/usuarios/usuarios.routes';
 import filesRouter          from './modules/files/files.routes';
 import notificacionesRouter from './modules/notificaciones/notificaciones.routes';
@@ -34,6 +35,8 @@ import programasSocialesRouter from './modules/programas-sociales/programas-soci
 import cargaDatosRouter      from './modules/carga-datos/carga-datos.routes';
 import maquinasRouter        from './modules/maquinas/maquinas.routes';
 import consultasRouter       from './modules/consultas/consultas.routes';
+import ticketsRouter         from './modules/tickets/tickets.routes';
+import visorDocumentosRouter from './modules/visor_documentos/visor.routes';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { startNotificationService } from './notifications';
@@ -181,6 +184,7 @@ app.use('/api/v1/correspondencia', correspondenciaRouter);
 // autenticación para esa ruta.
 app.use('/api/v1/consultas',      consultasRouter);
 app.use('/api/v1',                oficiosRouter);
+app.use('/api/v1',                folioSalidaRouter);
 app.use('/api/v1/usuarios',       usuariosRouter);
 app.use('/api/v1/files',          filesRouter);
 app.use('/api/v1/notificaciones', notificacionesRouter);
@@ -195,6 +199,8 @@ app.use('/api/v1/productividad',  productividadRouter);
 app.use('/api/v1/programas-sociales', programasSocialesRouter);
 app.use('/api/v1/carga-datos',    cargaDatosRouter);
 app.use('/api/v1/maquinas',       maquinasRouter);
+app.use('/api/v1/tickets',        ticketsRouter);
+app.use('/api/v1/visor-documentos', visorDocumentosRouter);
 
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {

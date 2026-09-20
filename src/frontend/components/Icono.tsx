@@ -26,7 +26,8 @@ export type NombreIcono =
   | 'documento' | 'carpeta' | 'descargar' | 'subir' | 'ojo' | 'editar'
   | 'papelera' | 'engranaje' | 'correo' | 'edificio' | 'etiqueta'
   | 'informacion' | 'grafica' | 'tendenciaBaja' | 'regresarIzq' | 'regresarDer'
-  | 'flechaIzq' | 'flechaDer' | 'enviar' | 'historial';
+  | 'flechaIzq' | 'flechaDer' | 'enviar' | 'historial'
+  | 'zoomMas' | 'zoomMenos' | 'ampliar' | 'balanza';
 
 /** Trazos de cada ícono, sobre un lienzo de 24×24. */
 const TRAZOS: Record<NombreIcono, React.ReactNode> = {
@@ -72,6 +73,11 @@ const TRAZOS: Record<NombreIcono, React.ReactNode> = {
   regresarDer:   <><polyline points="15 14 20 9 15 4" /><path d="M4 20v-7a4 4 0 0 1 4-4h12" /></>,
   flechaIzq:     <><line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" /></>,
   flechaDer:     <><line x1="4" y1="12" x2="20" y2="12" /><polyline points="14 6 20 12 14 18" /></>,
+
+  zoomMas:       <><circle cx="11" cy="11" r="7" /><line x1="16.2" y1="16.2" x2="21" y2="21" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" /></>,
+  zoomMenos:     <><circle cx="11" cy="11" r="7" /><line x1="16.2" y1="16.2" x2="21" y2="21" /><line x1="8" y1="11" x2="14" y2="11" /></>,
+  ampliar:       <><path d="M4 8V4h4" /><path d="M20 8V4h-4" /><path d="M4 16v4h4" /><path d="M20 16v4h-4" /></>,
+  balanza:       <><line x1="12" y1="3" x2="12" y2="21" /><path d="M7 21h10" /><path d="M4 7h6" /><path d="M14 7h6" /><path d="M4 7 1.5 12a2.5 2.5 0 0 0 5 0Z" /><path d="M20 7l-2.5 5a2.5 2.5 0 0 0 5 0Z" /></>,
 };
 
 interface Props {

@@ -32,6 +32,8 @@ import { CargaDatos }             from './views/CargaDatos';
 import { Maquinas }               from './views/Maquinas';
 import { Consultas }              from './views/Consultas';
 import { VigilanciaConsultas }    from './views/VigilanciaConsultas';
+import { Tickets }                from './views/Tickets';
+import { VisorDocumentos }        from './views/VisorDocumentos';
 import { AppShell }           from './components/AppShell';
 
 import { theme } from './theme';
@@ -248,6 +250,27 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell><VigilanciaConsultas /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Ruta migrada desde SID (/tickets) — mesa de ayuda interna. */}
+          <Route
+            path="/tickets"
+            element={
+              <ProtectedRoute>
+                <AppShell><Tickets /></AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Migrado vía Strangler Fig desde SID (visor de PDF) + VISAR
+              (prototipo con zoom profundo, curaduría y transcripción IA). */}
+          <Route
+            path="/visor-documentos"
+            element={
+              <ProtectedRoute>
+                <AppShell><VisorDocumentos /></AppShell>
               </ProtectedRoute>
             }
           />

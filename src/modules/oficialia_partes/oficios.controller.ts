@@ -142,7 +142,7 @@ async function unidadesParaAsignar(user: any, oficioId: number | null): Promise<
  * Resuelve qué ENCARGADO debe recibir un oficio, según la unidad de su "dirigido a".
  * (Oficio dirigido a la DG → encargado de la unidad de la DG; a un delegado → el de su delegación.)
  */
-async function resolverEncargadoDeOficio(dirigidoAId: number | null): Promise<number | null> {
+export async function resolverEncargadoDeOficio(dirigidoAId: number | null): Promise<number | null> {
   if (!dirigidoAId) return null;
   try {
     const dirigido = await db('usuarios').where({ id: dirigidoAId }).select('unidad_id').first();
@@ -227,7 +227,7 @@ export async function esDeJuridica(user: any): Promise<boolean> {
  * En delegaciones y direcciones de área lo define `catalogo_unidades.vobo_por`:
  * el titular (delegado/director) o el encargado. En la Dirección General, el encargado.
  */
-async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promise<boolean> {
+export async function puedeAprobarOficio(user: any, dirigidoAId: number | null): Promise<boolean> {
   if (dirigidoAId) {
     const dirigido = await db('usuarios as u')
       .leftJoin('catalogo_unidades as cu', 'cu.id', 'u.unidad_id')
