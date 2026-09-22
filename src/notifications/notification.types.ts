@@ -42,7 +42,9 @@ export type NotificationEventType =
   | 'PASE_FIRMA_FIRMADO'
   | 'PASE_FIRMA_DEVUELTO'
   // Catálogo de Vigilancia: una búsqueda de Consulta Pública coincidió con un sujeto vigilado activo
-  | 'ALERTA_VIGILANCIA';
+  | 'ALERTA_VIGILANCIA'
+  // Tickets: se le asignó un ticket como destinatario
+  | 'TICKET_ASIGNADO';
 
 export interface NotificationPayload {
   event:       NotificationEventType;
@@ -87,6 +89,7 @@ export interface InAppMessage {
   evento_titulo?:       string;
   tramite_id?:          number;
   alerta_vigilancia_id?: number;
+  ticket_id?:           number;
   read:                 boolean;
   created_at:           Date;
 }

@@ -25,6 +25,7 @@ import { TurnarPanel }         from './TurnarPanel';
 import { DelegatoriosPanel }   from './DelegatoriosPanel';
 import { TestamentoPanel }     from './TestamentoPanel';
 import { PaseFirmaPanel }      from './PaseFirmaPanel';
+import { FolioSalidaPanel }    from './FolioSalidaPanel';
 import { BandejaDelegatorios } from './BandejaDelegatorios';
 import { ListaAcciones }       from './MenuAcciones';
 import type { AccionMenu }     from './MenuAcciones';
@@ -133,6 +134,7 @@ export const AccionesOficio: React.FC<Props> = ({
 
       {/* Estado: solo se dibujan cuando hay algo que contar. */}
       <PaseFirmaPanel oficio={oficio} />
+      <FolioSalidaPanel oficioId={oficio.id} />
       <DelegatoriosPanel
         oficioId={oficio.id}
         puedeDelegar={puedeDelegar}

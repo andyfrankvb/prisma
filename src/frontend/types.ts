@@ -1027,3 +1027,332 @@ export interface AlertasConsultaResponse {
   data: AlertaConsultaConDetalle[];
   meta: ConsultasMeta;
 }
+
+// ── Tickets ───────────────────────────────────────────────────
+//
+// Migrado desde SID (src/app/views/pages/tickets/tickets.component.ts,
+// backend/app/Http/Controllers/TicketController.php). Valores en
+// MAYÚSCULAS, igual convención que el resto de catálogos de PRISMA.
+
+export type TipoTicket      = 'APERTURA' | 'MODIFICACION';
+export type EstadoTicket    = 'NUEVO' | 'ABIERTO' | 'EN_PROCESO' | 'EN_ESPERA' | 'RESUELTO' | 'CERRADO';
+export type UrgenciaTicket  = 'URGENTE' | 'MEDIA' | 'BAJA' | 'INDEFINIDA';
+export type PrioridadTicket = 'ALTA' | 'MEDIA' | 'BAJA';
+export type ImpactoTicket   = 'ALTO' | 'MEDIO' | 'BAJO';
+export type CategoriaTicket =
+  | 'TRASPASO_FOLIO' | 'REPOSICION' | 'CARGA_ACTO'
+  | 'UNIFICACION_FOLIO' | 'ACTUALIZACION_IMAGEN' | 'INTEGRACION';
+
+/**
+ * Valores que solo existen en tickets históricos migrados de SID (15 años de
+ * captura libre) — un ticket nuevo nunca los recibe, pero hay que poder
+ * pintarlos: son miles de filas reales, no ruido. Ver ticket.dto.ts en el
+ * backend para el detalle completo.
+ */
+export type UrgenciaTicketHistorica  = UrgenciaTicket | 'MUY_URGENTE' | 'ALTA';
+export type PrioridadTicketHistorica = PrioridadTicket | 'URGENTE';
+export type ImpactoTicketHistorica   = ImpactoTicket | 'MUY_ALTO';
+
+export interface CategoriaTicketOpcion {
+  value: CategoriaTicket;
+  label: string;
+  rol_asignado: string;
+}
+
+/** Estados en los que se admite `solucion` — EN_PROCESO como avance, CERRADO como definitiva. */
+export const ESTADOS_CON_SOLUCION_TICKET: EstadoTicket[] = ['EN_PROCESO', 'CERRADO'];
+
+export const TIPO_TICKET_LABEL: Record<TipoTicket, string> = {
+  APERTURA:     'Apertura de folio',
+  MODIFICACION: 'Modificación de datos',
+};
+
+export const ESTADO_TICKET_LABEL: Record<EstadoTicket, string> = {
+  NUEVO:      'Nuevo',
+  ABIERTO:    'Abierto',
+  EN_PROCESO: 'En Proceso',
+  EN_ESPERA:  'En Espera',
+  RESUELTO:   'Resuelto',
+  CERRADO:    'Cerrado',
+};
+
+export const URGENCIA_TICKET_LABEL: Record<UrgenciaTicketHistorica, string> = {
+  URGENTE:     'Urgente',
+  MUY_URGENTE: 'Muy urgente',
+  ALTA:        'Alta',
+  MEDIA:       'Mediana',
+  BAJA:        'Baja',
+  INDEFINIDA:  'Indefinida',
+};
+
+export const PRIORIDAD_TICKET_LABEL: Record<PrioridadTicketHistorica, string> = {
+  URGENTE: 'Urgente',
+  ALTA:    'Alta',
+  MEDIA:   'Media',
+  BAJA:    'Baja',
+};
+
+export const IMPACTO_TICKET_LABEL: Record<ImpactoTicketHistorica, string> = {
+  MUY_ALTO: 'Muy alto',
+  ALTO:     'Alto',
+  MEDIO:    'Medio',
+  BAJO:     'Bajo',
+};
+
+export const CATEGORIAS_TICKET_OPCIONES: CategoriaTicketOpcion[] = [
+  { value: 'TRASPASO_FOLIO',       label: 'Traspaso de folio',        rol_asignado: 'Director Jurídico' },
+  { value: 'REPOSICION',           label: 'Reposición',               rol_asignado: 'Director Jurídico' },
+  { value: 'CARGA_ACTO',           label: 'Carga de acto',            rol_asignado: 'Director Jurídico' },
+  { value: 'UNIFICACION_FOLIO',    label: 'Unificación de folio',     rol_asignado: 'Mesa de Control' },
+  { value: 'ACTUALIZACION_IMAGEN', label: 'Actualización de imagen',  rol_asignado: 'Mesa de Control' },
+  { value: 'INTEGRACION',          label: 'Integración',              rol_asignado: 'Mesa de Control' },
+];
+
+export interface ActorTicket {
+  id:            number;
+  nombre:        string;
+  email:         string | null;
+  rol:           string;
+  unidad_id:     number;
+  unidad_nombre: string | null;
+}
+
+export interface CambioCampoTicket { old: unknown; new: unknown; }
+
+export interface HistorialTicketEntry {
+  at:     string;
+  action: string;
+  user:   ActorTicket;
+  diff:   Record<string, CambioCampoTicket>;
+}
+
+export interface AdjuntoTicket {
+  id:            number;
+  ticket_id:     number;
+  file_path:     string;
+  original_name: string;
+  file_size:     number;
+  file_type:     string;
+  created_at:    string;
+}
+
+export interface Ticket {
+  id:                      number;
+  ticket_code:             string;
+  titulo:                  string;
+  descripcion:             string;
+  tipo:                    TipoTicket | null;
+  estado:                  EstadoTicket;
+  urgencia:                UrgenciaTicketHistorica;
+  prioridad:               PrioridadTicketHistorica | null;
+  impacto:                 ImpactoTicketHistorica | null;
+  categoria:               CategoriaTicket | null;
+  categoria_legacy:        string | null;
+  remitente_id:            number | null;
+  remitente_nombre:        string;
+  remitente_unidad_id:     number | null;
+  remitente_unidad_nombre: string | null;
+  destinatario_id:         number | null;
+  destinatario_nombre:     string | null;
+  solucion:                string | null;
+  fecha_solucion:          string | null;
+  last_action:             string | null;
+  created_at:              string;
+  updated_at:              string;
+}
+
+export interface TicketDetalle extends Ticket {
+  change_log: HistorialTicketEntry[];
+  archivos:   AdjuntoTicket[];
+}
+
+export interface FiltrosTicket {
+  estado?:    EstadoTicket;
+  categoria?: CategoriaTicket;
+  search?:    string;
+  page?:      number;
+  limit?:     number;
+}
+
+export interface CrearTicketPayload {
+  titulo:          string;
+  descripcion:     string;
+  tipo:            TipoTicket;
+  urgencia:        UrgenciaTicket;
+  categoria?:      CategoriaTicket | null;
+  destinatario_id?: number | null;
+}
+
+export interface ActualizarTicketPayload {
+  titulo?:          string;
+  descripcion?:     string;
+  estado?:          EstadoTicket;
+  urgencia?:        UrgenciaTicket;
+  categoria?:       CategoriaTicket | null;
+  destinatario_id?: number | null;
+  solucion?:        string;
+}
+
+export interface TicketListResponse {
+  data: Ticket[];
+  meta: { total: number; page: number; limit: number; puede_gestionar: boolean };
+}
+
+// ── Folio de salida (Oficialía de Partes) ───────────────────────────────────
+//
+// Consecutivo del oficio de RESPUESTA (Analista Jurídico / Director Jurídico).
+// No confundir con `Oficio.folio`, que es el número de control de ENTRADA.
+
+export type EstatusFolioSalida = 'RESERVADO' | 'ASIGNADO' | 'CANCELADO';
+export type RolFormatoFolio    = 'JURIDICO' | 'DIRECTOR_JURIDICO' | 'LEGACY';
+
+export interface FolioSalida {
+  id:                   number;
+  oficio_id:            number | null;
+  consecutivo:          number;
+  folio_formateado:     string;
+  rol_formato:          RolFormatoFolio;
+  anio:                 number;
+  mes_romano:           string;
+  estatus:              EstatusFolioSalida;
+  reservado_por_id:     number | null;
+  reservado_por_nombre?: string | null;
+  reservado_en:         string | null;
+  asignado_por_id:      number | null;
+  asignado_por_nombre?: string | null;
+  asignado_en:          string | null;
+  cancelado_por_id:     number | null;
+  cancelado_en:         string | null;
+  motivo_cancelacion:   string | null;
+  es_legacy:            boolean;
+  origen_sid_tabla:     string | null;
+  origen_sid_id:        number | null;
+  creado_en:            string;
+}
+
+export interface PermisosFolioSalida {
+  puede_reservar:   boolean;
+  puede_formalizar: boolean;
+  puede_cancelar:   boolean;
+}
+
+export type EventoHistorialFolio = 'RESERVADO' | 'ASIGNADO' | 'CANCELADO' | 'MIGRADO_SID';
+
+export interface FolioSalidaHistorialEntry {
+  id:               number;
+  folio_salida_id:  number;
+  oficio_id:        number | null;
+  fecha_evento:     string;
+  evento:           EventoHistorialFolio;
+  usuario_id:       number | null;
+  usuario_nombre?:  string | null;
+  rol_usuario:      string | null;
+  estado_oficio:    string | null;
+  version_proyecto: number | null;
+  hash_documento:   string | null;
+}
+
+// ── Visor de Documentos ──────────────────────────────────────────────────────
+//
+// Migrado desde SID (visor de PDF por tomo/libro) + VISAR (prototipo con
+// zoom profundo y varias versiones de digitalización por foja). Modelo:
+// tomo → foja → imagen (una por versión), con curaduría (dictamen de qué
+// versión es la válida) y transcripción IA/humana.
+
+export type VersionDigitalizacion = 'V2009' | 'V2022_FALTANTE' | 'V3_VALIDADA';
+export type OrigenTranscripcion   = 'IA' | 'HUMANO';
+
+export interface VisorDelegacion {
+  id:     number;
+  nombre: string;
+  activo: boolean;
+}
+
+export interface VisorSeccion {
+  id:     number;
+  numero: number;
+  nombre: string;
+}
+
+export interface VisorTomo {
+  id:                  number;
+  delegacion_id:       number;
+  seccion_id:          number;
+  numero_romano:       string;
+  indice_orden:        number;
+  anio_registro:       number;
+  cajon:               string | null;
+  id_libro:            number | null;
+  inscripcion_inicial: number | null;
+  inscripcion_final:   number | null;
+}
+
+export interface VisorFoja {
+  id:               number;
+  tomo_id:          number;
+  numero_foja:      string;
+  inscripcion:      string | null;
+  orden_secuencial: number;
+}
+
+export interface VisorImagenFoja {
+  id:           number;
+  foja_id:      number;
+  version:      VersionDigitalizacion;
+  ruta_storage: string;
+  formato:      string;
+}
+
+export interface VisorFojaDetalle extends VisorFoja {
+  imagenes: VisorImagenFoja[];
+}
+
+export interface VisorDictamenVersion {
+  id:                     number;
+  foja_id:                number;
+  version_seleccionada:   VersionDigitalizacion;
+  justificacion_juridica: string;
+  usuario_id:             number;
+  fecha_dictamen:         string;
+}
+
+export interface VisorInscripcion {
+  id:                 number;
+  tomo_id:            number;
+  foja_id:            number | null;
+  numero_inscripcion: number;
+  volumen:            string | null;
+  asignacion:         string;
+  estatus:            string | null;
+  observaciones:      string | null;
+}
+
+export interface VisorInscripcionConTomo extends VisorInscripcion {
+  numero_romano:  string;
+  seccion_numero: number;
+}
+
+/** Un renglón de la tabla "Libros Disponibles" (estilo SID), con fojas/inscripciones ya contadas. */
+export interface VisorLibroResumen {
+  id:                  number;
+  seccion_numero:      number;
+  seccion_nombre:      string;
+  numero_romano:       string;
+  cajon:               string | null;
+  id_libro:            number | null;
+  total_fojas:         number;
+  foja_inicial:        string | null;
+  foja_final:          string | null;
+  total_inscripciones: number;
+}
+
+export interface VisorTranscripcion {
+  id:                  number;
+  foja_id:             number;
+  texto_transcrito:    string;
+  origen:              OrigenTranscripcion;
+  modelo_ia:           string | null;
+  creado_por:          number;
+  ultimo_editor_id:    number | null;
+  fecha_actualizacion: string;
+}

@@ -87,6 +87,14 @@ function getRutaModulo(
     case 'consultas':
       return '/consultas';
 
+    // Ruta migrada desde SID (/tickets) — mesa de ayuda interna.
+    case 'tickets':
+      return '/tickets';
+
+    // Visor de documentos digitalizados del acervo registral (RPPC).
+    case 'visor_documentos':
+      return '/visor-documentos';
+
     default:
       return '/dashboard/gestion';
   }
@@ -106,6 +114,8 @@ const MODULO_CFG: Record<string, { icon: NombreIcono; color: string; desc: strin
   reportes_satq:        { icon: 'grafica',    color: theme.colors.gold,        desc: 'Reportes ejecutivos: conciliación de ingresos, FRE y más' },
   carga_datos_reportes: { icon: 'subir',      color: theme.colors.charcoal,    desc: 'Subir reportes SATQ, editar la estimación SEFIPLAN y configurar SIQROO' },
   consultas:            { icon: 'buscar',     color: theme.colors.primaryLight, desc: 'Histórico de búsquedas de Consulta Pública SIQROO y catálogo de vigilancia' },
+  tickets:              { icon: 'etiqueta',   color: theme.colors.primary,      desc: 'Mesa de ayuda interna: solicitudes de soporte, apertura y modificación de folios' },
+  visor_documentos:     { icon: 'documento',  color: theme.colors.primaryDark,  desc: 'Consulta, curaduría y transcripción de fojas digitalizadas del acervo registral' },
 };
 
 function getModuloCfg(clave: string) {
@@ -137,6 +147,8 @@ const CATEGORIA_POR_MODULO: Record<string, CategoriaClave> = {
   catalogos:               'administracion',
   control_correspondencia: 'administracion',
   carga_datos_reportes:    'administracion',
+  tickets:                 'trabajo_diario',
+  visor_documentos:        'trabajo_diario',
 };
 
 function getCategoria(clave: string): CategoriaClave {

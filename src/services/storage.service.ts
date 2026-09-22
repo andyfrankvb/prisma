@@ -21,6 +21,7 @@ const ALLOWED_EXTENSIONS: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'image/jpeg':                                                              'jpg',
   'image/png':                                                               'png',
+  'image/tiff':                                                              'tiff',
 };
 
 function safeExtension(mimetype: string): string {

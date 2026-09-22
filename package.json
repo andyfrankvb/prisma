@@ -16,7 +16,11 @@
     "db:check": "node db/preflight.mjs",
     "db:migrate": "node db/migrate.mjs",
     "db:seed:admin": "node db/seed-admin.mjs",
-    "db:migrate:consultas": "node db/migrate-consultas-sid.mjs"
+    "db:seed:visor": "node db/seed-visor-test.mjs",
+    "db:import:visor-visar-testdata": "node db/import-visor-visar-testdata.mjs",
+    "db:migrate:consultas": "node db/migrate-consultas-sid.mjs",
+    "db:migrate:tickets": "node db/migrate-tickets-sid.mjs",
+    "db:migrate:folios": "node db/migrate-folios-sid.mjs"
   },
   "dependencies": {
     "bcrypt": "5.1.1",
@@ -29,10 +33,12 @@
     "mammoth": "1.12.0",
     "multer": "1.4.5-lts.1",
     "node-cron": "3.0.3",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "2.4.5",
     "pg": "8.11.5",
     "pino": "10.3.1",
     "pino-http": "11.0.0",
+    "sharp": "^0.33.5",
     "tesseract.js": "7.0.0",
     "ws": "8.17.0"
   },

@@ -34,6 +34,7 @@ async function persistNotification(msg: InAppMessage): Promise<number> {
       tarea_id:              msg.tarea_id ?? null,
       evento_titulo:         msg.evento_titulo ?? null,
       alerta_vigilancia_id:  msg.alerta_vigilancia_id ?? null,
+      ticket_id:             msg.ticket_id ?? null,
       read:                  false,
       created_at:            msg.created_at,
     })
@@ -55,6 +56,7 @@ async function pushViaWebSocket(msg: InAppMessage, notif_id: number): Promise<vo
     tarea_id:              msg.tarea_id ?? null,
     evento_titulo:         msg.evento_titulo ?? null,
     alerta_vigilancia_id:  msg.alerta_vigilancia_id ?? null,
+    ticket_id:             msg.ticket_id ?? null,
     created_at:            msg.created_at.toISOString(),
   });
 }

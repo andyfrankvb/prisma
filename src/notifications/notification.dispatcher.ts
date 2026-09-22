@@ -360,3 +360,30 @@ export async function notifyAlertaVigilancia(payload: {
     ),
   );
 }
+
+// ── Notificaciones de Tickets ─────────────────────────────────────────────────
+
+/**
+ * Aviso de "te asignaron un ticket" — igual alcance que el legacy SID
+ * (`Notificacion::create` en `TicketController@store`, solo al crear un
+ * ticket con destinatario). Solo in-app, como el resto de tickets.
+ */
+export async function notifyTicket(payload: {
+  recipient_id: number;
+  ticket_id:    number;
+  ticket_code:  string;
+  titulo:       string;
+  actor_nombre: string;
+}): Promise<void> {
+  await sendInApp({
+    user_id:    payload.recipient_id,
+    type:       'TICKET_ASIGNADO',
+    title:      `Nuevo ticket: ${payload.ticket_code}`,
+    body:       `${payload.actor_nombre} te asignó el ticket "${payload.titulo}".`,
+    ticket_id:  payload.ticket_id,
+    read:       false,
+    created_at: new Date(),
+  }).catch((err) =>
+    logger.error({ err, ...payload }, 'notifyTicket failed'),
+  );
+}
