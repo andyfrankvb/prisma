@@ -33,6 +33,51 @@ function textoBuscableDe(consulta: Pick<Consulta, 'nombre_completo' | 'busqueda'
 }
 
 /**
+ * Palabras de un texto, sin signos ni números.
+ *
+ * Se ignoran las de menos de 3 letras ("DE", "LA", "S", "A", "C", "V") y los
+ * números: en las búsquedas por titular, SID mete el código de tipo de persona
+ * ("61") entre el nombre y los apellidos, y en las razones sociales cada quien
+ * escribe "S.A. DE C.V." a su manera. Exigir esas partículas haría que el
+ * catálogo fallara por diferencias de puntuación, no de identidad.
+ */
+function palabrasDe(texto: string): string[] {
+  return normalizarTexto(texto)
+    .replace(/[^A-ZÑ0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((p) => p.length >= 3 && !/^\d+$/.test(p));
+}
+
+/**
+ * ¿La búsqueda apunta a este sujeto vigilado?
+ *
+ * Coincide si TODAS las palabras del nombre vigilado aparecen en la búsqueda,
+ * sin importar el orden ni lo que haya entre ellas. La comparación literal no
+ * alcanza: SID guarda el titular partido en campos (`nombre`, `apellidoMaterno`,
+ * `apellidoPaterno`) y los entrega en ese orden, así que una búsqueda de
+ * "ANGEL HERNANDEZ GONZALEZ" llega como "ANGEL 61 GONZALEZ HERNANDEZ" —
+ * apellidos invertidos y un número en medio. Buscar la cadena seguida solo
+ * funcionaba con empresas, que sí viajan en un único campo.
+ *
+ * Se prefiere pecar de más: en vigilancia, una alerta de sobra se descarta de
+ * un vistazo; una que no llegó no se nota nunca.
+ */
+export function coincideConSujeto(textoBusqueda: string, nombreVigilado: string): boolean {
+  const textoNormalizado = normalizarTexto(textoBusqueda);
+  const nombreNormalizado = normalizarTexto(nombreVigilado);
+  if (!textoNormalizado || !nombreNormalizado) return false;
+
+  // Caso directo: el nombre aparece tal cual (razones sociales, apodos).
+  if (textoNormalizado.includes(nombreNormalizado)) return true;
+
+  const buscadas = palabrasDe(nombreVigilado);
+  if (buscadas.length === 0) return false;
+
+  const presentes = new Set(palabrasDe(textoBusqueda));
+  return buscadas.every((p) => presentes.has(p));
+}
+
+/**
  * Evalúa una consulta recién creada contra el catálogo de vigilancia activo.
  * Por cada sujeto cuyo nombre normalizado aparece dentro del texto buscado,
  * registra una `AlertaConsulta` y notifica — nunca lanza: los errores se
@@ -46,7 +91,7 @@ export async function evaluarYRegistrarAlertas(consulta: Consulta): Promise<void
     const texto = textoBuscableDe(consulta);
     if (!texto) return;
 
-    const coincidencias = sujetosActivos.filter((s) => texto.includes(s.nombre_normalizado));
+    const coincidencias = sujetosActivos.filter((s) => coincideConSujeto(texto, s.nombre_razon_social));
     if (coincidencias.length === 0) return;
 
     for (const sujeto of coincidencias) {
