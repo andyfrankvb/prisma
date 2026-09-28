@@ -11,6 +11,7 @@ import {
   listarSujetosVigilados, crearSujetoVigilado, editarSujetoVigilado, cambiarEstadoSujetoVigilado,
   listarAlertas, marcarAlertaLeida,
 } from './vigilancia.controller';
+import { getIntegracion, putIntegracion, postSincronizar } from './integracion.controller';
 
 const router = Router();
 
@@ -32,5 +33,11 @@ router.put('/vigilancia/:id',                editarSujetoVigilado);
 router.patch('/vigilancia/:id/activo',       cambiarEstadoSujetoVigilado);
 router.get('/vigilancia/alertas',            listarAlertas);
 router.patch('/vigilancia/alertas/:id/leido', marcarAlertaLeida);
+
+// Integración con la API de SID — mientras el kiosco siga registrando allá,
+// esto es lo que mantiene el histórico al día (ver src/integraciones/consultas.sync.ts).
+router.get ('/integracion',              getIntegracion);
+router.put ('/integracion',              putIntegracion);
+router.post('/integracion/sincronizar',  postSincronizar);
 
 export default router;

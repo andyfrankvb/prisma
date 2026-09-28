@@ -39,6 +39,7 @@ import ticketsRouter         from './modules/tickets/tickets.routes';
 import visorDocumentosRouter from './modules/visor_documentos/visor.routes';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
+import { runConsultasSync } from './integraciones/consultas.sync';
 import { startNotificationService } from './notifications';
 import { AppError } from './utils/AppError';
 import { logger }   from './utils/logger';
@@ -259,6 +260,21 @@ if (cron.validate(CRON_SYNC_SIQROO)) {
   logger.info(`Cron de sincronización SIQROO registrado (${CRON_SYNC_SIQROO})`);
 } else {
   logger.error('Expresión de cron inválida para la sincronización SIQROO — no se registró');
+}
+
+// ── Sincronización con la API de Consulta Pública (SID) ─────────
+// Cada 5 minutos, no mensual como la de SIQROO: SID recibe ~11 búsquedas por
+// minuto y el Catálogo de Vigilancia pierde sentido si sus alertas llegan al
+// día siguiente. Una corrida en régimen normal son 1 o 2 páginas de 50.
+// runConsultasSync también revisa sola si la integración está activa.
+const CRON_SYNC_CONSULTAS = '*/5 * * * *';
+if (cron.validate(CRON_SYNC_CONSULTAS)) {
+  cron.schedule(CRON_SYNC_CONSULTAS, () => {
+    runConsultasSync(null).catch((err) => logger.error({ err }, 'Error inesperado en la sincronización con la API de Consulta Pública'));
+  });
+  logger.info(`Cron de sincronización de Consulta Pública registrado (${CRON_SYNC_CONSULTAS})`);
+} else {
+  logger.error('Expresión de cron inválida para la sincronización de Consulta Pública — no se registró');
 }
 
 // ── Registrar módulos en el ModuleRegistry ────────────────────

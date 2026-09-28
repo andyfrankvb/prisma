@@ -14,8 +14,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icono } from '../components/Icono';
 import { theme } from '../theme';
-import { getConsultas } from '../api';
-import type { Consulta } from '../types';
+import { getConsultas, getIntegracionConsultas, sincronizarConsultas } from '../api';
+import type { Consulta, EstadoIntegracionConsultas } from '../types';
 
 // Mismo catálogo que el legacy (consultas.component.ts) — texto libre en la
 // BD, pero el filtro trabaja con el id numérico de oficina.
@@ -172,6 +172,22 @@ export const Consultas: React.FC = () => {
   const [perPage,   setPerPage]   = useState(PER_PAGE);
   const [lastPage,  setLastPage]  = useState(1);
 
+  // Estado de la sincronización con SID. Mientras el kiosco siga registrando
+  // allá, esto es lo que mantiene el histórico al día — conviene que se vea,
+  // para no dar por buena una pantalla que quedó congelada por un fallo.
+  const [integracion,   setIntegracion]   = useState<EstadoIntegracionConsultas | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  const cargarIntegracion = () => {
+    getIntegracionConsultas()
+      .then((res) => setIntegracion(res.data))
+      // El histórico funciona igual sin este dato: un fallo aquí no debe
+      // ensuciar la pantalla con un error que no le impide trabajar a nadie.
+      .catch(() => setIntegracion(null));
+  };
+
+  useEffect(cargarIntegracion, []);
+
   // Búsqueda "en tiempo real" con debounce — igual que el legacy.
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -214,6 +230,20 @@ export const Consultas: React.FC = () => {
     setPagina(p);
   };
 
+  const sincronizarAhora = () => {
+    setSincronizando(true);
+    setError(null);
+    sincronizarConsultas()
+      .then((res) => {
+        if (res.data.estado === 'error') setError(res.data.detalle);
+        cargarIntegracion();
+        // Reconsulta el listado para que lo recién traído aparezca sin recargar.
+        setFiltros((f) => ({ ...f }));
+      })
+      .catch((e: Error) => setError(e.message || 'No se pudo sincronizar con SID.'))
+      .finally(() => setSincronizando(false));
+  };
+
   return (
     <div style={{ padding: '20px', maxWidth: '1280px', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
@@ -222,6 +252,38 @@ export const Consultas: React.FC = () => {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={badge}>{total} registro{total === 1 ? '' : 's'}</span>
+
+          {integracion?.activo && (
+            <span
+              title={integracion.ultimo_detalle ?? 'Sin corridas registradas todavía.'}
+              style={{
+                fontSize: '0.72rem', color: integracion.ultimo_estado === 'error' ? '#B91C1C' : theme.colors.textSecondary,
+                fontFamily: theme.font.family, display: 'inline-flex', alignItems: 'center', gap: '5px',
+              }}
+            >
+              <Icono nombre="refrescar" size={13} color={integracion.ultimo_estado === 'error' ? '#B91C1C' : theme.colors.textSecondary} />
+              {integracion.ultima_sincronizacion
+                ? `Al día con SID: ${fmtFecha(integracion.ultima_sincronizacion)}`
+                : 'Sin sincronizar con SID'}
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={sincronizarAhora}
+            disabled={sincronizando}
+            title="Trae de SID las búsquedas registradas desde la última sincronización"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '7px 14px', borderRadius: '999px', border: `1px solid ${theme.colors.primary}`,
+              background: 'transparent', color: theme.colors.primary,
+              fontSize: '0.78rem', fontWeight: 700, fontFamily: theme.font.family,
+              cursor: sincronizando ? 'default' : 'pointer', opacity: sincronizando ? 0.6 : 1,
+            }}
+          >
+            <Icono nombre="refrescar" size={14} /> {sincronizando ? 'Sincronizando…' : 'Sincronizar ahora'}
+          </button>
+
           <button
             type="button"
             onClick={() => navigate('/consultas/vigilancia')}

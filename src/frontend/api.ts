@@ -54,6 +54,8 @@ import type {
   PermisosFolioSalida,
   RolFormatoFolio,
   FolioSalidaHistorialEntry,
+  EstadoIntegracionConsultas,
+  ResultadoSyncConsultas,
 } from './types';
 import type { Compresion } from './utils/compresion';
 
@@ -1796,6 +1798,30 @@ export async function getConsultas(params: {
 
   const res = await fetch(`${BASE}/consultas?${qs}`, { headers: authHeaders() });
   return handleResponse<ConsultasResponse>(res);
+}
+
+// ── Integración con la API de Consulta Pública (SID) ─────────────────
+
+/**
+ * Estado de la sincronización que mantiene el histórico al día mientras el
+ * kiosco siga registrando en SID (ver src/integraciones/consultas.sync.ts).
+ */
+export async function getIntegracionConsultas(): Promise<{ data: EstadoIntegracionConsultas }> {
+  const res = await fetch(`${BASE}/consultas/integracion`, { headers: authHeaders() });
+  return handleResponse(res);
+}
+
+/**
+ * Dispara una sincronización. Sin `paginas` trae solo lo nuevo (segundos);
+ * con `paginas` cierra el rezago histórico, y eso solo lo permite SUPERADMIN.
+ */
+export async function sincronizarConsultas(paginas?: number): Promise<{ data: ResultadoSyncConsultas; message: string }> {
+  const res = await fetch(`${BASE}/consultas/integracion/sincronizar`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify(paginas ? { paginas } : {}),
+  });
+  return handleResponse(res);
 }
 
 // ── Catálogo de Vigilancia y Alertas ────────────────────────────────
