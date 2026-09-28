@@ -985,6 +985,28 @@ export interface ConsultasResponse {
   meta: ConsultasMeta;
 }
 
+// ── Integración con la API de Consulta Pública (SID) ──────────────
+
+/** Estado de la sincronización que trae a PRISMA lo que el kiosco sigue registrando en SID. */
+export interface EstadoIntegracionConsultas {
+  activo:                boolean;
+  api_base_url:          string | null;
+  ultima_sincronizacion: string | null;
+  ultimo_estado:         string | null;
+  ultimo_detalle:        string | null;
+  /** Búsquedas ya guardadas en PRISMA. */
+  total_local:           number;
+  /** Id de SID más alto guardado. */
+  ultimo_origen_id:      number;
+  /** Marca de agua: por debajo de este id el histórico está completo, sin huecos. */
+  origen_id_continuo:    number;
+}
+
+export interface ResultadoSyncConsultas {
+  estado:  'exitoso' | 'error' | 'omitido';
+  detalle: string;
+}
+
 // ── Catálogo de Vigilancia y Alertas ─────────────────────────────
 
 export type TipoSujetoVigilado = 'PERSONA' | 'EMPRESA';
