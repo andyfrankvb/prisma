@@ -11,7 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Icono } from './Icono';
 import { useDialogo } from '../context/DialogoContext';
 import { theme } from '../theme';
-import type { EventoResumen, EventoDetalle, EstadoTarea, ComentarioEvento } from '../types';
+import type { EventoResumen, EventoDetalle, EstadoTarea, EntradaBitacoraEvento } from '../types';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -74,43 +74,15 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
   const [agregando, setAgregando] = useState(false);
   const [errorPart, setErrorPart] = useState<string | null>(null);
 
-  // Conversación del evento: lo que se acuerda o se avisa y no cabe dentro de
-  // una actividad concreta. `puedeComentar` lo dice el backend, que es quien
-  // sabe si esta persona participa, es responsable o lo creó.
-  const [comentarios, setComentarios] = useState<ComentarioEvento[]>([]);
+  // Bitácora del evento: los comentarios que se escriben aquí y los avances que
+  // manda quien trabaja cada actividad, en una sola línea de tiempo.
+  // `puedeComentar` lo dice el backend, que es quien sabe si esta persona
+  // participa, es responsable o lo creó.
+  const [comentarios, setComentarios] = useState<EntradaBitacoraEvento[]>([]);
   const [puedeComentar, setPuedeComentar] = useState(false);
   const [textoComentario, setTextoComentario] = useState('');
   const [enviandoComentario, setEnviandoComentario] = useState(false);
   const [errorComentario, setErrorComentario] = useState<string | null>(null);
-
-  // Dos formas de escribir en el hilo: un comentario suelto o un avance con
-  // título. El título es lo que después se lee en la línea de tiempo, así que
-  // se pide aparte en vez de deducirlo del texto.
-  const [modo, setModo] = useState<'COMENTARIO' | 'AVANCE'>('COMENTARIO');
-  const [tituloAvance, setTituloAvance] = useState('');
-  const [tareaDelAvance, setTareaDelAvance] = useState<number | ''>('');
-  const [editandoId, setEditandoId] = useState<number | null>(null);
-
-  const esAvance = modo === 'AVANCE';
-  const listoParaEnviar = textoComentario.trim().length > 0 && (!esAvance || tituloAvance.trim().length > 0);
-
-  const limpiarFormulario = () => {
-    setTextoComentario('');
-    setTituloAvance('');
-    setTareaDelAvance('');
-    setEditandoId(null);
-    setErrorComentario(null);
-  };
-
-  /** Carga una entrada en el formulario para corregirla dentro de su ventana. */
-  const empezarCorreccion = (c: ComentarioEvento) => {
-    setEditandoId(c.id);
-    setModo(c.titulo ? 'AVANCE' : 'COMENTARIO');
-    setTituloAvance(c.titulo ?? '');
-    setTextoComentario(c.contenido);
-    setTareaDelAvance(c.tarea_id ?? '');
-    setErrorComentario(null);
-  };
 
   const cargarComentarios = () => {
     fetch(`${BASE}/eventos/${resumen.id}/comentarios`, { headers: { ...authHeaders() } })
@@ -127,35 +99,22 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
   const enviarComentario = async () => {
     const contenido = textoComentario.trim();
     if (!contenido) return;
-    if (esAvance && !tituloAvance.trim()) return;
     setEnviandoComentario(true);
     setErrorComentario(null);
     try {
-      const cuerpo = {
-        contenido,
-        titulo:   esAvance ? tituloAvance.trim() : undefined,
-        tarea_id: esAvance && tareaDelAvance !== '' ? Number(tareaDelAvance) : undefined,
-      };
-      const res = await fetch(
-        editandoId
-          ? `${BASE}/eventos/${resumen.id}/comentarios/${editandoId}`
-          : `${BASE}/eventos/${resumen.id}/comentarios`,
-        {
-          method:  editandoId ? 'PATCH' : 'POST',
-          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-          body:    JSON.stringify(cuerpo),
-        },
-      );
+      const res = await fetch(`${BASE}/eventos/${resumen.id}/comentarios`, {
+        method:  'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ contenido }),
+      });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b?.message ?? `HTTP ${res.status}`);
       }
-      limpiarFormulario();
+      setTextoComentario('');
       cargarComentarios();
-      // Un avance cambia el "último avance" que muestra la tarjeta del evento.
-      if (esAvance) onCambio?.();
     } catch (e) {
-      setErrorComentario(e instanceof Error ? e.message : 'No se pudo enviar.');
+      setErrorComentario(e instanceof Error ? e.message : 'No se pudo enviar el comentario.');
     } finally {
       setEnviandoComentario(false);
     }
@@ -560,7 +519,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
             )}
           </div>
 
-          {/* Conversación del evento */}
+          {/* Bitácora del evento */}
           <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px' }}>
               <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -568,7 +527,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
               </p>
               {comentarios.length > 0 && (
                 <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary }}>
-                  {comentarios.filter((c) => c.titulo).length} avance{comentarios.filter((c) => c.titulo).length === 1 ? '' : 's'} · {comentarios.length} entrada{comentarios.length === 1 ? '' : 's'}
+                  {comentarios.filter((c) => c.tipo === 'AVANCE').length} avance{comentarios.filter((c) => c.tipo === 'AVANCE').length === 1 ? '' : 's'} · {comentarios.length} entrada{comentarios.length === 1 ? '' : 's'}
                 </span>
               )}
             </div>
@@ -582,25 +541,28 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                  y el cuadro para escribir quedaba hasta el fondo. */
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
                 {comentarios.map((c) => {
-                  const avance = Boolean(c.titulo);
+                  const esAvance = c.tipo === 'AVANCE';
                   return (
                     <div
-                      key={c.id}
+                      key={`${c.tipo}-${c.id}`}
                       style={{
-                        border:       `1px solid ${avance ? '#F3C6D6' : theme.colors.border}`,
+                        border:       `1px solid ${esAvance ? '#F3C6D6' : theme.colors.border}`,
                         /* La barra lateral distingue el avance de un vistazo, sin leer. */
-                        borderLeft:   `3px solid ${avance ? theme.colors.primary : theme.colors.border}`,
+                        borderLeft:   `3px solid ${esAvance ? theme.colors.primary : theme.colors.border}`,
                         borderRadius: '8px',
                         padding:      '10px 12px',
-                        backgroundColor: avance ? '#FFF7FA' : '#fff',
+                        backgroundColor: esAvance ? '#FFF7FA' : '#fff',
                       }}
                     >
-                      {avance && (
+                      {esAvance && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
                           <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: '20px', fontSize: '0.62rem', fontWeight: 700, backgroundColor: '#FDE8EF', color: theme.colors.primary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                             Avance
                           </span>
-                          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: theme.colors.primaryDark }}>{c.titulo}</span>
+                          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: theme.colors.primaryDark }}>
+                            {/* Los avances enviados antes de que el título existiera no tienen uno que mostrar. */}
+                            {c.titulo ?? 'Avance sin título'}
+                          </span>
                         </div>
                       )}
 
@@ -614,19 +576,22 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                             <Icono nombre="lista" inline />{c.tarea_titulo}
                           </span>
                         )}
-                        {c.puede_editar && (
-                          <button
-                            type="button"
-                            onClick={() => empezarCorreccion(c)}
-                            style={{ padding: 0, border: 'none', background: 'none', color: theme.colors.primary, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: theme.font.family }}
+                        {c.documento_url && (
+                          <a
+                            href={c.documento_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: '0.7rem', fontWeight: 700, color: theme.colors.primary, textDecoration: 'none' }}
                           >
-                            Corregir
-                          </button>
+                            <Icono nombre="carpeta" inline />Ver documento
+                          </a>
                         )}
                       </div>
 
                       {/* `pre-wrap` conserva los saltos de línea que escribió la persona. */}
-                      <p style={{ margin: 0, fontSize: '0.84rem', color: theme.colors.textPrimary, whiteSpace: 'pre-wrap' }}>{c.contenido}</p>
+                      {c.contenido && (
+                        <p style={{ margin: 0, fontSize: '0.84rem', color: theme.colors.textPrimary, whiteSpace: 'pre-wrap' }}>{c.contenido}</p>
+                      )}
                     </div>
                   );
                 })}
@@ -635,73 +600,10 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
 
             {puedeComentar && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* Dos formas de escribir: un comentario suelto o un avance con
-                    título, que es lo que después se lee en la bitácora. */}
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {(['COMENTARIO', 'AVANCE'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => { setModo(m); setErrorComentario(null); }}
-                      disabled={editandoId !== null}
-                      style={{
-                        padding: '6px 14px', borderRadius: '20px',
-                        border: `1px solid ${modo === m ? theme.colors.primary : theme.colors.border}`,
-                        backgroundColor: modo === m ? theme.colors.primary : '#fff',
-                        color: modo === m ? '#fff' : theme.colors.textSecondary,
-                        fontSize: '0.74rem', fontWeight: 700, fontFamily: theme.font.family,
-                        cursor: editandoId !== null ? 'default' : 'pointer',
-                        opacity: editandoId !== null && modo !== m ? 0.5 : 1,
-                      }}
-                    >
-                      {m === 'COMENTARIO' ? 'Comentario' : 'Registrar avance'}
-                    </button>
-                  ))}
-                  {editandoId !== null && (
-                    <span style={{ alignSelf: 'center', fontSize: '0.72rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>
-                      Corrigiendo una entrada
-                    </span>
-                  )}
-                </div>
-
-                {esAvance && (
-                  <>
-                    <input
-                      value={tituloAvance}
-                      onChange={(e) => setTituloAvance(e.target.value)}
-                      placeholder="Título del avance — p. ej. «Se entregó el diagnóstico de Cozumel»"
-                      maxLength={120}
-                      style={{
-                        width: '100%', padding: '10px 12px', borderRadius: '8px',
-                        border: `1px solid ${theme.colors.border}`, fontSize: '0.86rem',
-                        fontWeight: 700, fontFamily: theme.font.family, boxSizing: 'border-box',
-                      }}
-                    />
-                    {(detalle?.tareas ?? []).length > 0 && (
-                      <select
-                        value={tareaDelAvance}
-                        onChange={(e) => setTareaDelAvance(e.target.value === '' ? '' : Number(e.target.value))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: '8px',
-                          border: `1px solid ${theme.colors.border}`, fontSize: '0.82rem',
-                          fontFamily: theme.font.family, backgroundColor: '#fff', boxSizing: 'border-box',
-                        }}
-                      >
-                        <option value="">— Sin actividad asociada —</option>
-                        {(detalle?.tareas ?? []).map((t) => (
-                          <option key={t.id} value={t.id}>{t.titulo}</option>
-                        ))}
-                      </select>
-                    )}
-                  </>
-                )}
-
                 <textarea
                   value={textoComentario}
                   onChange={(e) => setTextoComentario(e.target.value)}
-                  placeholder={esAvance
-                    ? 'Detalle del avance: qué se hizo, qué quedó pendiente…'
-                    : 'Escribe un comentario para quienes participan en el evento…'}
+                  placeholder="Escribe un comentario para quienes participan en el evento…"
                   rows={3}
                   maxLength={2000}
                   style={{
@@ -710,34 +612,23 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                     fontFamily: theme.font.family, resize: 'vertical', boxSizing: 'border-box',
                   }}
                 />
-
                 {errorComentario && (
                   <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.alert.red }}>{errorComentario}</p>
                 )}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                  {editandoId !== null && (
-                    <button
-                      type="button"
-                      onClick={limpiarFormulario}
-                      style={{ padding: '8px 16px', borderRadius: '7px', border: `1px solid ${theme.colors.border}`, backgroundColor: '#fff', color: theme.colors.textSecondary, fontWeight: 600, fontSize: '0.82rem', fontFamily: theme.font.family, cursor: 'pointer' }}
-                    >
-                      Cancelar
-                    </button>
-                  )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button
                     type="button"
                     onClick={enviarComentario}
-                    disabled={enviandoComentario || !listoParaEnviar}
+                    disabled={enviandoComentario || !textoComentario.trim()}
                     style={{
                       padding: '8px 18px', borderRadius: '7px', border: 'none',
                       backgroundColor: theme.colors.primary, color: '#fff',
                       fontWeight: 700, fontSize: '0.82rem', fontFamily: theme.font.family,
-                      cursor: (enviandoComentario || !listoParaEnviar) ? 'default' : 'pointer',
-                      opacity: (enviandoComentario || !listoParaEnviar) ? 0.6 : 1,
+                      cursor: (enviandoComentario || !textoComentario.trim()) ? 'default' : 'pointer',
+                      opacity: (enviandoComentario || !textoComentario.trim()) ? 0.6 : 1,
                     }}
                   >
-                    {enviandoComentario ? 'Enviando…' : editandoId !== null ? 'Guardar corrección' : esAvance ? 'Registrar avance' : 'Comentar'}
+                    {enviandoComentario ? 'Enviando…' : 'Comentar'}
                   </button>
                 </div>
               </div>

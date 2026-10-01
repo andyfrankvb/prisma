@@ -458,6 +458,9 @@ interface EnviarRevisionModalProps {
 }
 
 const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, onClose, onSuccess, mensajeOpcional = false }) => {
+  // El título es lo que después se lee en la bitácora del evento: una línea que
+  // diga qué se logró, sin tener que abrir la actividad ni el documento.
+  const [titulo,     setTitulo]     = useState('');
   const [comentario, setComentario] = useState('');
   const [archivo,    setArchivo]    = useState<File | null>(null);
   const [enviando,   setEnviando]   = useState(false);
@@ -467,6 +470,7 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
   // Limpiar estado al abrir/cerrar
   useEffect(() => {
     if (!open) {
+      setTitulo('');
       setComentario('');
       setArchivo(null);
       setEnviando(false);
@@ -477,11 +481,14 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
 
   if (!open || !tarea) return null;
 
-  const valido = comentario.trim().length > 0 || archivo !== null;
+  // Título y comentario obligatorios; el documento, opcional. Antes bastaba con
+  // uno de los dos, y eso dejaba avances que nadie podía leer de un vistazo:
+  // un archivo suelto sin una línea que dijera qué es.
+  const valido = titulo.trim().length > 0 && comentario.trim().length > 0;
 
   const handleEnviar = async () => {
     if (!valido) {
-      setError('Debes incluir al menos un comentario o un archivo.');
+      setError('El avance necesita título y comentario.');
       return;
     }
     setEnviando(true);
@@ -494,14 +501,15 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
       let res: Response;
       if (archivo) {
         const form = new FormData();
-        if (comentario.trim()) form.append('comentario', comentario.trim());
+        form.append('titulo', titulo.trim());
+        form.append('comentario', comentario.trim());
         form.append('documento', archivo);
         res = await fetch(url, { method: 'POST', headers, body: form });
       } else {
         res = await fetch(url, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comentario: comentario.trim() }),
+          body: JSON.stringify({ titulo: titulo.trim(), comentario: comentario.trim() }),
         });
       }
 
@@ -551,17 +559,33 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
           {tarea.titulo}
         </p>
 
-        {/* Comentario / Mensaje */}
+        {/* Título del avance — lo que se leerá en la bitácora del evento */}
         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: theme.colors.textPrimary, marginBottom: '6px' }}>
-          {mensajeOpcional
-            ? <>Mensaje <span style={{ fontWeight: 400, color: theme.colors.textSecondary }}>(opcional)</span></>
-            : 'Comentario de avance'}
+          Título del avance
+        </label>
+        <input
+          value={titulo}
+          onChange={(e) => setTitulo(e.target.value)}
+          maxLength={120}
+          placeholder="Qué se logró — p. ej. «Se entregó el diagnóstico de Cozumel»"
+          disabled={enviando}
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+            border: `1px solid ${theme.colors.border}`, borderRadius: '6px',
+            fontSize: '0.85rem', fontWeight: 600, fontFamily: theme.font.family,
+            marginBottom: '14px',
+          }}
+        />
+
+        {/* Comentario */}
+        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: theme.colors.textPrimary, marginBottom: '6px' }}>
+          Comentario de avance
         </label>
         <textarea
           value={comentario}
           onChange={(e) => setComentario(e.target.value)}
           rows={4}
-          placeholder={mensajeOpcional ? 'Agrega un mensaje para acompañar tu avance (opcional)…' : 'Describe el avance realizado…'}
+          placeholder="Describe el avance realizado: qué se hizo, qué quedó pendiente…"
           disabled={enviando}
           style={{
             width: '100%', boxSizing: 'border-box', padding: '8px 10px',
@@ -589,7 +613,7 @@ const EnviarRevisionModal: React.FC<EnviarRevisionModalProps> = ({ open, tarea, 
         {/* Validación hint */}
         {!valido && (
           <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: theme.colors.alert.yellow }}>
-            <Icono nombre="alerta" inline />Debes incluir al menos un comentario o un archivo.
+            <Icono nombre="alerta" inline />El título y el comentario son obligatorios.
           </p>
         )}
 

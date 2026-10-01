@@ -325,14 +325,17 @@ export async function listarEventos(
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO','CANCELADA') AND t.fecha_programada < CURRENT_DATE)::int AS tareas_vencidas`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado NOT IN ('COMPLETADA','FINALIZADO','CANCELADA') AND t.fecha_programada BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days')::int AS tareas_proximas`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'CANCELADA')::int AS tareas_canceladas`),
-        // Último avance registrado: es el "en qué va" que la tarjeta no podía
-        // dar con puros contadores — dice qué pasó, no cuántas quedan.
-        db.raw(`(SELECT c.titulo FROM comentarios_evento c
-                  WHERE c.evento_id = e.id AND c.titulo IS NOT NULL
-                  ORDER BY c.creado_en DESC LIMIT 1) AS ultimo_avance`),
-        db.raw(`(SELECT c.creado_en FROM comentarios_evento c
-                  WHERE c.evento_id = e.id AND c.titulo IS NOT NULL
-                  ORDER BY c.creado_en DESC LIMIT 1) AS ultimo_avance_en`),
+        // Último avance enviado por quien trabaja alguna actividad: es el "en
+        // qué va" que la tarjeta no puede dar con puros contadores — un evento
+        // con 3 de 8 actividades puede estar detenido o a punto de cerrar.
+        db.raw(`(SELECT h.titulo FROM historial_revision_tarea h
+                   JOIN tareas_evento t ON t.id = h.tarea_id
+                  WHERE t.evento_id = e.id AND h.tipo = 'AVANCE' AND h.titulo IS NOT NULL
+                  ORDER BY h.creado_en DESC LIMIT 1) AS ultimo_avance`),
+        db.raw(`(SELECT h.creado_en FROM historial_revision_tarea h
+                   JOIN tareas_evento t ON t.id = h.tarea_id
+                  WHERE t.evento_id = e.id AND h.tipo = 'AVANCE' AND h.titulo IS NOT NULL
+                  ORDER BY h.creado_en DESC LIMIT 1) AS ultimo_avance_en`),
       )
       .orderBy('e.fecha_creacion', 'desc');
 
@@ -1657,15 +1660,30 @@ export async function enviarRevision(
       );
     }
 
-    // 4. Al menos comentario no vacío O archivo presente
-    const { comentario } = req.body as { comentario?: string };
-    const tieneComentario = !!(comentario?.trim());
-    const file            = (req as any).file as Express.Multer.File | undefined;
-    const tieneArchivo    = !!file;
+    // 4. Título y comentario obligatorios; el documento, opcional.
+    //
+    //    Antes se exigía "comentario o documento", una condición difícil de
+    //    explicar y que dejaba avances ilegibles: un archivo sin una línea que
+    //    dijera qué es. Ahora el título dice qué se logró —es lo que forma la
+    //    bitácora del evento— y el comentario lo explica para quien revisa. El
+    //    documento prueba, cuando lo hay.
+    const { comentario, titulo } = req.body as { comentario?: string; titulo?: string };
 
-    if (!tieneComentario && !tieneArchivo) {
-      throw new AppError('Debes incluir un comentario o un documento de avance', 422);
+    const tituloLimpio = (titulo ?? '').trim();
+    if (!tituloLimpio) {
+      throw new AppError('El avance necesita un título que diga qué se logró', 422);
     }
+    if (tituloLimpio.length > TITULO_AVANCE_MAX) {
+      throw new AppError(`El título no puede exceder ${TITULO_AVANCE_MAX} caracteres`, 422);
+    }
+
+    const comentarioLimpio = (comentario ?? '').trim();
+    if (!comentarioLimpio) {
+      throw new AppError('El avance necesita un comentario que explique lo realizado', 422);
+    }
+
+    const file         = (req as any).file as Express.Multer.File | undefined;
+    const tieneArchivo = !!file;
 
     // 5. Guardar archivo si viene
     let documento_url: string | null = null;
@@ -1708,7 +1726,8 @@ export async function enviarRevision(
         autor_id:       req.user!.id,
         tipo:           'AVANCE',
         nivel_revision: estadoDestino === 'EN_REVISION' ? 1 : 2,
-        contenido:      tieneComentario ? comentario!.trim() : null,
+        titulo:         tituloLimpio,
+        contenido:      comentarioLimpio,
         documento_url,
         creado_en:      trx.fn.now(),
       });
@@ -2294,6 +2313,9 @@ export async function devolverTareaDG(
 // diferencia de los comentarios de tarea, aquí no hay canal reservado; es una
 // conversación única y a la vista de todos los que trabajan el evento.
 
+/** Tope del título de un avance: cabe completo en la bitácora y en el aviso. */
+const TITULO_AVANCE_MAX = 120;
+
 /** Ids de quienes forman parte del evento: creador, responsable y participantes. */
 async function integrantesDelEvento(eventoId: number): Promise<{ evento: EventoFila; ids: number[] }> {
   const evento = await db('eventos')
@@ -2320,44 +2342,6 @@ interface EventoFila {
   responsable_id:  number | null;
 }
 
-/** Tope del título de un avance: cabe completo en la línea de tiempo y en el aviso. */
-const TITULO_AVANCE_MAX = 120;
-
-/**
- * Ventana para corregir lo propio.
- *
- * Un título mal escrito queda a la vista de todos y en los avisos ya enviados;
- * sin poder corregirlo, la gente escribe "corrijo el anterior" en la siguiente
- * entrada y ensucia la historia. Pasados estos minutos ya es historial y no se
- * toca: otros lo leyeron y actuaron en consecuencia.
- */
-const MINUTOS_PARA_EDITAR = 15;
-
-/** Devuelve el título limpio, o `undefined` si la entrada es un comentario normal. */
-function leerTituloAvance(valor: unknown): string | undefined {
-  if (valor === undefined || valor === null || valor === '') return undefined;
-  if (typeof valor !== 'string') throw new AppError('El título debe ser texto', 400);
-  const limpio = valor.trim();
-  if (!limpio) return undefined;
-  if (limpio.length > TITULO_AVANCE_MAX) {
-    throw new AppError(`El título no puede exceder ${TITULO_AVANCE_MAX} caracteres`, 400);
-  }
-  return limpio;
-}
-
-/** Valida que la actividad referida exista y sea de este evento — no de otro. */
-async function leerTareaDelAvance(valor: unknown, eventoId: number, esAvance: boolean): Promise<number | null> {
-  if (valor === undefined || valor === null || valor === '') return null;
-  if (!esAvance) throw new AppError('Solo un avance puede referirse a una actividad', 400);
-
-  const tareaId = Number(valor);
-  if (!Number.isInteger(tareaId)) throw new AppError('La actividad indicada no es válida', 400);
-
-  const tarea = await db('tareas_evento').where({ id: tareaId, evento_id: eventoId }).first();
-  if (!tarea) throw new AppError('La actividad indicada no pertenece a este evento', 400);
-  return tareaId;
-}
-
 // ── POST /eventos/:id/comentarios ─────────────────────────────
 
 export async function agregarComentarioEvento(
@@ -2371,12 +2355,6 @@ export async function agregarComentarioEvento(
     if (!contenido.trim()) throw new AppError('El comentario no puede ir vacío', 400);
     if (contenido.length > 2000) throw new AppError('El comentario no puede exceder 2000 caracteres', 400);
 
-    // El título decide el tipo: con título es un avance, sin título un
-    // comentario. Un solo campo manda, así que no hay forma de guardar un
-    // avance sin título ni un tipo que contradiga al contenido.
-    const titulo = leerTituloAvance(req.body?.titulo);
-    const tareaId = await leerTareaDelAvance(req.body?.tarea_id, eventoId, Boolean(titulo));
-
     const { evento, ids } = await integrantesDelEvento(eventoId);
 
     if (!ids.includes(req.user!.id)) {
@@ -2388,27 +2366,23 @@ export async function agregarComentarioEvento(
         evento_id: eventoId,
         autor_id:  req.user!.id,
         contenido: contenido.trim(),
-        titulo:    titulo ?? null,
-        tarea_id:  tareaId,
       })
-      .returning(['id', 'evento_id', 'autor_id', 'contenido', 'titulo', 'tarea_id', 'creado_en']);
+      .returning(['id', 'evento_id', 'autor_id', 'contenido', 'creado_en']);
 
     res.status(201).json({
-      data:    { ...comentario, autor_nombre: req.user!.nombre, autor_rol: req.user!.rol, puede_editar: true },
-      message: titulo ? 'Avance registrado' : 'Comentario agregado',
+      data:    { ...comentario, autor_nombre: req.user!.nombre, autor_rol: req.user!.rol },
+      message: 'Comentario agregado',
     });
 
     // Aviso a todos los del evento menos a quien escribió. Va después de
-    // responder: que falle un aviso no debe perder lo ya guardado.
+    // responder: que falle un aviso no debe perder el comentario ya guardado.
     const destinatarios = ids.filter((id) => id !== req.user!.id);
     if (destinatarios.length > 0) {
-      // En un avance el título ya es el resumen —para eso se pide—; en un
-      // comentario hay que recortar el texto.
-      const resumen = titulo ?? (contenido.trim().slice(0, 80) + (contenido.trim().length > 80 ? '…' : ''));
+      const resumen = contenido.trim().slice(0, 80) + (contenido.trim().length > 80 ? '…' : '');
       notifyComentarioEvento({
         recipient_ids: destinatarios,
-        title:         titulo ? 'Nuevo avance en el evento' : 'Nuevo comentario en el evento',
-        body:          `${req.user!.nombre} ${titulo ? 'registró un avance' : 'comentó'} en "${evento.titulo}": ${resumen}`,
+        title:         'Nuevo comentario en el evento',
+        body:          `${req.user!.nombre} comentó en "${evento.titulo}": ${resumen}`,
         evento_id:     eventoId,
         evento_titulo: evento.titulo,
       }).catch(() => {});
@@ -2427,102 +2401,50 @@ export async function listarComentariosEvento(
     const eventoId = parseInt(req.params.id, 10);
 
     // Quien integra el evento —lo creó, lo encabeza o participa— entra directo.
-    // Se revisa antes que `requireDirectorOParticipante` porque esa función mira
-    // el rol y la tabla de participantes, y dejaba fuera al creador que no está
-    // en ella: podía escribir en el hilo pero no leerlo.
+    // Se revisa antes que `requireDirectorOParticipante`, que mira el rol y la
+    // tabla de participantes y dejaba fuera al creador que no está en ella:
+    // podía escribir en el hilo pero no leerlo.
     const { ids } = await integrantesDelEvento(eventoId);
     if (!ids.includes(req.user!.id)) {
       await requireDirectorOParticipante(req, eventoId);
     }
 
-    const filas = await db('comentarios_evento as c')
+    const comentarios = await db('comentarios_evento as c')
       .join('usuarios as u', 'u.id', 'c.autor_id')
-      .leftJoin('tareas_evento as t', 't.id', 'c.tarea_id')
       .where('c.evento_id', eventoId)
-      .orderBy('c.creado_en', 'asc')
       .select(
         'c.id',
-        'c.evento_id',
         'c.contenido',
-        'c.titulo',
-        'c.tarea_id',
         'c.creado_en',
-        'u.id as autor_id',
         'u.nombre as autor_nombre',
         'u.rol as autor_rol',
-        't.titulo as tarea_titulo',
       );
 
-    // Quién puede corregir qué lo resuelve el servidor: el frontend no tiene
-    // por qué saber la regla ni medir el tiempo por su cuenta.
-    const limite = Date.now() - MINUTOS_PARA_EDITAR * 60 * 1000;
-    const comentarios = filas.map((c: any) => ({
-      ...c,
-      puede_editar: c.autor_id === req.user!.id && new Date(c.creado_en).getTime() > limite,
-    }));
+    // Los avances no se escriben aquí: son los que manda quien trabaja cada
+    // actividad al enviarla a revisión. Se traen al hilo para que el evento se
+    // lea completo —lo conversado y lo hecho— en una sola línea de tiempo.
+    const avances = await db('historial_revision_tarea as h')
+      .join('tareas_evento as t', 't.id', 'h.tarea_id')
+      .join('usuarios as u', 'u.id', 'h.autor_id')
+      .where('t.evento_id', eventoId)
+      .andWhere('h.tipo', 'AVANCE')
+      .select(
+        'h.id',
+        'h.titulo',
+        'h.contenido',
+        'h.documento_url',
+        'h.creado_en',
+        't.id as tarea_id',
+        't.titulo as tarea_titulo',
+        'u.nombre as autor_nombre',
+        'u.rol as autor_rol',
+      );
 
-    res.json({
-      data: comentarios,
-      meta: {
-        puede_comentar:     ids.includes(req.user!.id),
-        minutos_para_editar: MINUTOS_PARA_EDITAR,
-      },
-    });
-  } catch (err) { next(err); }
-}
+    const entradas = [
+      ...comentarios.map((c: any) => ({ ...c, tipo: 'COMENTARIO' as const, titulo: null, tarea_id: null, tarea_titulo: null, documento_url: null })),
+      ...avances.map((a: any) => ({ ...a, tipo: 'AVANCE' as const })),
+    ].sort((a, b) => new Date(a.creado_en).getTime() - new Date(b.creado_en).getTime());
 
-// ── PATCH /eventos/:id/comentarios/:comentarioId ──────────────
-//
-// Corregir lo propio dentro de una ventana corta. No es edición libre de
-// historial: pasados los minutos, lo escrito queda — otros ya lo leyeron y
-// quizá actuaron en consecuencia.
-
-export async function editarComentarioEvento(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const eventoId     = parseInt(req.params.id, 10);
-    const comentarioId = parseInt(req.params.comentarioId, 10);
-
-    const comentario = await db('comentarios_evento')
-      .where({ id: comentarioId, evento_id: eventoId })
-      .first();
-    if (!comentario) throw new AppError('Comentario no encontrado', 404);
-
-    if (comentario.autor_id !== req.user!.id) {
-      throw new AppError('Solo quien lo escribió puede corregirlo', 403);
-    }
-
-    const edad = Date.now() - new Date(comentario.creado_en).getTime();
-    if (edad > MINUTOS_PARA_EDITAR * 60 * 1000) {
-      throw new AppError(`Solo se puede corregir dentro de los primeros ${MINUTOS_PARA_EDITAR} minutos`, 403);
-    }
-
-    const contenido = typeof req.body?.contenido === 'string' ? req.body.contenido : '';
-    if (!contenido.trim()) throw new AppError('El comentario no puede ir vacío', 400);
-    if (contenido.length > 2000) throw new AppError('El comentario no puede exceder 2000 caracteres', 400);
-
-    // Un avance no se puede degradar a comentario quitándole el título: el
-    // aviso ya salió anunciando un avance y la línea de tiempo lo muestra como
-    // tal. Se corrige el texto del título, no su existencia.
-    const titulo = leerTituloAvance(req.body?.titulo);
-    if (comentario.titulo && !titulo) {
-      throw new AppError('Un avance necesita título; corrige el texto en vez de borrarlo', 400);
-    }
-
-    const tareaId = await leerTareaDelAvance(req.body?.tarea_id, eventoId, Boolean(titulo ?? comentario.titulo));
-
-    const [actualizado] = await db('comentarios_evento')
-      .where({ id: comentarioId })
-      .update({
-        contenido: contenido.trim(),
-        titulo:    titulo ?? comentario.titulo ?? null,
-        tarea_id:  tareaId,
-      })
-      .returning(['id', 'evento_id', 'autor_id', 'contenido', 'titulo', 'tarea_id', 'creado_en']);
-
-    res.json({ data: { ...actualizado, puede_editar: true }, message: 'Corregido' });
+    res.json({ data: entradas, meta: { puede_comentar: ids.includes(req.user!.id) } });
   } catch (err) { next(err); }
 }
