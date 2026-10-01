@@ -268,6 +268,10 @@ export async function crearEvento(
         fecha_programada:       fecha_programada ?? null,
         responsable_id:         responsableVal,
         requiere_aprobacion_dg: requiereAprobacionDG,
+        // Arriba de todo, como hasta ahora: la lista se ordenaba por fecha de
+        // creación descendente, así que lo recién creado encabezaba. Quien
+        // prioriza decide después si baja.
+        orden:                  db.raw('(SELECT COALESCE(MIN(orden), 1) - 1 FROM eventos)'),
       })
       .returning(['id', 'titulo', 'descripcion', 'estado', 'creado_por_id', 'fecha_creacion', 'fecha_cierre', 'fecha_programada', 'responsable_id', 'requiere_aprobacion_dg']);
 
@@ -315,6 +319,9 @@ export async function listarEventos(
         // nunca la mostraba aunque se hubiera capturado.
         'e.fecha_programada',
         'e.responsable_id',
+        'e.orden',
+        'e.movimiento_neto',
+        'e.movimiento_en',
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id)::int AS total_tareas`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'PENDIENTE')::int AS tareas_pendiente`),
         db.raw(`(SELECT COUNT(*) FROM tareas_evento t WHERE t.evento_id = e.id AND t.estado = 'EN_PROGRESO')::int AS tareas_en_progreso`),
@@ -337,28 +344,27 @@ export async function listarEventos(
                   WHERE t.evento_id = e.id AND h.tipo = 'AVANCE' AND h.titulo IS NOT NULL
                   ORDER BY h.creado_en DESC LIMIT 1) AS ultimo_avance_en`),
       )
-      .orderBy('e.fecha_creacion', 'desc');
+      // El orden manual manda; la fecha de creación queda de desempate para
+      // los eventos que nadie ha priorizado todavía.
+      .orderBy([{ column: 'e.orden', order: 'asc' }, { column: 'e.fecha_creacion', order: 'desc' }]);
 
-    // Directora General ve todos los eventos de SU flujo; directores de área ven los suyos
-    // + en los que participan. Los eventos privados de directores (requiere_aprobacion_dg=false)
-    // NO los ve la DG.
     const idDG = await getIdDireccionGeneral();
-    if (req.user!.oficina_id === idDG) {
-      query = query.where('e.requiere_aprobacion_dg', true);
-    } else {
-      query = query.where(function () {
-        this.where('e.creado_por_id', req.user!.id)
-          .orWhereExists(
-            db('evento_directores')
-              .where('evento_directores.evento_id', db.ref('e.id'))
-              .where('evento_directores.director_id', req.user!.id)
-              .select(1),
-          );
-      });
-    }
+    query = aplicarVisibilidadEventos(query, req, idDG);
 
     const eventos = await query;
-    res.json({ data: eventos });
+
+    // Quién puede reordenar y qué movimiento mostrar lo resuelve el servidor:
+    // la pantalla no tiene por qué conocer la regla ni medir la ventana.
+    const limiteMovimiento = Date.now() - HORAS_MOVIMIENTO_VISIBLE * 60 * 60 * 1000;
+    const conOrden = eventos.map((e: any) => ({
+      ...e,
+      puede_ordenar: e.creado_por_id === req.user!.id || e.responsable_id === req.user!.id,
+      movimiento: e.movimiento_en && new Date(e.movimiento_en).getTime() > limiteMovimiento
+        ? e.movimiento_neto
+        : 0,
+    }));
+
+    res.json({ data: conOrden });
   } catch (err) { next(err); }
 }
 
@@ -2313,6 +2319,41 @@ export async function devolverTareaDG(
 // diferencia de los comentarios de tarea, aquí no hay canal reservado; es una
 // conversación única y a la vista de todos los que trabajan el evento.
 
+/**
+ * Cuánto tiempo se ve la flecha de subió/bajó después de mover un evento.
+ *
+ * Pasada la ventana, la marca desaparece sola: señala un cambio reciente, no
+ * un atributo permanente del evento.
+ */
+const HORAS_MOVIMIENTO_VISIBLE = 48;
+
+/**
+ * Acota una consulta de eventos a lo que esta persona puede ver.
+ *
+ * La Directora General ve los eventos de su flujo; los directores de área ven
+ * los suyos y aquellos en los que participan. Vive aparte porque lo necesitan
+ * dos caminos: el listado y el reordenamiento, que debe intercambiar con el
+ * vecino VISIBLE —si usara el vecino global, mover un evento no cambiaría
+ * nada en pantalla cuando el de al lado es de otra área.
+ *
+ * Es síncrona a propósito: `await` sobre un constructor de consultas de knex lo
+ * ejecuta, porque es "thenable". Recibir `idDG` ya resuelto evita esa trampa.
+ */
+function aplicarVisibilidadEventos(query: any, req: Request, idDG: number | null): any {
+  if (req.user!.oficina_id === idDG) {
+    return query.where('e.requiere_aprobacion_dg', true);
+  }
+  return query.where(function (this: any) {
+    this.where('e.creado_por_id', req.user!.id)
+      .orWhereExists(
+        db('evento_directores')
+          .where('evento_directores.evento_id', db.ref('e.id'))
+          .where('evento_directores.director_id', req.user!.id)
+          .select(1),
+      );
+  });
+}
+
 /** Tope del título de un avance: cabe completo en la bitácora y en el aviso. */
 const TITULO_AVANCE_MAX = 120;
 
@@ -2447,4 +2488,85 @@ export async function listarComentariosEvento(
 
     res.json({ data: entradas, meta: { puede_comentar: ids.includes(req.user!.id) } });
   } catch (err) { next(err); }
+}
+
+// ── PATCH /eventos/:id/orden ──────────────────────────────────
+//
+// Sube o baja un evento en la lista. Intercambia con el vecino VISIBLE para
+// quien lo pide: si tomara el vecino global, mover un evento no cambiaría nada
+// en pantalla cuando el de al lado pertenece a otra área.
+
+export async function moverEventoEnPrioridad(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId  = parseInt(req.params.id, 10);
+    const direccion = req.body?.direccion;
+    if (direccion !== 'ARRIBA' && direccion !== 'ABAJO') {
+      throw new AppError('La dirección debe ser ARRIBA o ABAJO', 400);
+    }
+
+    const evento = await db('eventos')
+      .where({ id: eventoId })
+      .select('id', 'orden', 'movimiento_neto', 'movimiento_en', 'creado_por_id', 'responsable_id')
+      .first();
+    if (!evento) throw new AppError('Evento no encontrado', 404);
+
+    // Prioriza quien dirige el evento: el responsable designado o quien lo creó.
+    if (evento.creado_por_id !== req.user!.id && evento.responsable_id !== req.user!.id) {
+      throw new AppError('Solo el responsable o quien creó el evento puede cambiar su prioridad', 403);
+    }
+
+    // Vecino inmediato dentro de lo que esta persona ve.
+    const idDG = await getIdDireccionGeneral();
+    const vecinoQuery = aplicarVisibilidadEventos(
+      db('eventos as e').select('e.id', 'e.orden', 'e.movimiento_neto', 'e.movimiento_en'),
+      req,
+      idDG,
+    );
+    const vecino = await vecinoQuery
+      .andWhere('e.id', '!=', eventoId)
+      .andWhere('e.orden', direccion === 'ARRIBA' ? '<' : '>', evento.orden)
+      .orderBy('e.orden', direccion === 'ARRIBA' ? 'desc' : 'asc')
+      .first();
+
+    if (!vecino) {
+      throw new AppError(
+        direccion === 'ARRIBA' ? 'El evento ya está al principio de tu lista' : 'El evento ya está al final de tu lista',
+        422,
+      );
+    }
+
+    const paso = direccion === 'ARRIBA' ? 1 : -1;
+
+    await db.transaction(async (trx) => {
+      await trx('eventos').where({ id: evento.id }).update({
+        orden:           vecino.orden,
+        movimiento_neto: acumularMovimiento(evento, paso),
+        movimiento_en:   trx.fn.now(),
+      });
+      // El vecino también se movió, en sentido contrario: su flecha debe
+      // contarlo, porque para quien mira la lista los dos cambiaron de lugar.
+      await trx('eventos').where({ id: vecino.id }).update({
+        orden:           evento.orden,
+        movimiento_neto: acumularMovimiento(vecino, -paso),
+        movimiento_en:   trx.fn.now(),
+      });
+    });
+
+    res.json({ message: direccion === 'ARRIBA' ? 'Evento subido en la lista' : 'Evento bajado en la lista' });
+  } catch (err) { next(err); }
+}
+
+/**
+ * Suma el movimiento al acumulado reciente, o arranca de cero si el anterior
+ * ya caducó. Tres clics seguidos muestran "subió 3", no tres veces "subió 1";
+ * y si ayer bajó uno y hoy sube dos, la flecha dice que subió uno.
+ */
+function acumularMovimiento(evento: { movimiento_neto?: number; movimiento_en?: Date | string | null }, paso: number): number {
+  const limite = Date.now() - HORAS_MOVIMIENTO_VISIBLE * 60 * 60 * 1000;
+  const vigente = evento.movimiento_en && new Date(evento.movimiento_en).getTime() > limite;
+  return (vigente ? Number(evento.movimiento_neto ?? 0) : 0) + paso;
 }

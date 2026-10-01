@@ -18,6 +18,7 @@ import {
   listarComentarios,
   agregarComentarioEvento,
   listarComentariosEvento,
+  moverEventoEnPrioridad,
   reasignarTarea,
   enviarRevision,
   aprobarTarea,
@@ -83,6 +84,9 @@ router.patch('/:id/cerrar',       cerrarEvento);
 router.patch('/:id/responsable',  setResponsable);
 router.post  ('/:id/directores',              agregarDirector);  // sumar participante
 router.delete('/:id/directores/:directorId', quitarDirector);   // sacarlo del evento
+
+// Prioridad en la lista principal
+router.patch('/:id/orden',                             moverEventoEnPrioridad);
 
 // Tareas
 router.post('/:id/tareas',                             agregarTarea);

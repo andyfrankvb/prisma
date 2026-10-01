@@ -288,6 +288,12 @@ export interface EventoResumen {
   /** Título del último avance enviado — el "en qué va" que los contadores no dicen. */
   ultimo_avance?:     string | null;
   ultimo_avance_en?:  string | null;
+  /** Prioridad manual en la lista: menor valor, más arriba. */
+  orden?:             number | null;
+  /** Si esta persona puede cambiar la prioridad del evento. */
+  puede_ordenar?:     boolean;
+  /** Lugares que se movió hace poco: positivo subió, negativo bajó, 0 sin cambio reciente. */
+  movimiento?:        number;
 }
 
 export interface RegistroHistorial {

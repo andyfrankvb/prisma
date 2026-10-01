@@ -1349,6 +1349,19 @@ export async function borrarEvento(eventoId: number) {
   return handleResponse<{ message: string }>(res);
 }
 
+/**
+ * Sube o baja un evento en la lista principal. El intercambio lo resuelve el
+ * servidor contra el vecino visible para quien lo pide.
+ */
+export async function moverEventoEnPrioridad(eventoId: number, direccion: 'ARRIBA' | 'ABAJO') {
+  const res = await fetch(`${BASE}/eventos/${eventoId}/orden`, {
+    method:  'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ direccion }),
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 // ── SATQ — ingresos y conciliación con RPP ──────────────────────────────────
 
 export async function getSatqDetalle(params: {

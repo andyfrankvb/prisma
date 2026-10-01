@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { esAsistenteDG, esDireccionGeneral } from '../utils/asistentesDG';
 import { useDialogo } from '../context/DialogoContext';
-import { borrarTareaEvento, cancelarTareaEvento, borrarEvento } from '../api';
+import { borrarTareaEvento, cancelarTareaEvento, borrarEvento, moverEventoEnPrioridad } from '../api';
 import { ResumenEvento } from '../components/ResumenEvento';
 import type { EventoResumen, EventoDetalle, TareaEvento, EstadoTarea, RegistroHistorial } from '../types';
 import type { UsuarioAdmin } from '../api';
@@ -155,6 +155,17 @@ export const SeccionEventos: React.FC = () => {
   }, []);
 
   useEffect(() => { fetchEventos(); }, [fetchEventos]);
+
+  /** Cambia la prioridad y recarga: el orden y las flechas los calcula el servidor. */
+  const moverEvento = async (id: number, direccion: 'ARRIBA' | 'ABAJO') => {
+    setError(null);
+    try {
+      await moverEventoEnPrioridad(id, direccion);
+      await fetchEventos();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
 
   // Cargar todos los directores de área (para el selector al crear evento)
   // Aplica tanto a la DG como a directores de área — ambos pueden invitar participantes
@@ -474,6 +485,7 @@ export const SeccionEventos: React.FC = () => {
                 cerrando={cerrando === evento.id}
                 errorCierre={errorCierre[evento.id]}
                 onAgregarTarea={() => openNuevaTarea(evento.id)}
+                onMover={evento.puede_ordenar ? (direccion) => moverEvento(evento.id, direccion) : null}
                 esDG={esDG}
                 /* El encargado coordina aunque no sea director: por eso deja de
                    contar como solo lectura en SU evento. */
@@ -774,11 +786,13 @@ interface EventoCardProps {
   /** Terminar el evento: la DG en los suyos, el director que lo creó en el propio. */
   puedeCerrar:      boolean;
   onBorrar:         () => void;
+  /** Sube o baja el evento en la lista; null cuando esta persona no puede priorizar. */
+  onMover:          ((direccion: 'ARRIBA' | 'ABAJO') => void) | null;
 }
 
 const EventoCard: React.FC<EventoCardProps> = ({
   evento, expanded, detalle, detalleLoading, onToggle, onAbrir, onCerrar, cerrando, errorCierre, onAgregarTarea,
-  esDG, soloLectura, esEncargado, puedeCerrar, onBorrar,
+  esDG, soloLectura, esEncargado, puedeCerrar, onBorrar, onMover,
 }) => {
   const isCerrado = evento.estado === 'CERRADO';
   const total     = evento.total_tareas || 1;
@@ -807,6 +821,52 @@ const EventoCard: React.FC<EventoCardProps> = ({
           userSelect: 'none',
         }}
       >
+        {/* Prioridad: flechas para mover, y la marca de lo que se movió hace poco.
+            La marca no dice la posición, dice el movimiento — que es justo lo
+            que cuesta ver en una lista larga. */}
+        {(onMover || (evento.movimiento ?? 0) !== 0) && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', flexShrink: 0, width: '26px' }}
+          >
+            {onMover && (
+              <button
+                type="button"
+                onClick={() => onMover('ARRIBA')}
+                title="Subir en prioridad"
+                aria-label="Subir en prioridad"
+                style={{ border: 'none', background: 'none', padding: 0, lineHeight: 0, cursor: 'pointer', color: theme.colors.textSecondary }}
+              >
+                <Icono nombre="flechaArriba" size={14} />
+              </button>
+            )}
+
+            {(evento.movimiento ?? 0) !== 0 && (
+              <span
+                title={`Se movió ${Math.abs(evento.movimiento ?? 0)} lugar${Math.abs(evento.movimiento ?? 0) === 1 ? '' : 'es'} en las últimas 48 horas`}
+                style={{
+                  fontSize: '0.62rem', fontWeight: 800, lineHeight: 1,
+                  color: (evento.movimiento ?? 0) > 0 ? theme.colors.alert.green : theme.colors.alert.red,
+                }}
+              >
+                {(evento.movimiento ?? 0) > 0 ? '▲' : '▼'}{Math.abs(evento.movimiento ?? 0)}
+              </span>
+            )}
+
+            {onMover && (
+              <button
+                type="button"
+                onClick={() => onMover('ABAJO')}
+                title="Bajar en prioridad"
+                aria-label="Bajar en prioridad"
+                style={{ border: 'none', background: 'none', padding: 0, lineHeight: 0, cursor: 'pointer', color: theme.colors.textSecondary }}
+              >
+                <Icono nombre="flechaAbajo" size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Expand icon */}
         <span style={{ fontSize: '0.8rem', color: theme.colors.textSecondary, flexShrink: 0, transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'none' }}>
           ▶
