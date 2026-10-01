@@ -267,6 +267,12 @@ export interface TareaEvento {
   fecha_actualizacion: string;
   vencida:             boolean;
   proxima_a_vencer:    boolean;
+  /**
+   * Equipo que elabora la actividad, además del responsable. Vacío cuando la
+   * trabaja una sola persona, y también para la Dirección General, que no ve
+   * quién la trabaja sino el área.
+   */
+  colaboradores?:      { id: number; nombre: string }[];
 }
 
 export interface EventoResumen {

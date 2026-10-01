@@ -19,6 +19,8 @@ import {
   agregarComentarioEvento,
   listarComentariosEvento,
   moverEventoEnPrioridad,
+  agregarColaborador,
+  quitarColaborador,
   reasignarTarea,
   enviarRevision,
   aprobarTarea,
@@ -95,6 +97,10 @@ router.delete('/:id/tareas/:tareaId',                  borrarTarea);    // solo 
 router.patch ('/:id/tareas/:tareaId/cancelar',         cancelarTarea);  // deja de esperar trabajo, no desaparece
 router.patch('/:id/tareas/:tareaId/estado',            actualizarEstadoTarea);
 router.patch('/:id/tareas/:tareaId/reasignar',         reasignarTarea);
+
+// Equipo de la actividad — trabajo que se elabora entre varios
+router.post  ('/:id/tareas/:tareaId/colaboradores',             agregarColaborador);
+router.delete('/:id/tareas/:tareaId/colaboradores/:usuarioId',  quitarColaborador);
 
 // Comentarios de cada actividad
 router.post('/:id/tareas/:tareaId/comentarios',        agregarComentario);

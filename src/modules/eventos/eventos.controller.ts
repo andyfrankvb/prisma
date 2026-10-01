@@ -133,9 +133,13 @@ async function requireDirectorOParticipanteEnAlguno(req: Request): Promise<void>
   } catch (err) {
     const participa = await db('evento_directores')
       .where('director_id', req.user!.id).first();
-    const tieneTarea = participa ? null : await db('tareas_evento')
-      .where((q: any) => q.where('asignado_a_id', req.user!.id)
-                          .orWhere('reasignado_a_id', req.user!.id))
+    const tieneTarea = participa ? null : await db('tareas_evento as t')
+      .leftJoin('tarea_colaboradores as tc', 'tc.tarea_id', 't.id')
+      .where((q: any) => q.where('t.asignado_a_id', req.user!.id)
+                          .orWhere('t.reasignado_a_id', req.user!.id)
+                          // Quien colabora en una actividad trabaja en ese evento:
+                          // negarle la entrada le escondería a qué pertenece su trabajo.
+                          .orWhere('tc.usuario_id', req.user!.id))
       .first();
     // La consulta de `listarEventos` ya acota a lo suyo —lo que creó y aquello en
     // lo que participa—, así que dejar pasar aquí no muestra de más.
@@ -153,10 +157,12 @@ async function requireDirectorOParticipante(req: Request, eventoId: number): Pro
       .first();
     // O tiene una actividad suya dentro: se le encargó trabajo ahí, así que ver el
     // evento es lo mínimo para saber a qué pertenece lo que está haciendo.
-    const tieneTarea = participa ? null : await db('tareas_evento')
-      .where({ evento_id: eventoId })
-      .andWhere((q: any) => q.where('asignado_a_id', req.user!.id)
-                             .orWhere('reasignado_a_id', req.user!.id))
+    const tieneTarea = participa ? null : await db('tareas_evento as t')
+      .leftJoin('tarea_colaboradores as tc', 'tc.tarea_id', 't.id')
+      .where('t.evento_id', eventoId)
+      .andWhere((q: any) => q.where('t.asignado_a_id', req.user!.id)
+                             .orWhere('t.reasignado_a_id', req.user!.id)
+                             .orWhere('tc.usuario_id', req.user!.id))
       .first();
     if (!participa && !tieneTarea) throw err;
   }
@@ -432,6 +438,9 @@ export async function obtenerEvento(
 
     const tareasRaw = await tareasQuery.orderBy('t.id', 'asc');
 
+    // Equipo de cada actividad, en una sola consulta para no hacer una por fila.
+    const colaboradoresPorTarea = await equiposDeTareas(tareasRaw.map((t: any) => t.id));
+
     // REGLA: La Directora General NO ve quién fue asignado a cada actividad.
     // En su lugar ve al director responsable del área (o el nombre del área).
     // Construimos un mapa unidad_id → nombre del director responsable.
@@ -475,6 +484,9 @@ export async function obtenerEvento(
         fecha_programada: fechaStr,
         vencida:          isVencida(fechaStr, t.estado as EstadoTarea),
         proxima_a_vencer: isProximaAVencer(fechaStr, t.estado as EstadoTarea),
+        // La DG no ve quién trabaja cada actividad, solo al área: el equipo
+        // sigue el mismo criterio que el asignado.
+        colaboradores:    esDG ? [] : (colaboradoresPorTarea.get(t.id) ?? []),
       };
     });
 
@@ -1400,10 +1412,17 @@ export async function listarTareasArea(
         't.motivo_cancelacion',
         't.fecha_actualizacion',
       )
-      // El usuario ve las tareas asignadas a él directamente O delegadas a él
-      // (reasignado), para que el colaborador delegado pueda trabajarlas.
-      .where(function () {
-        this.where('t.asignado_a_id', userId).orWhere('t.reasignado_a_id', userId);
+      // El usuario ve las tareas asignadas a él, las delegadas a él y aquellas
+      // en cuyo equipo participa: las tres son trabajo suyo.
+      .where(function (this: any) {
+        this.where('t.asignado_a_id', userId)
+          .orWhere('t.reasignado_a_id', userId)
+          .orWhereExists(
+            db('tarea_colaboradores as tc')
+              .where('tc.tarea_id', db.ref('t.id'))
+              .where('tc.usuario_id', userId)
+              .select(1),
+          );
       });
 
     // Una tarea DEVUELTO_DG está en manos del DIRECTOR de área (el asignado):
@@ -1421,6 +1440,8 @@ export async function listarTareasArea(
 
     const tareasRaw = await query.orderBy('t.fecha_programada', 'asc');
 
+    const equipos = await equiposDeTareas(tareasRaw.map((t: any) => t.id));
+
     const tareas = tareasRaw.map((t) => {
       // La fecha es opcional desde la migración 2026-09-07: puede llegar nula.
       const fechaStr: string | null =
@@ -1434,6 +1455,7 @@ export async function listarTareasArea(
         fecha_programada: fechaStr,
         vencida:          isVencida(fechaStr, t.estado as EstadoTarea),
         proxima_a_vencer: isProximaAVencer(fechaStr, t.estado as EstadoTarea),
+        colaboradores:    equipos.get(t.id) ?? [],
       };
     });
 
@@ -1646,9 +1668,14 @@ export async function enviarRevision(
     // 2. Autorización — si la tarea está delegada, SOLO el colaborador delegado
     //    puede enviar el avance (el director ya no la trabaja: es el revisor N1).
     const esDelegadaAuth = !!tarea.reasignado_a_id;
-    const puedeEnviar = esDelegadaAuth
+    // Cualquiera del equipo puede reportar: trabajan en paralelo y el que
+    // termina su parte da la cara, sin esperar al responsable.
+    const esColaborador = !!(await db('tarea_colaboradores')
+      .where({ tarea_id: tareaId, usuario_id: req.user!.id })
+      .first());
+    const puedeEnviar = esColaborador || (esDelegadaAuth
       ? req.user!.id === tarea.reasignado_a_id
-      : req.user!.id === tarea.asignado_a_id;
+      : req.user!.id === tarea.asignado_a_id);
     if (!puedeEnviar) {
       throw new AppError(
         esDelegadaAuth
@@ -2569,4 +2596,129 @@ function acumularMovimiento(evento: { movimiento_neto?: number; movimiento_en?: 
   const limite = Date.now() - HORAS_MOVIMIENTO_VISIBLE * 60 * 60 * 1000;
   const vigente = evento.movimiento_en && new Date(evento.movimiento_en).getTime() > limite;
   return (vigente ? Number(evento.movimiento_neto ?? 0) : 0) + paso;
+}
+
+/**
+ * Equipo de varias actividades de un jalón: `tarea_id` → colaboradores.
+ *
+ * Una consulta para todas, no una por actividad: un evento con 30 actividades
+ * haría 30 viajes a una base que ya vimos lenta.
+ */
+async function equiposDeTareas(tareaIds: number[]): Promise<Map<number, { id: number; nombre: string }[]>> {
+  const mapa = new Map<number, { id: number; nombre: string }[]>();
+  if (tareaIds.length === 0) return mapa;
+
+  const filas = await db('tarea_colaboradores as tc')
+    .join('usuarios as u', 'u.id', 'tc.usuario_id')
+    .whereIn('tc.tarea_id', tareaIds)
+    .orderBy('u.nombre', 'asc')
+    .select('tc.tarea_id', 'u.id', 'u.nombre');
+
+  for (const f of filas as any[]) {
+    const equipo = mapa.get(f.tarea_id) ?? [];
+    equipo.push({ id: f.id, nombre: f.nombre });
+    mapa.set(f.tarea_id, equipo);
+  }
+  return mapa;
+}
+
+// ── Equipo de una actividad ───────────────────────────────────
+//
+// Hay trabajo que se elabora entre varios. El responsable (`asignado_a_id`)
+// sigue siendo quien responde por la actividad —de él dependen la revisión y
+// los tableros—, y el equipo se suma aparte: los colaboradores la ven en sus
+// pendientes, entran al evento y pueden enviar el avance.
+
+/** Quién puede tocar el equipo: quien dirige el evento o el responsable de la actividad. */
+async function requirePuedeArmarEquipo(req: Request, tarea: { id: number; evento_id: number; asignado_a_id: number; reasignado_a_id: number | null }): Promise<void> {
+  if (req.user!.id === tarea.asignado_a_id || req.user!.id === tarea.reasignado_a_id) return;
+
+  const evento = await db('eventos')
+    .where({ id: tarea.evento_id })
+    .select('creado_por_id', 'responsable_id')
+    .first();
+
+  if (evento?.creado_por_id === req.user!.id || evento?.responsable_id === req.user!.id) return;
+
+  throw new AppError('Solo quien dirige el evento o el responsable de la actividad puede armar el equipo', 403);
+}
+
+/** Lee la actividad y verifica que pertenezca al evento de la ruta. */
+async function tareaDelEvento(eventoId: number, tareaId: number) {
+  const tarea = await db('tareas_evento').where({ id: tareaId, evento_id: eventoId }).first();
+  if (!tarea) throw new AppError('Actividad no encontrada', 404);
+  return tarea;
+}
+
+// ── POST /eventos/:id/tareas/:tareaId/colaboradores ───────────
+
+export async function agregarColaborador(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+    const tareaId  = parseInt(req.params.tareaId, 10);
+    const usuarioId = Number(req.body?.usuario_id);
+    if (!Number.isInteger(usuarioId)) throw new AppError('Indica a quién vas a sumar al equipo', 400);
+
+    const tarea = await tareaDelEvento(eventoId, tareaId);
+    await requirePuedeArmarEquipo(req, tarea);
+
+    // El responsable ya está en la actividad por definición: sumarlo otra vez
+    // como colaborador lo mostraría dos veces y no cambiaría nada.
+    if (usuarioId === tarea.asignado_a_id || usuarioId === tarea.reasignado_a_id) {
+      throw new AppError('Esa persona ya es responsable de la actividad', 409);
+    }
+
+    const usuario = await db('usuarios').where({ id: usuarioId, activo: true }).select('id', 'nombre').first();
+    if (!usuario) throw new AppError('Usuario no encontrado o inactivo', 404);
+
+    const [fila] = await db('tarea_colaboradores')
+      .insert({ tarea_id: tareaId, usuario_id: usuarioId, agregado_por_id: req.user!.id })
+      .onConflict(['tarea_id', 'usuario_id'])
+      .ignore()
+      .returning(['id']);
+
+    if (!fila) throw new AppError('Esa persona ya está en el equipo', 409);
+
+    res.status(201).json({ data: { usuario_id: usuarioId, nombre: usuario.nombre }, message: 'Se sumó al equipo' });
+
+    // Avisa a quien se suma: la actividad le aparece entre sus pendientes y
+    // enterarse al abrir el sistema por casualidad no es suficiente.
+    const evento = await db('eventos').where({ id: eventoId }).select('titulo').first();
+    notifyEventoTarea({
+      recipient_id:  usuarioId,
+      event:         'TAREA_ASIGNADA',
+      title:         'Te sumaron a una actividad',
+      body:          `${req.user!.nombre} te sumó al equipo de "${tarea.titulo}"`,
+      tarea_id:      tareaId,
+      evento_titulo: evento?.titulo ?? '',
+    }).catch(() => {});
+  } catch (err) { next(err); }
+}
+
+// ── DELETE /eventos/:id/tareas/:tareaId/colaboradores/:usuarioId ──
+
+export async function quitarColaborador(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId  = parseInt(req.params.id, 10);
+    const tareaId   = parseInt(req.params.tareaId, 10);
+    const usuarioId = parseInt(req.params.usuarioId, 10);
+
+    const tarea = await tareaDelEvento(eventoId, tareaId);
+    await requirePuedeArmarEquipo(req, tarea);
+
+    const borradas = await db('tarea_colaboradores').where({ tarea_id: tareaId, usuario_id: usuarioId }).del();
+    if (borradas === 0) throw new AppError('Esa persona no está en el equipo', 404);
+
+    // Lo que ya aportó —avances, comentarios— se conserva: es historial de la
+    // actividad, no propiedad de quien sigue en el equipo.
+    res.json({ message: 'Se quitó del equipo' });
+  } catch (err) { next(err); }
 }

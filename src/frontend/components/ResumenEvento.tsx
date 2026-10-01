@@ -10,6 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icono } from './Icono';
 import { useDialogo } from '../context/DialogoContext';
+import { agregarColaboradorTarea, quitarColaboradorTarea } from '../api';
 import { theme } from '../theme';
 import type { EventoResumen, EventoDetalle, EstadoTarea, EntradaBitacoraEvento } from '../types';
 
@@ -83,6 +84,44 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
   const [textoComentario, setTextoComentario] = useState('');
   const [enviandoComentario, setEnviandoComentario] = useState(false);
   const [errorComentario, setErrorComentario] = useState<string | null>(null);
+
+  // Equipo de cada actividad: hay trabajo que se elabora entre varios, y hasta
+  // ahora obligaba a partir la actividad o a dejar fuera a quienes la trabajan.
+  const [equipoAbierto, setEquipoAbierto] = useState<number | null>(null);
+  const [nuevoColaborador, setNuevoColaborador] = useState<number | ''>('');
+  const [guardandoEquipo, setGuardandoEquipo] = useState(false);
+  const [errorEquipo, setErrorEquipo] = useState<string | null>(null);
+
+  const sumarAlEquipo = async (tareaId: number) => {
+    if (!nuevoColaborador) return;
+    setGuardandoEquipo(true);
+    setErrorEquipo(null);
+    try {
+      await agregarColaboradorTarea(resumen.id, tareaId, Number(nuevoColaborador));
+      setNuevoColaborador('');
+      cargar();
+    } catch (e) {
+      setErrorEquipo(e instanceof Error ? e.message : 'No se pudo sumar al equipo.');
+    } finally {
+      setGuardandoEquipo(false);
+    }
+  };
+
+  const sacarDelEquipo = async (tareaId: number, usuarioId: number, nombre: string) => {
+    const sigue = await dialogo.confirmar({
+      titulo:    'Quitar del equipo',
+      mensaje:   `¿Sacar a ${nombre} de esta actividad? Lo que ya aportó se conserva.`,
+      confirmar: 'Quitar',
+    });
+    if (!sigue) return;
+    setErrorEquipo(null);
+    try {
+      await quitarColaboradorTarea(resumen.id, tareaId, usuarioId);
+      cargar();
+    } catch (e) {
+      setErrorEquipo(e instanceof Error ? e.message : 'No se pudo quitar del equipo.');
+    }
+  };
 
   const cargarComentarios = () => {
     fetch(`${BASE}/eventos/${resumen.id}/comentarios`, { headers: { ...authHeaders() } })
@@ -503,6 +542,35 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                       </div>
                       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '6px', fontSize: '0.74rem', color: theme.colors.textSecondary }}>
                         <span><Icono nombre="persona" inline />{t.reasignado_a_nombre || t.asignado_a_nombre}</span>
+                        {/* Equipo: quienes elaboran la actividad junto al responsable. */}
+                        {(t.colaboradores ?? []).map((c) => (
+                          <span
+                            key={c.id}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '1px 8px', borderRadius: '20px', backgroundColor: '#EFEDEA', fontSize: '0.7rem' }}
+                          >
+                            <Icono nombre="personas" inline />{c.nombre}
+                            {puedeGestionar && (
+                              <button
+                                type="button"
+                                onClick={() => sacarDelEquipo(t.id, c.id, c.nombre)}
+                                title={`Quitar a ${c.nombre} del equipo`}
+                                aria-label={`Quitar a ${c.nombre} del equipo`}
+                                style={{ border: 'none', background: 'none', padding: 0, lineHeight: 1, cursor: 'pointer', color: theme.colors.textSecondary, fontWeight: 700 }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                        {puedeGestionar && (
+                          <button
+                            type="button"
+                            onClick={() => { setEquipoAbierto(equipoAbierto === t.id ? null : t.id); setNuevoColaborador(''); setErrorEquipo(null); }}
+                            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: theme.colors.primary, fontSize: '0.72rem', fontWeight: 700, fontFamily: theme.font.family }}
+                          >
+                            {equipoAbierto === t.id ? 'Cerrar' : '+ Equipo'}
+                          </button>
+                        )}
                         {t.fecha_programada
                           ? <span><Icono nombre="calendario" inline />Programada: {t.fecha_programada}</span>
                           : <span style={{ fontStyle: 'italic' }}>Sin fecha límite</span>}
@@ -512,6 +580,36 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                           </span>
                         )}
                       </div>
+
+                      {equipoAbierto === t.id && (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
+                          <select
+                            value={nuevoColaborador}
+                            onChange={(e) => setNuevoColaborador(e.target.value ? Number(e.target.value) : '')}
+                            disabled={guardandoEquipo}
+                            style={{ padding: '6px 10px', border: `1px solid ${theme.colors.border}`, borderRadius: '6px', fontSize: '0.78rem', fontFamily: theme.font.family, minWidth: '220px' }}
+                          >
+                            <option value="">— Sumar a alguien al equipo… —</option>
+                            {directoresArea
+                              .filter((d) => d.id !== t.asignado_a_id && d.id !== t.reasignado_a_id)
+                              .filter((d) => !(t.colaboradores ?? []).some((c) => c.id === d.id))
+                              .map((d) => (
+                                <option key={d.id} value={d.id}>{d.nombre}</option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => sumarAlEquipo(t.id)}
+                            disabled={!nuevoColaborador || guardandoEquipo}
+                            style={{ padding: '6px 14px', backgroundColor: theme.colors.primary, color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, fontFamily: theme.font.family, cursor: (!nuevoColaborador || guardandoEquipo) ? 'not-allowed' : 'pointer', opacity: (!nuevoColaborador || guardandoEquipo) ? 0.5 : 1 }}
+                          >
+                            {guardandoEquipo ? 'Sumando…' : 'Sumar'}
+                          </button>
+                          {errorEquipo && (
+                            <span style={{ fontSize: '0.74rem', color: theme.colors.alert.red }}>{errorEquipo}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

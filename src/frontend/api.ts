@@ -1362,6 +1362,25 @@ export async function moverEventoEnPrioridad(eventoId: number, direccion: 'ARRIB
   return handleResponse<{ message: string }>(res);
 }
 
+/** Suma a alguien al equipo que elabora una actividad. */
+export async function agregarColaboradorTarea(eventoId: number, tareaId: number, usuarioId: number) {
+  const res = await fetch(`${BASE}/eventos/${eventoId}/tareas/${tareaId}/colaboradores`, {
+    method:  'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ usuario_id: usuarioId }),
+  });
+  return handleResponse<{ data: { usuario_id: number; nombre: string }; message: string }>(res);
+}
+
+/** Saca a alguien del equipo. Lo que ya aportó se conserva: es historial de la actividad. */
+export async function quitarColaboradorTarea(eventoId: number, tareaId: number, usuarioId: number) {
+  const res = await fetch(`${BASE}/eventos/${eventoId}/tareas/${tareaId}/colaboradores/${usuarioId}`, {
+    method:  'DELETE',
+    headers: { ...authHeaders() },
+  });
+  return handleResponse<{ message: string }>(res);
+}
+
 // ── SATQ — ingresos y conciliación con RPP ──────────────────────────────────
 
 export async function getSatqDetalle(params: {
