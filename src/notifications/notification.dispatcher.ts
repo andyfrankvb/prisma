@@ -215,6 +215,38 @@ export async function notifyEventoTarea(payload: {
   );
 }
 
+/**
+ * Comentario en el hilo del evento: avisa a quienes lo trabajan.
+ *
+ * A diferencia de `notifyEventoTarea`, que escribe a una sola persona según la
+ * jerarquía, aquí el aviso va a todos los del evento menos al autor — es una
+ * conversación, no un trámite dirigido. Los envíos fallidos se registran pero
+ * no interrumpen a los demás: que un destinatario falle no debe dejar sin
+ * aviso al resto.
+ */
+export async function notifyComentarioEvento(payload: {
+  recipient_ids:  number[];
+  title:          string;
+  body:           string;
+  evento_id:      number;
+  evento_titulo:  string;
+}): Promise<void> {
+  await Promise.allSettled(
+    payload.recipient_ids.map((user_id) =>
+      sendInApp({
+        user_id,
+        type:          'EVENTO_COMENTARIO',
+        title:         payload.title,
+        body:          payload.body,
+        evento_id:     payload.evento_id,
+        evento_titulo: payload.evento_titulo,
+        read:          false,
+        created_at:    new Date(),
+      }).catch((err) => logger.error({ err, user_id, evento_id: payload.evento_id }, 'EVENTO_COMENTARIO in-app falló')),
+    ),
+  );
+}
+
 // ── Notificaciones de Trámites ────────────────────────────────────────────────
 
 /**

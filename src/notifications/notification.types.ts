@@ -10,6 +10,8 @@ export type NotificationEventType =
   | 'DEADLINE_OVERDUE'
   | 'VOBO_APROBADO'
   | 'TAREA_COMENTARIO'
+  // Conversación del evento completo, entre participantes, responsable y creador
+  | 'EVENTO_COMENTARIO'
   | 'TAREA_ESTADO'
   | 'TAREA_FECHA_COMPROMISO'
   | 'TAREA_ASIGNADA'
@@ -55,6 +57,7 @@ export interface NotificationPayload {
   // Campos para notificaciones de eventos/tareas
   tarea_id?:      number;
   evento_titulo?: string;
+  evento_id?:     number;
   tarea_titulo?:  string;
   autor_nombre?:  string;
   // Campos para notificaciones de delegatorios
@@ -87,6 +90,7 @@ export interface InAppMessage {
   folio?:               string;
   tarea_id?:            number;
   evento_titulo?:       string;
+  evento_id?:           number;
   tramite_id?:          number;
   alerta_vigilancia_id?: number;
   ticket_id?:           number;

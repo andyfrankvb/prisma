@@ -1007,6 +1007,17 @@ export interface ResultadoSyncConsultas {
   detalle: string;
 }
 
+/** Un comentario del hilo del evento (no de una actividad concreta). */
+export interface ComentarioEvento {
+  id:           number;
+  evento_id:    number;
+  contenido:    string;
+  creado_en:    string;
+  autor_id:     number;
+  autor_nombre: string;
+  autor_rol:    string;
+}
+
 // ── Catálogo de Vigilancia y Alertas ─────────────────────────────
 
 export type TipoSujetoVigilado = 'PERSONA' | 'EMPRESA';

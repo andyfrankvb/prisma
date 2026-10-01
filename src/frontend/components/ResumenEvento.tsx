@@ -11,7 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Icono } from './Icono';
 import { useDialogo } from '../context/DialogoContext';
 import { theme } from '../theme';
-import type { EventoResumen, EventoDetalle, EstadoTarea } from '../types';
+import type { EventoResumen, EventoDetalle, EstadoTarea, ComentarioEvento } from '../types';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -74,6 +74,51 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
   const [agregando, setAgregando] = useState(false);
   const [errorPart, setErrorPart] = useState<string | null>(null);
 
+  // Conversación del evento: lo que se acuerda o se avisa y no cabe dentro de
+  // una actividad concreta. `puedeComentar` lo dice el backend, que es quien
+  // sabe si esta persona participa, es responsable o lo creó.
+  const [comentarios, setComentarios] = useState<ComentarioEvento[]>([]);
+  const [puedeComentar, setPuedeComentar] = useState(false);
+  const [textoComentario, setTextoComentario] = useState('');
+  const [enviandoComentario, setEnviandoComentario] = useState(false);
+  const [errorComentario, setErrorComentario] = useState<string | null>(null);
+
+  const cargarComentarios = () => {
+    fetch(`${BASE}/eventos/${resumen.id}/comentarios`, { headers: { ...authHeaders() } })
+      .then((r) => r.json())
+      .then((j) => {
+        setComentarios(j.data ?? []);
+        setPuedeComentar(Boolean(j.meta?.puede_comentar));
+      })
+      // El resumen del evento sirve igual sin el hilo: un fallo aquí no debe
+      // tapar con un error una pantalla que por lo demás funciona.
+      .catch(() => {});
+  };
+
+  const enviarComentario = async () => {
+    const contenido = textoComentario.trim();
+    if (!contenido) return;
+    setEnviandoComentario(true);
+    setErrorComentario(null);
+    try {
+      const res = await fetch(`${BASE}/eventos/${resumen.id}/comentarios`, {
+        method:  'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ contenido }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b?.message ?? `HTTP ${res.status}`);
+      }
+      setTextoComentario('');
+      cargarComentarios();
+    } catch (e) {
+      setErrorComentario(e instanceof Error ? e.message : 'No se pudo enviar el comentario.');
+    } finally {
+      setEnviandoComentario(false);
+    }
+  };
+
   const cargar = () => {
     setLoading(true);
     fetch(`${BASE}/eventos/${resumen.id}`, { headers: { ...authHeaders() } })
@@ -83,7 +128,7 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { cargar(); }, [resumen.id]);
+  useEffect(() => { cargar(); cargarComentarios(); }, [resumen.id]);
 
   const agregarParticipante = async () => {
     if (!nuevoParticipante) return;
@@ -469,6 +514,70 @@ export const ResumenEvento: React.FC<Props> = ({ resumen, onClose, puedeGestiona
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* Conversación del evento */}
+          <div>
+            <p style={{ margin: '0 0 10px', fontSize: '0.72rem', fontWeight: 700, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Conversación {comentarios.length > 0 ? `(${comentarios.length})` : ''}
+            </p>
+
+            {comentarios.length === 0 ? (
+              <p style={{ margin: '0 0 10px', fontSize: '0.82rem', color: theme.colors.textSecondary }}>
+                Aún no hay comentarios en este evento.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                {comentarios.map((c) => (
+                  <div key={c.id} style={{ border: `1px solid ${theme.colors.border}`, borderRadius: '8px', padding: '10px 12px', backgroundColor: '#fff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.8rem', color: theme.colors.textPrimary }}>
+                        <Icono nombre="persona" inline />{c.autor_nombre}
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: theme.colors.textSecondary }}>{formatFecha(c.creado_en, true)}</span>
+                    </div>
+                    {/* `pre-wrap` conserva los saltos de línea que escribió la persona. */}
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: theme.colors.textPrimary, whiteSpace: 'pre-wrap' }}>{c.contenido}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {puedeComentar && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <textarea
+                  value={textoComentario}
+                  onChange={(e) => setTextoComentario(e.target.value)}
+                  placeholder="Escribe un comentario para quienes participan en el evento…"
+                  rows={3}
+                  maxLength={2000}
+                  style={{
+                    width: '100%', padding: '10px 12px', borderRadius: '8px',
+                    border: `1px solid ${theme.colors.border}`, fontSize: '0.84rem',
+                    fontFamily: theme.font.family, resize: 'vertical', boxSizing: 'border-box',
+                  }}
+                />
+                {errorComentario && (
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: theme.colors.alert.red }}>{errorComentario}</p>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={enviarComentario}
+                    disabled={enviandoComentario || !textoComentario.trim()}
+                    style={{
+                      padding: '8px 18px', borderRadius: '7px', border: 'none',
+                      backgroundColor: theme.colors.primary, color: '#fff',
+                      fontWeight: 700, fontSize: '0.82rem', fontFamily: theme.font.family,
+                      cursor: (enviandoComentario || !textoComentario.trim()) ? 'default' : 'pointer',
+                      opacity: (enviandoComentario || !textoComentario.trim()) ? 0.6 : 1,
+                    }}
+                  >
+                    {enviandoComentario ? 'Enviando…' : 'Comentar'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

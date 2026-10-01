@@ -22,7 +22,7 @@ import type { Knex } from 'knex';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
 import { storage, compresionInfo } from '../../services/storage.service';
-import { notifyEventoTarea } from '../../notifications/notification.dispatcher';
+import { notifyEventoTarea, notifyComentarioEvento } from '../../notifications/notification.dispatcher';
 import { logger }   from '../../utils/logger';
 import {
   isValidTransition,
@@ -2272,5 +2272,123 @@ export async function devolverTareaDG(
       tarea_id:      tareaId,
       evento_titulo: evento.titulo,
     }).catch(() => {});
+  } catch (err) { next(err); }
+}
+
+// ── Comentarios del evento ────────────────────────────────────
+//
+// Conversación del evento completo, distinta de los comentarios de cada
+// actividad (`comentarios_tarea`): aquí van los acuerdos y avisos que no
+// pertenecen a una actividad concreta y que antes quedaban fuera del sistema.
+//
+// Quién escribe: participantes (evento_directores), responsable y creador.
+// Quién lee: cualquiera que pueda abrir el evento, y ve el hilo completo —a
+// diferencia de los comentarios de tarea, aquí no hay canal reservado; es una
+// conversación única y a la vista de todos los que trabajan el evento.
+
+/** Ids de quienes forman parte del evento: creador, responsable y participantes. */
+async function integrantesDelEvento(eventoId: number): Promise<{ evento: EventoFila; ids: number[] }> {
+  const evento = await db('eventos')
+    .where({ id: eventoId })
+    .select('id', 'titulo', 'creado_por_id', 'responsable_id')
+    .first() as EventoFila | undefined;
+  if (!evento) throw new AppError('Evento no encontrado', 404);
+
+  const participantes = await db('evento_directores')
+    .where({ evento_id: eventoId })
+    .pluck('director_id');
+
+  const ids = new Set<number>(participantes);
+  if (evento.creado_por_id)  ids.add(evento.creado_por_id);
+  if (evento.responsable_id) ids.add(evento.responsable_id);
+
+  return { evento, ids: [...ids] };
+}
+
+interface EventoFila {
+  id:              number;
+  titulo:          string;
+  creado_por_id:   number | null;
+  responsable_id:  number | null;
+}
+
+// ── POST /eventos/:id/comentarios ─────────────────────────────
+
+export async function agregarComentarioEvento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+    const contenido = typeof req.body?.contenido === 'string' ? req.body.contenido : '';
+    if (!contenido.trim()) throw new AppError('El comentario no puede ir vacío', 400);
+    if (contenido.length > 2000) throw new AppError('El comentario no puede exceder 2000 caracteres', 400);
+
+    const { evento, ids } = await integrantesDelEvento(eventoId);
+
+    if (!ids.includes(req.user!.id)) {
+      throw new AppError('Solo quienes participan en el evento pueden comentar', 403);
+    }
+
+    const [comentario] = await db('comentarios_evento')
+      .insert({
+        evento_id: eventoId,
+        autor_id:  req.user!.id,
+        contenido: contenido.trim(),
+      })
+      .returning(['id', 'evento_id', 'autor_id', 'contenido', 'creado_en']);
+
+    res.status(201).json({
+      data:    { ...comentario, autor_nombre: req.user!.nombre, autor_rol: req.user!.rol },
+      message: 'Comentario agregado',
+    });
+
+    // Aviso a todos los del evento menos a quien escribió. Va después de
+    // responder: que falle un aviso no debe perder el comentario ya guardado.
+    const destinatarios = ids.filter((id) => id !== req.user!.id);
+    if (destinatarios.length > 0) {
+      const resumen = contenido.trim().slice(0, 80) + (contenido.trim().length > 80 ? '…' : '');
+      notifyComentarioEvento({
+        recipient_ids: destinatarios,
+        title:         'Nuevo comentario en el evento',
+        body:          `${req.user!.nombre} comentó en "${evento.titulo}": ${resumen}`,
+        evento_id:     eventoId,
+        evento_titulo: evento.titulo,
+      }).catch(() => {});
+    }
+  } catch (err) { next(err); }
+}
+
+// ── GET /eventos/:id/comentarios ──────────────────────────────
+
+export async function listarComentariosEvento(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const eventoId = parseInt(req.params.id, 10);
+
+    // Mismo criterio de acceso que para abrir el evento: quien lo ve, ve su hilo.
+    await requireDirectorOParticipante(req, eventoId);
+
+    const comentarios = await db('comentarios_evento as c')
+      .join('usuarios as u', 'u.id', 'c.autor_id')
+      .where('c.evento_id', eventoId)
+      .orderBy('c.creado_en', 'asc')
+      .select(
+        'c.id',
+        'c.evento_id',
+        'c.contenido',
+        'c.creado_en',
+        'u.id as autor_id',
+        'u.nombre as autor_nombre',
+        'u.rol as autor_rol',
+      );
+
+    const { ids } = await integrantesDelEvento(eventoId);
+
+    res.json({ data: comentarios, meta: { puede_comentar: ids.includes(req.user!.id) } });
   } catch (err) { next(err); }
 }

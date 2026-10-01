@@ -16,6 +16,8 @@ import {
   listarTareasArea,
   agregarComentario,
   listarComentarios,
+  agregarComentarioEvento,
+  listarComentariosEvento,
   reasignarTarea,
   enviarRevision,
   aprobarTarea,
@@ -90,9 +92,13 @@ router.patch ('/:id/tareas/:tareaId/cancelar',         cancelarTarea);  // deja 
 router.patch('/:id/tareas/:tareaId/estado',            actualizarEstadoTarea);
 router.patch('/:id/tareas/:tareaId/reasignar',         reasignarTarea);
 
-// Comentarios
+// Comentarios de cada actividad
 router.post('/:id/tareas/:tareaId/comentarios',        agregarComentario);
 router.get('/:id/tareas/:tareaId/comentarios',         listarComentarios);
+
+// Conversación del evento completo — lo que no pertenece a una actividad
+router.post('/:id/comentarios',                        agregarComentarioEvento);
+router.get ('/:id/comentarios',                        listarComentariosEvento);
 
 // Flujo de revisión — Operativo → N1 (Encargado) → N2 (DG)
 router.post ('/:id/tareas/:tareaId/enviar-revision',   upload.single('documento'), enviarRevision);
