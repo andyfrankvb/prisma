@@ -285,6 +285,9 @@ export interface EventoResumen {
   tareas_completada:  number;
   tareas_vencidas:    number;
   tareas_proximas:    number;
+  /** Título del último avance registrado — el "en qué va" que los contadores no dicen. */
+  ultimo_avance?:     string | null;
+  ultimo_avance_en?:  string | null;
 }
 
 export interface RegistroHistorial {
@@ -1007,15 +1010,27 @@ export interface ResultadoSyncConsultas {
   detalle: string;
 }
 
-/** Un comentario del hilo del evento (no de una actividad concreta). */
+/**
+ * Una entrada del hilo del evento.
+ *
+ * El título decide el tipo: con título es un AVANCE —se lee en la línea de
+ * tiempo y puede referirse a una actividad—; sin título es un comentario.
+ */
 export interface ComentarioEvento {
-  id:           number;
-  evento_id:    number;
-  contenido:    string;
-  creado_en:    string;
-  autor_id:     number;
-  autor_nombre: string;
-  autor_rol:    string;
+  id:            number;
+  evento_id:     number;
+  contenido:     string;
+  /** Presente solo en los avances. */
+  titulo:        string | null;
+  /** Actividad a la que se refiere el avance, cuando aplica. */
+  tarea_id:      number | null;
+  tarea_titulo:  string | null;
+  creado_en:     string;
+  autor_id:      number;
+  autor_nombre:  string;
+  autor_rol:     string;
+  /** Lo resuelve el servidor: es de quien lo escribió y aún está en la ventana de corrección. */
+  puede_editar:  boolean;
 }
 
 // ── Catálogo de Vigilancia y Alertas ─────────────────────────────

@@ -840,6 +840,18 @@ const EventoCard: React.FC<EventoCardProps> = ({
               <Icono nombre="calendario" inline />Fecha límite: {evento.fecha_programada}
             </p>
           )}
+
+          {/* Último avance: el "en qué va" que los contadores no dicen. Un
+              evento con 3 de 8 actividades puede estar detenido o a punto de
+              cerrar, y eso solo lo cuenta quien lo está trabajando. */}
+          {evento.ultimo_avance && (
+            <p
+              style={{ margin: '4px 0 0', fontSize: '0.76rem', color: theme.colors.primaryDark, fontWeight: 600 }}
+              title={evento.ultimo_avance_en ? `Registrado el ${evento.ultimo_avance_en.slice(0, 10)}` : undefined}
+            >
+              <Icono nombre="lista" inline />Último avance: {evento.ultimo_avance}
+            </p>
+          )}
         </div>
 
         {/* Barra de progreso */}
