@@ -43,7 +43,11 @@ volumes:
     driver: local
     driver_opts:
       type: cifs
-      device: "//${SMB_HOST}/${SMB_SHARE}/SID"
+      # Ojo: NO se arma con SMB_SHARE. En el servidor esa variable ya apunta a la
+      # subcarpeta de PRISMA ("direccion_tics/prisma"), así que agregarle "/SID"
+      # daba //…/direccion_tics/prisma/SID, que no existe. El acervo cuelga del
+      # mismo recurso pero de otra subcarpeta, y por eso va aparte.
+      device: "//${SMB_HOST}/${SMB_ACERVO_SHARE:-direccion_tics/SID}"
       o: "username=${SMB_USER},password=${SMB_PASS},uid=100,gid=101,vers=3.0,ro,file_mode=0440,dir_mode=0550"
 
 services:
