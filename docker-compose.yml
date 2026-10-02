@@ -105,6 +105,12 @@ services:
       # (SMB de 10.1.100.175) definiendo STORAGE_HOST_PATH en el .env; si no se
       # define, usa el volumen local de Docker.
       - ${STORAGE_HOST_PATH:-storage_pdfs}:/app/storage
+      # Acervo del Visor: los PDF digitalizados que vive en la carpeta del SID.
+      # NO se copian — se leen donde están. En local se apunta al recurso
+      # montado en la Mac (ACERVO_VISOR_PATH=/Volumes/direccion_tics/SID); si la
+      # variable no está, usa una carpeta vacía y el Visor muestra el catálogo
+      # sin poder abrir las fojas, que es como estaba antes.
+      - ${ACERVO_VISOR_PATH:-./storage/visor_sid_vacio}:/app/storage/visor_sid:ro
     ports:
       - "3000:3000"
     networks:
