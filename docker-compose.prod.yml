@@ -29,6 +29,23 @@ volumes:
       # podía ni entrar a la carpeta: EACCES al abrir cualquier documento.
       o: "username=${SMB_USER},password=${SMB_PASS},uid=100,gid=101,vers=3.0,file_mode=0660,dir_mode=0770"
 
+  # Acervo del Visor de Documentos: los PDF digitalizados del SID.
+  #
+  # Se monta la subcarpeta `SID` del mismo recurso compartido, en SOLO LECTURA.
+  # No se copia nada: son 22.6 GB y 638 mil archivos que PRISMA lee donde el SID
+  # los dejó, así que cualquier documento que ellos agreguen o reemplacen se ve
+  # igual desde aquí. El `ro` va aquí y en el servicio: el Visor solo lee, y más
+  # vale que tampoco pueda escribir aunque la cuenta tenga permiso.
+  #
+  # Se monta `SID` y no el recurso completo a propósito: al mismo nivel viven
+  # carpetas de otras áreas que PRISMA no tiene por qué ver.
+  acervo_visor_sid:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${SMB_HOST}/${SMB_SHARE}/SID"
+      o: "username=${SMB_USER},password=${SMB_PASS},uid=100,gid=101,vers=3.0,ro,file_mode=0440,dir_mode=0550"
+
 services:
   redis:
     image: redis:7-alpine
@@ -61,6 +78,7 @@ services:
       TZ: America/Cancun
     volumes:
       - storage_prisma:/app/storage
+      - acervo_visor_sid:/app/storage/visor_sid:ro
     networks: [app_net]
     depends_on:
       redis:
