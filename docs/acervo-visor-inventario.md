@@ -223,10 +223,44 @@ Verificado después de la carga: 100 rutas al azar de la base de producción
 apuntan a PDF reales y válidos en el recurso compartido, y el contenedor de
 producción lista el acervo.
 
-### Pendiente de decisión
+### Las inscripciones, cargadas el 2026-10-02
 
-Producción conserva los datos de prueba del prototipo VISAR: **5 tomos en
-Cozumel, Sección Primera, con 3,483 fojas y 434 inscripciones inventadas**. No
-chocan con el acervo real —el Cozumel verdadero es de las secciones 3, 4 y 5—
-pero se ven en pantalla, y estorbarán al cargar las inscripciones, que son justo
-de las secciones 1 y 2.
+Después se cargó el acervo de inscripciones y se retiraron los datos de prueba
+del prototipo VISAR (5 tomos, 3,483 fojas y 434 inscripciones, cuyas imágenes
+apuntaban a una carpeta que no existe en producción).
+
+| | Antes | Después |
+|---|---|---|
+| Tomos | 751 | 5,074 |
+| Fojas e imágenes | 641,654 | 827,287 |
+| Inscripciones | 434 (del prototipo) | **189,116** |
+
+Las secciones Primera y Segunda, que estaban vacías, quedaron cubiertas en las
+cuatro delegaciones: Cancún 113,649 y 18,805; Chetumal 35,913 y 8,030; Cozumel
+4,127 y 3,817; Playa del Carmen 4,580 y 168.
+
+De los 189,793 renglones en estado `OK`, se descartaron 677: 676 copias del
+mismo documento en dos carpetas —se eligió la de la carpeta de la delegación— y
+una sin número de inscripción.
+
+**Verificado en producción:** las 189,116 inscripciones apuntan a su propio
+archivo —el nombre del PDF coincide con su asignación, cero discrepancias—, cero
+fojas compartidas entre inscripciones, cero inscripciones sin foja y cero
+enlaces del prototipo.
+
+### Tiempos de consulta con el acervo completo
+
+Medidos contra producción con 5,074 tomos, 827,287 fojas y 189,116
+inscripciones:
+
+| Consulta | Tiempo |
+|---|---|
+| Búsqueda de inscripción por tomo y número | 3.7 ms |
+| Búsqueda solo por número de inscripción | 12 ms |
+| Listado de inscripciones sin filtros (peor caso) | 82 ms |
+| Fojas del tomo más grande | 100 ms |
+
+Esto desmiente la sospecha anotada antes de la carga, de que la búsqueda de
+tomo por número romano necesitaría un índice propio: la consulta acota primero
+por delegación y sección con `idx_visor_tomos_delegacion_seccion`, y el `LIKE`
+solo filtra esos 1,479 tomos. Nunca recorre las 189 mil inscripciones.
