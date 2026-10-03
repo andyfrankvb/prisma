@@ -29,9 +29,9 @@ import {
   buscarInscripciones, mergeRangoPdf,
 } from '../services/visorApi';
 import type {
-import { etiquetaInscripcion } from '../components/visor/etiquetas';
   VisorDelegacion, VisorSeccion, VisorLibroResumen, VisorFoja, VisorInscripcionConTomo,
 } from '../types';
+import { etiquetaInscripcion } from '../components/visor/etiquetas';
 
 type Tab = 'libros' | 'inscripciones';
 
