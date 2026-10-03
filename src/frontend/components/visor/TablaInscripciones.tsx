@@ -11,6 +11,7 @@ import { Icono } from '../Icono';
 import { theme } from '../../theme';
 import * as s from './estilosSid';
 import type { VisorInscripcionConTomo } from '../../types';
+import { etiquetaInscripcion } from './etiquetas';
 
 interface Props {
   inscripciones: VisorInscripcionConTomo[];
@@ -60,7 +61,7 @@ export const TablaInscripciones: React.FC<Props> = ({ inscripciones, seleccionad
                 <td style={s.td}>{insc.volumen ?? '—'}</td>
                 <td style={s.td}>
                   <span style={s.badge(theme.colors.background, theme.colors.textSecondary)}>
-                    {String(insc.numero_inscripcion).padStart(4, '0')}
+                    {etiquetaInscripcion(insc)}
                   </span>
                 </td>
                 <td style={{ ...s.td, maxWidth: '220px' }} title={insc.asignacion}>

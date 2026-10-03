@@ -12,6 +12,7 @@ import { Icono } from '../Icono';
 import { theme } from '../../theme';
 import * as s from './estilosSid';
 import type { VisorDelegacion, VisorSeccion, VisorInscripcionConTomo } from '../../types';
+import { etiquetaInscripcion } from './etiquetas';
 
 interface Props {
   delegaciones: VisorDelegacion[];
@@ -91,7 +92,7 @@ export const BuscadorInscripciones: React.FC<Props> = ({
           <Icono nombre="documento" inline size={13} />Inscripción
         </span>
         <span style={s.badge(`${theme.colors.primary}18`, theme.colors.primary)}>
-          {seleccionada ? String(seleccionada.numero_inscripcion).padStart(4, '0') : '0'}
+          {seleccionada ? etiquetaInscripcion(seleccionada) : '0'}
         </span>
       </div>
       <div style={s.cardBody}>
@@ -104,7 +105,7 @@ export const BuscadorInscripciones: React.FC<Props> = ({
             <Fila etiqueta="Sección" valor={String(seleccionada.seccion_numero)} />
             <Fila etiqueta="Tomo" valor={seleccionada.numero_romano} />
             <Fila etiqueta="Volumen" valor={seleccionada.volumen ?? '—'} />
-            <Fila etiqueta="Inscripción" valor={String(seleccionada.numero_inscripcion).padStart(4, '0')} />
+            <Fila etiqueta="Inscripción" valor={etiquetaInscripcion(seleccionada)} />
             <Fila etiqueta="Archivo" valor={seleccionada.asignacion} />
             {seleccionada.observaciones && <Fila etiqueta="Observaciones" valor={seleccionada.observaciones} />}
           </div>

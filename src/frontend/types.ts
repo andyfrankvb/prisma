@@ -1379,7 +1379,12 @@ export interface VisorInscripcion {
   id:                 number;
   tomo_id:            number;
   foja_id:            number | null;
+  /** Número de arranque; para mostrar usa `etiquetaInscripcion`. */
   numero_inscripcion: number;
+  /** Nombre literal del acervo: "0078", "0001_1857", "0513_0513_jpg". */
+  numero_inscripcion_texto: string;
+  /** Cierre del rango, nulo cuando cubre una sola inscripción. */
+  numero_final:       number | null;
   volumen:            string | null;
   asignacion:         string;
   estatus:            string | null;

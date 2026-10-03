@@ -38,11 +38,17 @@ export async function buscarInscripciones(filtros: FiltrosBusquedaInscripciones)
     .join('visor_secciones as s', 's.id', 't.seccion_id')
     .where('t.delegacion_id', filtros.delegacionId)
     .select(
-      'i.id', 'i.tomo_id', 'i.foja_id', 'i.numero_inscripcion', 'i.volumen',
+      'i.id', 'i.tomo_id', 'i.foja_id', 'i.numero_inscripcion',
+      'i.numero_inscripcion_texto', 'i.numero_final', 'i.volumen',
       'i.asignacion', 'i.estatus', 'i.observaciones',
       't.numero_romano', 's.numero as seccion_numero',
     )
-    .orderBy(['t.indice_orden', 'i.numero_inscripcion'])
+    // `indice_orden` solo lo traen los tomos capturados a mano en el
+    // prototipo; los del acervo del SID lo tienen nulo, y en Postgres los
+    // nulos se van al final y empatan entre sí. Sin el número romano como
+    // segundo criterio, los 1,478 tomos de la Sección Primera de Cancún
+    // saldrían entremezclados.
+    .orderBy(['t.indice_orden', 't.numero_romano', 'i.numero_inscripcion'])
     .limit(filtros.limit);
 
   if (filtros.seccionId) query = query.andWhere('t.seccion_id', filtros.seccionId);

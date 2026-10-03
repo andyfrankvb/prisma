@@ -83,7 +83,17 @@ export interface VisorInscripcion {
   id:                 number;
   tomo_id:            number;
   foja_id:            number | null;
+  /** Número de arranque. Es lo que ordena y lo que compara la búsqueda por rango. */
   numero_inscripcion: number;
+  /**
+   * El nombre literal del acervo: "0078", pero también "0001_1857" cuando un
+   * PDF cubre un rango, o "0513_0513_jpg" cuando conviven variantes de formato
+   * de la misma inscripción. Es lo que hay que mostrar: `numero_inscripcion`
+   * solo trae el arranque, y con él tres variantes distintas se verían iguales.
+   */
+  numero_inscripcion_texto: string;
+  /** Cierre del rango, nulo cuando el PDF cubre una sola inscripción. */
+  numero_final:       number | null;
   volumen:            string | null;
   asignacion:         string;
   estatus:            string | null;

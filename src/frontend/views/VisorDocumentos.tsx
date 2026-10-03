@@ -29,6 +29,7 @@ import {
   buscarInscripciones, mergeRangoPdf,
 } from '../services/visorApi';
 import type {
+import { etiquetaInscripcion } from '../components/visor/etiquetas';
   VisorDelegacion, VisorSeccion, VisorLibroResumen, VisorFoja, VisorInscripcionConTomo,
 } from '../types';
 
@@ -145,7 +146,7 @@ export const VisorDocumentos: React.FC = () => {
     const conFoja = inscripciones.filter((i) => i.foja_id !== null);
     const items: VisorModalItem[] = conFoja.map((i) => ({
       key: i.id, fojaId: i.foja_id as number,
-      titulo: `Tomo ${i.numero_romano} · Inscripción ${String(i.numero_inscripcion).padStart(4, '0')}`,
+      titulo: `Tomo ${i.numero_romano} · Inscripción ${etiquetaInscripcion(i)}`,
       detalle: i.asignacion,
     }));
     const indice = conFoja.findIndex((i) => i.id === insc.id);
