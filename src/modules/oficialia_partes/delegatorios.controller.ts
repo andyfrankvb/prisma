@@ -18,6 +18,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
+import { ASIGNACION_VIGENTE, EstatusOficio } from './oficios.types';
 import { storage }  from '../../services/storage.service';
 import { notifyDelegatorio } from '../../notifications/notification.dispatcher';
 import { destinosPermitidos, puedeEnviarA, unidadDelOficio } from './destinos';
@@ -112,16 +113,26 @@ async function puedeDetonar(user: any, oficioId: number): Promise<boolean> {
   const unidades = await unidadesDelEncargado(user.id);
   if (oficio.unidad_actual && unidades.includes(oficio.unidad_actual)) return true;
 
-  // O el analista que lo tiene asignado, siempre que siga siendo del área donde
-  // vive el oficio: una asignación vieja no debe dar permisos en la nueva área.
-  const asignacion = await db('asignaciones_juridicas as a')
-    .leftJoin('usuarios as u', 'u.id', 'a.abogado_id')
-    .where('a.oficio_id', oficioId)
-    .orderBy('a.id', 'desc')
-    .select('a.abogado_id', 'u.unidad_id')
+  /**
+   * O el analista que lo tiene asignado.
+   *
+   * Antes se exigía además que su unidad fuera la misma que la del oficio, para
+   * que una asignación vieja no diera permisos después de turnarlo a otra área.
+   * El resguardo era correcto, la medida no: en la Dirección Jurídica y la
+   * Dirección General el oficio va dirigido a la titular —una unidad— y se
+   * asigna a gente de otra, así que sus analistas quedaban sin poder pedir
+   * información sobre lo que ellos mismos estaban trabajando.
+   *
+   * Lo que de verdad caduca una asignación es el turno: el oficio vuelve a
+   * RECIBIDO en manos de otra área, y ahí es donde se corta.
+   */
+  const asignacion = await db('asignaciones_juridicas')
+    .where({ oficio_id: oficioId })
+    .orderBy('id', 'desc')
+    .select('abogado_id')
     .first();
   return asignacion?.abogado_id === user.id
-      && asignacion?.unidad_id === oficio.unidad_actual;
+      && ASIGNACION_VIGENTE.includes(oficio.estatus as EstatusOficio);
 }
 
 async function getDelegatorioOrFail(id: number) {

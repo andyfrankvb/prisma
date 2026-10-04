@@ -75,17 +75,38 @@ export const AccionesOficio: React.FC<Props> = ({
     a.id === 'turnar' ? { ...a, onClick: () => setTurnando(true) } : a);
 
   /**
-   * Con el visto bueno dado, «Turnar a otra área» ya no viene en la lista —el
-   * oficio no se puede soltar— pero pedirle información a otra sí sigue
-   * valiendo. La entrada se agrega aquí para que ese camino no desaparezca.
+   * El camino a otra área, cuando la lista no lo trae.
+   *
+   * Pasa en dos situaciones distintas. Con el visto bueno dado, «Turnar a otra
+   * área» ya no viene —el oficio no se puede soltar— pero pedirle información a
+   * otra sí sigue valiendo. Y en el expediente del analista la lista llega
+   * vacía: esta pantalla no arma acciones de orquestación, así que sin esto la
+   * única salida que tenía era pedirle a su encargado que turnara por él.
+   *
+   * El rótulo lo decide `puede_turnar`, que es la diferencia real: soltar el
+   * oficio o solo pedir información sin desprenderse de él.
    */
-  const puedePedir = !!oficio.puede_solicitar && !oficio.puede_turnar;
+  /**
+   * Mientras el oficio esté turnado y sin aceptar no se ofrece ninguno de los
+   * dos: primero el área se hace cargo. `puede_solicitar` ya lo contemplaba por
+   * su cuenta; `puede_turnar` no, y sin este freno «Turnar a otra área»
+   * aparecía dentro del recuadro «¿Tu área se hace cargo?», dejando soltar un
+   * oficio que todavía no se había recibido.
+   */
+  const puedePedir = !oficio.puede_aceptar_turno
+    && (!!oficio.puede_solicitar || !!oficio.puede_turnar);
   if (puedePedir && !lista.some((a) => a.id === 'turnar')) {
-    lista.push({
-      id: 'turnar', label: 'Solicitar a otra área',
-      descripcion: 'Pide información sin soltar el oficio. Te contestan con su documento.',
-      onClick: () => setTurnando(true),
-    });
+    lista.push(oficio.puede_turnar
+      ? {
+          id: 'turnar', label: 'Turnar a otra área',
+          descripcion: 'Pide información sin soltarlo, manda lo que ya trabajaste, o pásalo a quien le corresponde.',
+          onClick: () => setTurnando(true),
+        }
+      : {
+          id: 'turnar', label: 'Solicitar a otra área',
+          descripcion: 'Pide información sin soltar el oficio. Te contestan con su documento.',
+          onClick: () => setTurnando(true),
+        });
   }
 
   // Lo que reclama atención aunque las marcas estén plegadas.

@@ -40,3 +40,15 @@ declare global {
     }
   }
 }
+
+/**
+ * Estatus en los que la asignación a un analista sigue vigente.
+ *
+ * Turnar un oficio a otra área no borra el renglón de `asignaciones_juridicas`:
+ * el oficio regresa a RECIBIDO con otro destinatario y la asignación anterior
+ * queda ahí. Sin este filtro, el analista del área que ya lo soltó conservaría
+ * sus facultades sobre un expediente que vive en otra parte.
+ */
+export const ASIGNACION_VIGENTE: readonly EstatusOficio[] = [
+  'ASIGNADO', 'EN_REVISION', 'EN_RECONSIDERACION', 'VOBO_APROBADO',
+] as const;

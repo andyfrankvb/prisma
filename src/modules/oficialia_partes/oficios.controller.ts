@@ -20,7 +20,7 @@ import { processOcr }   from '../../services/ocr.service';
 import { notifyVoboAprobado } from '../../notifications/notification.dispatcher';
 import { AppError }     from '../../utils/AppError';
 import { logger }       from '../../utils/logger';
-import { RolUsuario, EstatusOficio } from './oficios.types';
+import { RolUsuario, EstatusOficio, ASIGNACION_VIGENTE } from './oficios.types';
 import { tieneDelegatoriosPendientes } from './delegatorios.controller';
 import { buscarDuplicados, hashArchivo } from './duplicados';
 import { unidadDelOficio } from './destinos';
@@ -1335,6 +1335,25 @@ export async function listarOficios(
       const soy_encargado_del_area = unidadesEncargado.includes(o.dirigido_a_unidad_id);
 
       /**
+       * ¿Soy el analista al que le asignaron este oficio?
+       *
+       * Asignar es DELEGAR: el encargado reparte el expediente y quien lo recibe
+       * continúa la gestión con las mismas facultades que él —trabajarlo,
+       * turnarlo, pedir información, registrarlo en los sistemas, reservar su
+       * folio—. Lo único que no se delega es volver a asignarlo: repartir el
+       * trabajo del área sigue siendo del encargado, y sin ese límite la cadena
+       * no tendría fin.
+       *
+       * No se exige que el analista sea de la MISMA unidad que el oficio. Ese
+       * requisito, que `puede_solicitar` traía, dejaba sin facultades a los
+       * analistas de la Dirección Jurídica y la Dirección General: ahí el oficio
+       * va dirigido a la titular —unidad 34— y se asigna a gente de la 36, así
+       * que veían el expediente y no podían hacer nada con él.
+       */
+      const soy_el_asignado = o.abogado_id === user.id
+        && ASIGNACION_VIGENTE.includes(o.estatus as EstatusOficio);
+
+      /**
        * ¿Puede corregir lo que la oficialía capturó mal?
        *
        * Todo el área donde vive el oficio —su titular, el encargado y su equipo—,
@@ -1472,7 +1491,7 @@ export async function listarOficios(
       // valiendo, y eso lo resuelve `puede_solicitar`.
       const cerrado = o.estatus === 'VOBO_APROBADO' || o.estatus === 'FINALIZADO' || enPase;
       const puede_turnar = !cerrado
-        && (o.dirigido_a_id === user.id || unidadesEncargado.includes(o.dirigido_a_unidad_id));
+        && (o.dirigido_a_id === user.id || soy_encargado_del_area || soy_el_asignado);
 
       // Y devolverlo, solo si llegó por un turno.
       /**
@@ -1509,9 +1528,7 @@ export async function listarOficios(
       // trabajando para alguien que aún podía devolverlo—.
       const puede_solicitar = o.estatus !== 'FINALIZADO'
         && !turnoPorAceptar
-        && (o.dirigido_a_id === user.id
-            || unidadesEncargado.includes(o.dirigido_a_unidad_id)
-            || (o.abogado_id === user.id && o.abogado_unidad_id === o.dirigido_a_unidad_id));
+        && (o.dirigido_a_id === user.id || soy_encargado_del_area || soy_el_asignado);
 
       // La casilla «Resolución» manda el asunto a la Dirección General. No aplica
       // a lo que ya está allá, ni a lo que ya se mandó.
@@ -2371,8 +2388,23 @@ export async function turnarOficio(
       })
       .first();
     const esTitular = actual.dirigido_a_id === user.id;
-    if (!esEncargado && !esTitular) {
-      throw new AppError('Solo el titular del área o su encargado pueden turnar este oficio', 403);
+    /**
+     * Y quien lo tiene asignado.
+     *
+     * El encargado asigna para delegar la gestión, no solo la redacción: quien
+     * recibe el expediente es quien descubre que hace falta pedirle información
+     * a otra área o que el asunto no era de aquí. Sin esto el botón aparecía y
+     * el servidor lo rechazaba con un 403, así que el analista tenía que ir a
+     * pedirle a su jefe que turnara por él.
+     */
+    const ultimaAsignacion = await db('asignaciones_juridicas')
+      .where({ oficio_id })
+      .orderBy('id', 'desc')
+      .first();
+    const esElAsignado = ultimaAsignacion?.abogado_id === user.id
+      && ASIGNACION_VIGENTE.includes(actual.estatus as EstatusOficio);
+    if (!esEncargado && !esTitular && !esElAsignado) {
+      throw new AppError('Solo el titular del área, su encargado o quien lo tiene asignado pueden turnar este oficio', 403);
     }
 
     // Con delegatorios abiertos el turno dejaría a otras áreas trabajando de más.
