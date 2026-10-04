@@ -246,6 +246,7 @@ export async function obtenerImagen(req: Request, res: Response, next: NextFunct
       fojaId,
       version,
       sinMarcaDeAgua: esAdminEquivalente(user),
+      usuarioNombre:  user.nombre,
       usuarioEmail:   user.email,
       ipAddress:      ipDeRequest(req),
     });

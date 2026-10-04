@@ -129,13 +129,32 @@ async function cargarComoPdf(rutaAbsoluta: string, formato: string): Promise<PDF
 }
 
 /** Dibuja el texto de marca de agua repetido en diagonal directo sobre cada página — sin rasterizar nada. */
-async function agregarMarcaDeAgua(pdfDoc: PDFDocument, email: string, ip: string): Promise<void> {
+/**
+ * Marca de agua de trazabilidad: quién consultó el documento, desde dónde y
+ * cuándo, repetida en diagonal sobre cada página.
+ *
+ * Lleva el NOMBRE y no solo la cuenta: si una copia sale del sistema, quien la
+ * reciba debe poder leer de quién salió sin tener que buscar a qué persona
+ * corresponde un usuario como "andyfrank". La cuenta se conserva porque es la
+ * que identifica sin ambigüedad —puede haber nombres repetidos— y la IP para
+ * saber desde dónde se consultó.
+ *
+ * La hora va en la zona de Quintana Roo, no en la del servidor.
+ */
+async function agregarMarcaDeAgua(
+  pdfDoc: PDFDocument,
+  usuario: { nombre: string; email: string },
+  ip: string,
+): Promise<void> {
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fechaHora = new Date().toLocaleString('es-MX', {
     timeZone: 'America/Cancun',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
-  const texto = `${email} - ${ip} - ${fechaHora} - PRISMA RPPC`;
+  const quien = usuario.nombre?.trim()
+    ? `${usuario.nombre.trim()} (${usuario.email})`
+    : usuario.email;
+  const texto = `${quien} - ${ip} - ${fechaHora} - PRISMA RPPC`;
 
   for (const pagina of pdfDoc.getPages()) {
     const { width, height } = pagina.getSize();
@@ -159,6 +178,7 @@ export interface ObtenerImagenOptions {
   fojaId:        number;
   version?:      VersionDigitalizacion;
   sinMarcaDeAgua: boolean;
+  usuarioNombre: string;
   usuarioEmail:  string;
   ipAddress:     string;
 }
@@ -169,7 +189,7 @@ export async function obtenerImagenProcesada(opts: ObtenerImagenOptions): Promis
 
   const pdfDoc = await cargarComoPdf(rutaAbsoluta, imagen.formato);
   if (!opts.sinMarcaDeAgua) {
-    await agregarMarcaDeAgua(pdfDoc, opts.usuarioEmail, opts.ipAddress);
+    await agregarMarcaDeAgua(pdfDoc, { nombre: opts.usuarioNombre, email: opts.usuarioEmail }, opts.ipAddress);
   }
 
   const buffer = Buffer.from(await pdfDoc.save());
