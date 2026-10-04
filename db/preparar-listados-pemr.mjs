@@ -95,7 +95,18 @@ function indexarAcervo({ raiz, lista }) {
   const registrar = (relativa) => {
     const nombre = path.basename(relativa);
     if (!/\.pdf$/i.test(nombre)) return;
-    encontrados.set(nombre.replace(/\.pdf$/i, ''), `${PREFIJO}/${relativa.split(path.sep).join('/')}`);
+    // Normalizar a NFC es obligatorio, no cosmético.
+    //
+    // macOS entrega los nombres con los acentos DESCOMPUESTOS ("Seccio" + U+0301
+    // + "n") y normaliza al comparar, así que en la Mac todo funciona. El
+    // montaje CIFS del servidor los presenta COMPUESTOS (un solo "ó") y compara
+    // byte a byte: una ruta guardada en la forma de macOS no encuentra el
+    // archivo en producción, aunque en pantalla se lea idéntica.
+    //
+    // Pasó: las 3,127 rutas de PEMR 2025 se cargaron descompuestas y en
+    // producción daban "Archivo de imagen no encontrado en el servidor".
+    const ruta = `${PREFIJO}/${relativa.split(path.sep).join('/')}`.normalize('NFC');
+    encontrados.set(nombre.replace(/\.pdf$/i, '').normalize('NFC'), ruta);
   };
 
   if (lista) {
