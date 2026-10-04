@@ -103,3 +103,23 @@ ALTER TABLE visor_imagenes_foja
 -- que no se dio cuenta de que ya existía. Se queda la restricción, que es la
 -- original.
 DROP INDEX IF EXISTS uq_visor_imagenes_foja_version;
+
+-- ── 5. El dictamen jurídico también debe admitir las campañas reales ───────
+-- `visor_dictamenes_versiones_foja.version_seleccionada` tenía la misma
+-- restricción cerrada a las tres campañas del prototipo. Es justamente la
+-- tabla donde Jurídico declara cuál versión de una foja es la válida, así que
+-- sin esto nadie podría dictaminar sobre el acervo real: la validación del
+-- controlador pasaba y la base rechazaba.
+--
+-- Se admite el mismo conjunto que las imágenes. No se valida contra
+-- `visor_campanias` con una llave foránea a propósito: la restricción protege
+-- del dato con forma inválida, y qué campañas existen lo decide el catálogo,
+-- que es donde se agregan sin tocar el esquema.
+ALTER TABLE visor_dictamenes_versiones_foja
+  DROP CONSTRAINT IF EXISTS visor_dictamenes_versiones_foja_version_seleccionada_check;
+
+ALTER TABLE visor_dictamenes_versiones_foja
+  ADD CONSTRAINT visor_dictamenes_versiones_foja_version_seleccionada_check
+  CHECK (version_seleccionada IN ('V2009', 'V2022_FALTANTE', 'V3_VALIDADA')
+         OR version_seleccionada ~ '^V_SID[0-9]*$'
+         OR version_seleccionada ~ '^V_PEMR?[0-9]{4}$');
