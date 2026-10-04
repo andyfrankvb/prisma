@@ -32,10 +32,13 @@ function colorPorPct(pct: number): string {
   return theme.colors.alert.green;
 }
 
-export const SeccionDiagnosticoConciliacion: React.FC = () => {
+export const SeccionDiagnosticoConciliacion: React.FC<{ desde?: string; hasta?: string }> = ({ desde: desdeProp, hasta: hastaProp }) => {
   const inicial = rangoDeMesInicial();
-  const [desde, setDesde] = useState(inicial.desde);
-  const [hasta, setHasta] = useState(inicial.hasta);
+  const controlado = desdeProp !== undefined && hastaProp !== undefined;
+  const [desdeLocal, setDesde] = useState(inicial.desde);
+  const [hastaLocal, setHasta] = useState(inicial.hasta);
+  const desde = controlado ? desdeProp! : desdeLocal;
+  const hasta = controlado ? hastaProp! : hastaLocal;
   const [datos, setDatos] = useState<DiagnosticoConciliacionSatq | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,14 +56,16 @@ export const SeccionDiagnosticoConciliacion: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="no-imprimir">
-        <SelectorPeriodo
-          desde={desde} hasta={hasta}
-          onChange={(d, h) => { setDesde(d); setHasta(h); }}
-          onLimpiar={() => { const def = rangoDeMesInicial(); setDesde(def.desde); setHasta(def.hasta); }}
-          mostrarLimpiar={desde !== inicial.desde || hasta !== inicial.hasta}
-        />
-      </div>
+      {!controlado && (
+        <div className="no-imprimir">
+          <SelectorPeriodo
+            desde={desde} hasta={hasta}
+            onChange={(d, h) => { setDesde(d); setHasta(h); }}
+            onLimpiar={() => { const def = rangoDeMesInicial(); setDesde(def.desde); setHasta(def.hasta); }}
+            mostrarLimpiar={desde !== inicial.desde || hasta !== inicial.hasta}
+          />
+        </div>
+      )}
       <p className="solo-impresion" style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primaryDark }}>
         Periodo del diagnóstico: {desde} a {hasta}
       </p>

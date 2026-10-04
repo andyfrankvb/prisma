@@ -512,6 +512,7 @@ export interface ResumenSatq {
   tramites_rpp:        number;
   tramites_subsidiados: number;
   pct_conciliado:      number;
+  referencias_conciliadas: number;
   monto_no_conciliado: number;
   alerta_conciliacion: boolean;
   conciliacion:        ConciliacionResumenSatq;

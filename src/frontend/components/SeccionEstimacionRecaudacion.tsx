@@ -25,9 +25,19 @@ const EmptyState: React.FC<{ text: string }> = ({ text }) => (
   <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>{text}</p>
 );
 
-export const SeccionEstimacionRecaudacion: React.FC = () => {
-  const [anio, setAnio] = useState(new Date().getFullYear());
-  const [meses, setMeses] = useState<EstimacionMesSatq[]>([]);
+/**
+ * Con `desde`/`hasta` (filtro único de la página) el ejercicio sale del año de
+ * `desde` y solo se muestran los meses que toca el periodo. Cada mes se muestra
+ * completo (la estimación es mensual), aunque el periodo lo cubra en parte.
+ */
+export const SeccionEstimacionRecaudacion: React.FC<{ desde?: string; hasta?: string }> = ({ desde, hasta }) => {
+  const controlado = desde !== undefined && hasta !== undefined;
+  const [anioLocal, setAnio] = useState(new Date().getFullYear());
+  const anio = controlado ? Number(desde!.slice(0, 4)) : anioLocal;
+  const mesDesde = controlado ? Number(desde!.slice(5, 7)) : 1;
+  const mesHasta = controlado ? (Number(hasta!.slice(0, 4)) > anio ? 12 : Number(hasta!.slice(5, 7))) : 12;
+  const [todosMeses, setMeses] = useState<EstimacionMesSatq[]>([]);
+  const meses = todosMeses.filter((m) => m.mes >= mesDesde && m.mes <= mesHasta);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +62,7 @@ export const SeccionEstimacionRecaudacion: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="no-imprimir" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      {!controlado && <div className="no-imprimir" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span style={{ fontSize: '0.8rem', color: theme.colors.textSecondary, fontWeight: 600 }}>Ejercicio:</span>
         <select
           value={anio}
@@ -61,14 +71,14 @@ export const SeccionEstimacionRecaudacion: React.FC = () => {
         >
           {[anio - 1, anio, anio + 1].map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-      </div>
-      <p className="solo-impresion" style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primaryDark }}>
-        Ejercicio: {anio}
+      </div>}
+      <p className={controlado ? undefined : 'solo-impresion'} style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primaryDark }}>
+        Ejercicio: {anio}{controlado && <> · {MES_NOMBRE[mesDesde - 1]}{mesHasta !== mesDesde && <> a {MES_NOMBRE[mesHasta - 1]}</>} (meses completos)</>}
       </p>
 
       {loading && <p style={{ fontSize: '0.85rem', color: theme.colors.textSecondary }}>Cargando…</p>}
       {!loading && error && <p style={{ fontSize: '0.85rem', color: theme.colors.alert.red }}>Error: {error}</p>}
-      {!loading && !error && meses.length === 0 && <EmptyState text={`Sin estimación cargada para ${anio}`} />}
+      {!loading && !error && meses.length === 0 && <EmptyState text={`Sin estimación cargada para ${anio}${controlado ? ' en los meses del periodo' : ''}`} />}
       {!loading && !error && meses.length > 0 && (
         <>
           {decrementos.length > 0 && (

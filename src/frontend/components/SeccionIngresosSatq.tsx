@@ -15,7 +15,7 @@ import React, { useState, useEffect } from 'react';
 import { Icono } from './Icono';
 import type { NombreIcono } from './Icono';
 import { theme } from '../theme';
-import { getSatqResumen, getSatqComparativoAnual, getSatqDetalle } from '../api';
+import { getSatqResumen, getSatqComparativoAnual, getSatqDetalle, descargarSatqExcel } from '../api';
 import { SelectorPeriodo, rangoDeMesInicial } from './SelectorPeriodo';
 import { Modal } from './Modal';
 import type { ResumenSatq, ConceptoResumenSatq, MunicipioResumenSatq, DelegacionResumenSatq, DesgloseCategoriaSatq, ComparativoAnualSatq, SatqDetalleFila } from '../types';
@@ -75,7 +75,8 @@ const KpiCard: React.FC<{
   color: string;
   alert?: boolean;
   onClick?: () => void;
-}> = ({ label, value, icon, color, alert, onClick }) => (
+  accion?: { texto: string; onClick: () => void; ocupado?: boolean };
+}> = ({ label, value, icon, color, alert, onClick, accion }) => (
   <div
     onClick={onClick}
     style={{
@@ -103,6 +104,20 @@ const KpiCard: React.FC<{
     <div style={{ fontSize: '0.78rem', color: theme.colors.textSecondary, marginTop: '4px', fontWeight: 500 }}>
       {label}{onClick && <span style={{ marginLeft: '4px', fontSize: '0.7rem' }}>🔍</span>}
     </div>
+    {accion && (
+      <button
+        className="no-imprimir"
+        onClick={(e) => { e.stopPropagation(); accion.onClick(); }}
+        disabled={accion.ocupado}
+        style={{
+          marginTop: '10px', padding: '5px 10px', borderRadius: '8px', border: `1px solid ${color}`,
+          background: '#fff', color, fontSize: '0.72rem', fontWeight: 700,
+          cursor: accion.ocupado ? 'wait' : 'pointer', opacity: accion.ocupado ? 0.6 : 1,
+        }}
+      >
+        {accion.ocupado ? 'Generando Excel…' : accion.texto}
+      </button>
+    )}
   </div>
 );
 
@@ -190,8 +205,9 @@ const GranTotalPanel: React.FC<{ resumen: ResumenSatq; onVerSubsidios: () => voi
   // concepto — casi siempre coinciden pero no son idénticos en unas cuantas
   // filas, y esa brecha no debe aparecer en un apartado pensado para ser
   // una suma simple y verificable a ojo.
-  const granTotal = resumen.ingreso_total + resumen.monto_subsidios;
-  const pctSubsidiado = granTotal > 0 ? Math.round((resumen.monto_subsidios / granTotal) * 1000) / 10 : 0;
+  const subsidioAbs = Math.abs(resumen.monto_subsidios); // SATQ lo reporta en negativo
+  const granTotal = resumen.ingreso_total + subsidioAbs;
+  const pctSubsidiado = granTotal > 0 ? Math.round((subsidioAbs / granTotal) * 1000) / 10 : 0;
   return (
     <div style={{
       backgroundColor: '#FDF6E8', border: `1px solid ${theme.colors.goldLight}`, borderRadius: '14px',
@@ -235,16 +251,32 @@ interface FiltroModalDetalle {
   delegacion?: string;
 }
 
-export const SeccionIngresosSatq: React.FC = () => {
+/**
+ * Si recibe `desde`/`hasta` el periodo lo controla el padre (filtro único de la
+ * página) y no se muestra selector propio; sin props funciona solo (Dashboard Director).
+ */
+export const SeccionIngresosSatq: React.FC<{ desde?: string; hasta?: string }> = ({ desde: desdeProp, hasta: hastaProp }) => {
   const inicial = rangoDeMesInicial();
-  const [desde, setDesde]     = useState<string>(inicial.desde);
-  const [hasta, setHasta]     = useState<string>(inicial.hasta);
+  const controlado = desdeProp !== undefined && hastaProp !== undefined;
+  const [desdeLocal, setDesde] = useState<string>(inicial.desde);
+  const [hastaLocal, setHasta] = useState<string>(inicial.hasta);
+  const desde = controlado ? desdeProp! : desdeLocal;
+  const hasta = controlado ? hastaProp! : hastaLocal;
   const [resumen, setResumen] = useState<ResumenSatq | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
   const [comparativoAnual, setComparativoAnual] = useState<ComparativoAnualSatq[]>([]);
   const [modalDetalle, setModalDetalle]         = useState<FiltroModalDetalle | null>(null);
+  const [descargando, setDescargando]           = useState(false);
+
+  // Sábana completa de SATQ del periodo (base del "Ingreso del periodo"), sin tope de filas.
+  const descargarSabana = async () => {
+    setDescargando(true);
+    try { await descargarSatqExcel({ desde, hasta }); }
+    catch (err: any) { setError('No se pudo descargar: ' + err.message); }
+    finally { setDescargando(false); }
+  };
 
   useEffect(() => {
     let cancelado = false;
@@ -264,14 +296,16 @@ export const SeccionIngresosSatq: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="no-imprimir">
-        <SelectorPeriodo
-          desde={desde} hasta={hasta}
-          onChange={(d, h) => { setDesde(d); setHasta(h); }}
-          onLimpiar={() => { const def = rangoDeMesInicial(); setDesde(def.desde); setHasta(def.hasta); }}
-          mostrarLimpiar={desde !== rangoDeMesInicial().desde || hasta !== rangoDeMesInicial().hasta}
-        />
-      </div>
+      {!controlado && (
+        <div className="no-imprimir">
+          <SelectorPeriodo
+            desde={desde} hasta={hasta}
+            onChange={(d, h) => { setDesde(d); setHasta(h); }}
+            onLimpiar={() => { const def = rangoDeMesInicial(); setDesde(def.desde); setHasta(def.hasta); }}
+            mostrarLimpiar={desde !== rangoDeMesInicial().desde || hasta !== rangoDeMesInicial().hasta}
+          />
+        </div>
+      )}
       <p className="solo-impresion" style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: theme.colors.primaryDark }}>
         Periodo del resumen ejecutivo: {desde} a {hasta}
       </p>
@@ -312,10 +346,16 @@ export const SeccionIngresosSatq: React.FC = () => {
 
           {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
-            <KpiCard label="Ingreso del periodo (reportado por SATQ)" value={MONEDA.format(resumen.ingreso_total)} icon="grafica" color={theme.colors.primary} />
             <KpiCard
-              label="Confirmado en RPPC (Entrega)"
-              value={MONEDA.format(resumen.conciliacion.monto_conciliado)}
+              label="Ingreso del periodo (reportado por SATQ)"
+              value={MONEDA.format(resumen.ingreso_total)}
+              icon="grafica"
+              color={theme.colors.primary}
+              accion={{ texto: '⬇ Descargar sábana SATQ (Excel)', onClick: descargarSabana, ocupado: descargando }}
+            />
+            <KpiCard
+              label={`Confirmadas en RPPC (Entrega) — ${MONEDA.format(resumen.conciliacion.monto_conciliado)} de ${MONEDA.format(resumen.ingreso_total)}`}
+              value={`${resumen.referencias_conciliadas.toLocaleString('es-MX')} de ${resumen.total_referencias.toLocaleString('es-MX')} referencias`}
               icon="checkCirculo"
               color={theme.colors.alert.green}
               onClick={() => setModalDetalle({ titulo: 'Referencias conciliadas (Entrega en RPP)', estatus_conciliacion: 'Conciliado' })}
@@ -722,8 +762,6 @@ const SatqComparativoAnualTabla: React.FC<{ filas: ComparativoAnualSatq[] }> = (
 const DETALLE_MODAL_LIMIT = 20;
 const FECHA_CORTA = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-const DETALLE_EXPORT_LIMIT = 10000;
-
 const ModalDetalleSatq: React.FC<{
   filtro: FiltroModalDetalle | null;
   desde:  string;
@@ -763,69 +801,14 @@ const ModalDetalleSatq: React.FC<{
     setExporting(true);
     setError(null);
     try {
-      const res = await getSatqDetalle({
-        desde, hasta, page: 1, limit: DETALLE_EXPORT_LIMIT,
+      await descargarSatqExcel({
+        desde, hasta,
         programa: filtro.programa,
         subsidio: filtro.subsidio !== undefined ? String(filtro.subsidio) as 'true' | 'false' : undefined,
         conciliado: filtro.conciliado !== undefined ? String(filtro.conciliado) as 'true' | 'false' : undefined,
         estatus_conciliacion: filtro.estatus_conciliacion,
         delegacion: filtro.delegacion,
       });
-
-      const ExcelJS = (await import('exceljs')).default;
-      const GUINDA = 'FFAB0A3D';
-      const GRIS   = 'FF7A7570';
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Detalle', { views: [{ showGridLines: false }] });
-      ws.columns = [
-        { width: 12 }, { width: 20 }, { width: 18 }, { width: 45 }, { width: 20 }, { width: 26 }, { width: 14 }, { width: 22 }, { width: 18 },
-      ];
-
-      const headers = ['Fecha', 'Referencia', 'Municipio', 'Concepto', 'Programa', 'Tipo de Acto', 'Importe', 'Estatus en RPP', 'Delegación'];
-
-      ws.mergeCells(1, 1, 1, headers.length);
-      const tCell = ws.getCell(1, 1);
-      tCell.value = `DETALLE: ${filtro.titulo}`.toUpperCase();
-      tCell.font  = { bold: true, size: 16, color: { argb: GUINDA } };
-
-      const subCell = ws.getCell(2, 1);
-      subCell.value = `Periodo: ${desde} a ${hasta}  ·  Generado: ${new Date().toLocaleString('es-MX')}  ·  ${res.data.length} de ${res.meta.total} registro(s)`;
-      subCell.font  = { size: 9, color: { argb: GRIS } };
-
-      const filaHead = 4;
-      const hr = ws.getRow(filaHead);
-      headers.forEach((h, i) => {
-        const c = hr.getCell(i + 1);
-        c.value = h;
-        c.font  = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
-        c.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: GUINDA } };
-        c.alignment = { vertical: 'middle', wrapText: true };
-      });
-
-      res.data.forEach((f, i) => {
-        const row = ws.getRow(filaHead + 1 + i);
-        const vals = [
-          FECHA_CORTA.format(new Date(f.fecha_contable)),
-          f.referencia, f.municipio, f.concepto, f.programa, f.tipo_acto,
-          Number(f.importe), f.estatus_conciliacion, f.delegacion ?? '—',
-        ];
-        vals.forEach((val, ci) => {
-          const c = row.getCell(ci + 1);
-          c.value = val as any;
-          c.font  = { size: 9 };
-          c.alignment = { vertical: 'top', wrapText: true };
-          c.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
-        });
-      });
-
-      const buf  = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `detalle_satq_${(filtro.titulo || 'reporte').toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${desde}_${hasta}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (err: any) {
       setError('No se pudo exportar: ' + err.message);
     } finally {
@@ -857,7 +840,7 @@ const ModalDetalleSatq: React.FC<{
             fontSize: '0.78rem', fontWeight: 700, opacity: exporting || total === 0 ? 0.6 : 1,
           }}
         >
-          {exporting ? 'Exportando…' : '⬇ Exportar a Excel'}
+          {exporting ? 'Generando Excel…' : '⬇ Exportar a Excel (completo)'}
         </button>
       </div>
       {loading && <p style={{ fontSize: '0.85rem', color: theme.colors.textSecondary }}>Cargando…</p>}

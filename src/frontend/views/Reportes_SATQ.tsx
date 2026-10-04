@@ -3,7 +3,7 @@
  * File: src/frontend/views/Reportes_SATQ.tsx
  *
  * Perfil Administrador: mismo resumen ejecutivo que ve Dirección
- * (<SeccionIngresosSatq />) arriba, y debajo el detalle filtrable fila por
+ * (<SeccionIngresosSatq desde={desde} hasta={hasta} />) arriba, y debajo el detalle filtrable fila por
  * fila (fecha, municipio, concepto, conciliación con RPP) con exportación a
  * Excel.
  */
@@ -19,7 +19,7 @@ import { SeccionEstimacionRecaudacion } from '../components/SeccionEstimacionRec
 import { SelectorPeriodo, rangoDeMesInicial } from '../components/SelectorPeriodo';
 import { EncabezadoImpresion } from '../components/EncabezadoImpresion';
 import { BotonImprimirReporte } from '../components/BotonImprimirReporte';
-import { getSatqDetalle, getSatqConceptos, getSatqMunicipios, getSatqDelegaciones, getSatqProgramas, getSatqTiposActo } from '../api';
+import { getSatqDetalle, descargarSatqExcel, getSatqConceptos, getSatqMunicipios, getSatqDelegaciones, getSatqProgramas, getSatqTiposActo } from '../api';
 import type { SatqDetalleFila } from '../types';
 
 const LIMIT = 25;
@@ -124,15 +124,13 @@ export const Reportes_SATQ: React.FC = () => {
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
 
-  // ── Exportar a Excel — respeta los filtros activos, tope de 5,000 filas ──
-  const EXPORT_LIMIT = 5000;
-
+  // ── Exportar a Excel — respeta los filtros activos, sin tope de filas (lo arma el servidor) ──
   const exportarExcel = async () => {
     setExporting(true);
     setError(null);
     try {
-      const res = await getSatqDetalle({
-        desde, hasta, page: 1, limit: EXPORT_LIMIT,
+      await descargarSatqExcel({
+        desde, hasta,
         municipio: municipio || undefined,
         id_concepto: idConcepto ? Number(idConcepto) : undefined,
         programa: programa || undefined,
@@ -140,83 +138,6 @@ export const Reportes_SATQ: React.FC = () => {
         delegacion: delegacion || undefined,
         conciliado: conciliado || undefined,
       });
-
-      const ExcelJS = (await import('exceljs')).default;
-      const GUINDA = 'FFAB0A3D';
-      const GRIS   = 'FF7A7570';
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Ingresos SATQ', { views: [{ showGridLines: false }] });
-      ws.columns = [
-        { width: 12 }, { width: 20 }, { width: 18 }, { width: 18 },
-        { width: 45 }, { width: 20 }, { width: 26 }, { width: 14 }, { width: 14 }, { width: 22 }, { width: 18 },
-      ];
-
-      const headers = ['Fecha', 'Referencia', 'No. Operación', 'Municipio', 'Concepto', 'Programa', 'Tipo de Acto', 'Importe', 'Total Referencia', 'Estatus en RPP', 'Delegación'];
-
-      ws.mergeCells(1, 1, 1, headers.length);
-      const tCell = ws.getCell(1, 1);
-      tCell.value = 'REPORTE DE INGRESOS SATQ';
-      tCell.font  = { bold: true, size: 16, color: { argb: GUINDA } };
-
-      const subCell = ws.getCell(2, 1);
-      subCell.value = `Periodo: ${desde} a ${hasta}  ·  Generado: ${new Date().toLocaleString('es-MX')}  ·  ${res.data.length} de ${res.meta.total} registro(s)`;
-      subCell.font  = { size: 9, color: { argb: GRIS } };
-
-      const filtrosList: [string, string][] = [
-        ['Municipio', municipio || 'Todos'],
-        ['Concepto',  idConcepto ? (conceptos.find((c) => c.value === idConcepto)?.label ?? idConcepto) : 'Todos'],
-        ['Programa',  programa || 'Todos'],
-        ['Tipo de acto', tipoActo || 'Todos'],
-        ['Delegación', delegacion || 'Todas'],
-        ['Conciliación', conciliado === 'true' ? 'Solo conciliados (Entrega en RPP)' : conciliado === 'false' ? 'Solo no conciliados' : 'Todos'],
-      ];
-      const rotCell = ws.getCell(4, 1);
-      rotCell.value = 'FILTROS APLICADOS';
-      rotCell.font  = { bold: true, size: 11, color: { argb: GUINDA } };
-      filtrosList.forEach(([k, v], i) => {
-        const fila = 5 + i;
-        ws.getCell(fila, 1).value = k;
-        ws.getCell(fila, 1).font  = { bold: true, color: { argb: GRIS } };
-        ws.mergeCells(fila, 2, fila, 4);
-        ws.getCell(fila, 2).value = v;
-      });
-
-      const filaHead = 5 + filtrosList.length + 1;
-      const hr = ws.getRow(filaHead);
-      headers.forEach((h, i) => {
-        const c = hr.getCell(i + 1);
-        c.value = h;
-        c.font  = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
-        c.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: GUINDA } };
-        c.alignment = { vertical: 'middle', wrapText: true };
-      });
-
-      res.data.forEach((f, i) => {
-        const row = ws.getRow(filaHead + 1 + i);
-        const vals = [
-          FECHA.format(new Date(f.fecha_contable)),
-          f.referencia, f.no_operacion, f.municipio, f.concepto,
-          f.programa, f.tipo_acto,
-          Number(f.importe), Number(f.total_referencia),
-          f.estatus_conciliacion, f.delegacion ?? '—',
-        ];
-        vals.forEach((val, ci) => {
-          const c = row.getCell(ci + 1);
-          c.value = val as any;
-          c.font  = { size: 9 };
-          c.alignment = { vertical: 'top', wrapText: true };
-          c.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
-        });
-      });
-
-      const buf  = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `ingresos_satq_${desde}_${hasta}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (err: any) {
       setError('No se pudo exportar: ' + err.message);
     } finally {
@@ -254,7 +175,7 @@ export const Reportes_SATQ: React.FC = () => {
               fontSize: '0.85rem', fontWeight: 700, opacity: exporting || total === 0 ? 0.6 : 1,
             }}
           >
-            {exporting ? 'Exportando…' : '⬇ Exportar a Excel'}
+            {exporting ? 'Generando Excel…' : '⬇ Exportar a Excel (completo)'}
           </button>
         </div>
       </div>
@@ -267,12 +188,28 @@ export const Reportes_SATQ: React.FC = () => {
           filtros={filtrosImpresion}
         />
 
+        {/* ── Filtro único de periodo: rige TODAS las secciones de abajo ── */}
+        <div className="no-imprimir" style={{
+          backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`,
+          padding: '16px 20px', marginBottom: '20px',
+        }}>
+          <SelectorPeriodo
+            desde={desde} hasta={hasta}
+            onChange={(d, h) => { setDesde(d); setHasta(h); }}
+            onLimpiar={limpiarFiltros}
+            mostrarLimpiar={hayFiltros}
+          />
+          <p style={{ margin: '8px 0 0', fontSize: '0.74rem', color: theme.colors.textSecondary }}>
+            Este periodo aplica a todo el reporte: resumen, estimación vs recaudación, diagnóstico y detalle.
+          </p>
+        </div>
+
         {/* ── Resumen ejecutivo (mismo componente que ve Dirección) ── */}
         <div style={{
           backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`,
           padding: '20px', marginBottom: '20px',
         }}>
-          <SeccionIngresosSatq />
+          <SeccionIngresosSatq desde={desde} hasta={hasta} />
         </div>
 
         {/* ── Estimación vs Recaudación (colapsable) ─────────── */}
@@ -299,7 +236,7 @@ export const Reportes_SATQ: React.FC = () => {
           </button>
           {mostrarEstimacion && (
             <div style={{ padding: '0 20px 20px', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px' }}>
-              <SeccionEstimacionRecaudacion />
+              <SeccionEstimacionRecaudacion desde={desde} hasta={hasta} />
             </div>
           )}
         </div>
@@ -328,7 +265,7 @@ export const Reportes_SATQ: React.FC = () => {
           </button>
           {mostrarDiagnostico && (
             <div style={{ padding: '0 20px 20px', borderTop: `1px solid ${theme.colors.border}`, paddingTop: '16px' }}>
-              <SeccionDiagnosticoConciliacion />
+              <SeccionDiagnosticoConciliacion desde={desde} hasta={hasta} />
             </div>
           )}
         </div>
@@ -338,14 +275,6 @@ export const Reportes_SATQ: React.FC = () => {
           backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`,
           padding: '16px 20px', marginBottom: '20px',
         }}>
-          <div style={{ marginBottom: '14px', paddingBottom: '14px', borderBottom: `1px solid ${theme.colors.border}` }}>
-            <SelectorPeriodo
-              desde={desde} hasta={hasta}
-              onChange={(d, h) => { setDesde(d); setHasta(h); }}
-              onLimpiar={limpiarFiltros}
-              mostrarLimpiar={hayFiltros}
-            />
-          </div>
           <div style={{
             display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'end',
           }}>

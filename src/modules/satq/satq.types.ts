@@ -203,12 +203,15 @@ export interface ResumenSatq {
    */
   ingreso_bruto:      number;
   total_referencias:  number;
+  /** suma de los importes negativos de SATQ (valor negativo) */
   monto_subsidios:    number;
   pct_subsidios:      number;
   tramites_rpp:       number;
   /** de tramites_rpp, cuántos tienen alguna línea de captura del lado del subsidio */
   tramites_subsidiados: number;
   pct_conciliado:     number;
+  /** referencias distintas de SATQ confirmadas (Entrega) en RPPC; el total es `total_referencias` */
+  referencias_conciliadas: number;
   monto_no_conciliado: number;
   /** true cuando pct_conciliado cae bajo el umbral de alerta (ver ALERTA_CONCILIACION_UMBRAL) */
   alerta_conciliacion: boolean;
