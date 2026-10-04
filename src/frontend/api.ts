@@ -29,6 +29,7 @@ import type {
   TerminadosResumen,
   ProductividadDetalleResponse,
   RezagoResumen,
+  IndicadoresProductividad,
   ProgramaCatalogoFila,
   ResumenProgramasSociales,
   BandejaProgramaResumen,
@@ -1575,6 +1576,11 @@ export async function getProductividadDetalle(params: ProductividadDetalleFiltro
 export async function getProductividadRezago(params: ProductividadFiltros): Promise<RezagoResumen> {
   const res = await fetch(`${BASE}/productividad/rezago?${productividadQueryString(params)}`, { headers: authHeaders() });
   return handleResponse<RezagoResumen>(res);
+}
+
+export async function getProductividadIndicadores(params: ProductividadFiltros): Promise<IndicadoresProductividad> {
+  const res = await fetch(`${BASE}/productividad/indicadores?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse<IndicadoresProductividad>(res);
 }
 
 // ── Programas Sociales ────────────────────────────────────────────
