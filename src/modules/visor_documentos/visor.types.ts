@@ -82,6 +82,7 @@ export interface VisorCampaniaDelTomo {
   nombre:     string;
   anio:       number | null;
   orden:      number;
+  estado:     'cargada' | 'pendiente';
   documentos: number;
 }
 
@@ -143,9 +144,21 @@ export interface VisorLibroResumen {
 }
 
 /** Un renglón de la tabla "Inscripciones Disponibles", con el tomo ya resuelto (para no pedirlo aparte). */
+/** Una digitalización concreta de una inscripción, con lo que reportó quien la hizo. */
+export interface VisorDigitalizacionDeInscripcion {
+  clave:         string;
+  nombre:        string;
+  anio:          number | null;
+  orden:         number;
+  estatus:       string | null;
+  observaciones: string | null;
+}
+
 export interface VisorInscripcionConTomo extends VisorInscripcion {
   numero_romano:  string;
   seccion_numero: number;
+  /** De qué campañas hay documento, con sus observaciones. */
+  digitalizaciones: VisorDigitalizacionDeInscripcion[];
 }
 
 export interface CrearDictamenPayload {

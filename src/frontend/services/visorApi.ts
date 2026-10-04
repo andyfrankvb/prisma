@@ -10,7 +10,7 @@
 import type {
   VisorDelegacion, VisorSeccion, VisorTomo, VisorFoja, VisorFojaDetalle,
   VersionDigitalizacion, VisorDictamenVersion, VisorTranscripcion, VisorInscripcion,
-  VisorLibroResumen, VisorInscripcionConTomo,
+  VisorLibroResumen, VisorInscripcionConTomo, VisorCampania,
 } from '../types';
 
 const BASE = (import.meta.env.VITE_API_URL ?? '/api/v1') + '/visor-documentos';
@@ -76,10 +76,23 @@ export async function buscarTomo(delegacionId: number, seccionId: number, numero
 }
 
 /** Tabla "Libros Disponibles" — un renglón por tomo con fojas/inscripciones ya contadas. */
-export async function getLibros(delegacionId: number, seccionId?: number, tomo?: string): Promise<VisorLibroResumen[]> {
+export async function getCampanias(): Promise<VisorCampania[]> {
+  const res = await fetch(`${BASE}/catalogos/campanias`, { headers: authHeaders() });
+  const body = await handleResponse<{ data: VisorCampania[] }>(res);
+  return body.data;
+}
+
+export async function getLibros(
+  delegacionId: number,
+  seccionId?: number,
+  tomo?: string,
+  /** Claves de campaña a las que acotar; vacío = todas. */
+  campanias?: string[],
+): Promise<VisorLibroResumen[]> {
   const qs = new URLSearchParams({ delegacion_id: String(delegacionId) });
   if (seccionId) qs.set('seccion_id', String(seccionId));
   if (tomo?.trim()) qs.set('tomo', tomo.trim());
+  if (campanias?.length) qs.set('campanias', campanias.join(','));
   const res = await fetch(`${BASE}/libros?${qs}`, { headers: authHeaders() });
   const body = await handleResponse<{ data: VisorLibroResumen[] }>(res);
   return body.data;
@@ -127,6 +140,8 @@ export interface FiltrosBusquedaInscripciones {
   tomo?:        string;
   /** Un número ("0001") o un rango ("0001_0010") — mismo formato que SID. */
   inscripcion?: string;
+  /** Claves de campaña a las que acotar; vacío = todas. */
+  campanias?:   string[];
   limit?:       number;
 }
 
@@ -136,6 +151,7 @@ export async function buscarInscripciones(filtros: FiltrosBusquedaInscripciones)
   if (filtros.seccionId) qs.set('seccion_id', String(filtros.seccionId));
   if (filtros.tomo?.trim()) qs.set('tomo', filtros.tomo.trim());
   if (filtros.inscripcion?.trim()) qs.set('inscripcion', filtros.inscripcion.trim());
+  if (filtros.campanias?.length) qs.set('campanias', filtros.campanias.join(','));
   if (filtros.limit) qs.set('limit', String(filtros.limit));
   const res = await fetch(`${BASE}/inscripciones/buscar?${qs}`, { headers: authHeaders() });
   const body = await handleResponse<{ data: VisorInscripcionConTomo[] }>(res);

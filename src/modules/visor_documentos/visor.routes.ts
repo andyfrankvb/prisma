@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
 import {
-  listarDelegaciones, listarSecciones,
+  listarDelegaciones, listarSecciones, listarCampanias,
   listarTomos, buscarTomo, listarFojasDeTomo, listarLibros, mergeRango,
   listarInscripcionesDeTomo, buscarInscripcion, buscarInscripciones,
   obtenerFoja, obtenerImagen,
@@ -17,6 +17,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/catalogos/delegaciones', listarDelegaciones);
+router.get('/catalogos/campanias',  listarCampanias);
 router.get('/catalogos/secciones',    listarSecciones);
 
 router.get('/libros',             listarLibros);

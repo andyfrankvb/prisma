@@ -25,13 +25,15 @@ import { TablaInscripciones } from '../components/visor/TablaInscripciones';
 import { VisorModal } from '../components/visor/VisorModal';
 import type { VisorModalItem } from '../components/visor/VisorModal';
 import {
-  getDelegaciones, getSecciones, getLibros, getFojasDeTomo,
+  getDelegaciones, getSecciones, getLibros, getFojasDeTomo, getCampanias,
   buscarInscripciones, mergeRangoPdf,
 } from '../services/visorApi';
 import type {
   VisorDelegacion, VisorSeccion, VisorLibroResumen, VisorFoja, VisorInscripcionConTomo,
+  VisorCampania,
 } from '../types';
 import { etiquetaInscripcion } from '../components/visor/etiquetas';
+import { FiltroCampanias } from '../components/visor/FiltroCampanias';
 
 type Tab = 'libros' | 'inscripciones';
 
@@ -40,10 +42,14 @@ export const VisorDocumentos: React.FC = () => {
 
   const [delegaciones, setDelegaciones] = useState<VisorDelegacion[]>([]);
   const [secciones, setSecciones] = useState<VisorSeccion[]>([]);
+  const [campanias, setCampanias] = useState<VisorCampania[]>([]);
+  /** Claves de campaña a las que se acota la búsqueda; vacío = todas. */
+  const [campaniasSel, setCampaniasSel] = useState<string[]>([]);
 
   useEffect(() => {
     getDelegaciones().then(setDelegaciones).catch(() => {});
     getSecciones().then(setSecciones).catch(() => {});
+    getCampanias().then(setCampanias).catch(() => {});
   }, []);
 
   // ── Estado: pestaña Libros ──────────────────────────────────────────────────
@@ -65,7 +71,12 @@ export const VisorDocumentos: React.FC = () => {
     setLibroSeleccionado(null);
     setFojasDelLibro([]);
     try {
-      setLibros(await getLibros(Number(libDelegacionId), libSeccionId ? Number(libSeccionId) : undefined, libTomoQuery));
+      setLibros(await getLibros(
+        Number(libDelegacionId),
+        libSeccionId ? Number(libSeccionId) : undefined,
+        libTomoQuery,
+        campaniasSel,
+      ));
     } finally { setCargandoLibros(false); }
   };
 
@@ -113,6 +124,7 @@ export const VisorDocumentos: React.FC = () => {
         seccionId:    inscSeccionId ? Number(inscSeccionId) : undefined,
         tomo:         inscTomoQuery,
         inscripcion:  inscInscripcionQuery,
+        campanias:    campaniasSel,
         limit:        Number(inscLimite),
       });
       setInscripciones(data);
@@ -184,6 +196,11 @@ export const VisorDocumentos: React.FC = () => {
             rangoDesde={rangoDesde} rangoHasta={rangoHasta} onRangoDesdeChange={setRangoDesde} onRangoHastaChange={setRangoHasta}
             onVerRango={verRangoLibro} onDescargarRango={descargarRangoLibro} descargando={descargandoRango}
           />
+          <FiltroCampanias
+            campanias={campanias}
+            seleccionadas={campaniasSel}
+            onCambiar={setCampaniasSel}
+          />
           <TablaLibros libros={libros} seleccionado={libroSeleccionado} cargando={cargandoLibros} onSeleccionar={seleccionarLibro} />
         </div>
       )}
@@ -200,6 +217,11 @@ export const VisorDocumentos: React.FC = () => {
             seleccionada={inscripcionSeleccionada}
             onVer={() => inscripcionSeleccionada && abrirDesdeInscripcion(inscripcionSeleccionada)}
             onLimpiar={() => setInscripcionSeleccionada(null)}
+          />
+          <FiltroCampanias
+            campanias={campanias}
+            seleccionadas={campaniasSel}
+            onCambiar={setCampaniasSel}
           />
           <TablaInscripciones
             inscripciones={inscripciones} seleccionada={inscripcionSeleccionada} cargando={cargandoInscripciones}

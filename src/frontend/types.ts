@@ -1372,12 +1372,26 @@ export interface VisorImagenFoja {
   campania_anio:   number | null;
 }
 
-/** Cuántos documentos aportó cada campaña a un tomo. */
+/** Una campaña de digitalización del catálogo. */
+export interface VisorCampania {
+  id:          number;
+  clave:       string;
+  nombre:      string;
+  anio:        number | null;
+  descripcion: string | null;
+  orden:       number;
+  /** 'cargada' si su acervo ya está en PRISMA; 'pendiente' si todavía no. */
+  estado:      'cargada' | 'pendiente';
+  activo:      boolean;
+}
+
+/** Cuántos documentos aportó cada campaña a un tomo. Cero es un dato, no una ausencia. */
 export interface VisorCampaniaDelTomo {
   clave:      string;
   nombre:     string;
   anio:       number | null;
   orden:      number;
+  estado:     'cargada' | 'pendiente';
   documentos: number;
 }
 
@@ -1410,9 +1424,21 @@ export interface VisorInscripcion {
   observaciones:      string | null;
 }
 
+/** Una digitalización concreta de una inscripción, con lo que reportó quien la hizo. */
+export interface VisorDigitalizacionDeInscripcion {
+  clave:         string;
+  nombre:        string;
+  anio:          number | null;
+  orden:         number;
+  estatus:       string | null;
+  observaciones: string | null;
+}
+
 export interface VisorInscripcionConTomo extends VisorInscripcion {
   numero_romano:  string;
   seccion_numero: number;
+  /** De qué campañas hay documento, con sus observaciones. */
+  digitalizaciones: VisorDigitalizacionDeInscripcion[];
 }
 
 /** Un renglón de la tabla "Libros Disponibles" (estilo SID), con fojas/inscripciones ya contadas. */

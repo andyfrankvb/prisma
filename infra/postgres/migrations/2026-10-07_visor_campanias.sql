@@ -36,18 +36,36 @@ CREATE TABLE IF NOT EXISTS visor_campanias (
   -- De más antigua a más reciente. Define qué se muestra por omisión cuando un
   -- documento existe en varias y no hay dictamen jurídico: la más reciente.
   orden       integer      NOT NULL DEFAULT 0,
+  -- 'cargada'  sus documentos ya están en PRISMA.
+  -- 'pendiente' la campaña existe y se sabe de ella, pero su acervo todavía no
+  --             se carga. Se registra igual para que al abrir un tomo el
+  --             usuario distinga "aquí no hay nada de esa campaña" de "esa
+  --             campaña aún no se ha cargado", que no son lo mismo.
+  estado      varchar(20)  NOT NULL DEFAULT 'pendiente'
+                CHECK (estado IN ('cargada', 'pendiente')),
   activo      boolean      NOT NULL DEFAULT true,
   created_at  timestamp    NOT NULL DEFAULT now()
 );
 
-INSERT INTO visor_campanias (clave, nombre, anio, descripcion, orden)
-SELECT v.clave, v.nombre, v.anio, v.descripcion, v.orden
+INSERT INTO visor_campanias (clave, nombre, anio, descripcion, orden, estado)
+SELECT v.clave, v.nombre, v.anio, v.descripcion, v.orden, v.estado
   FROM (VALUES
     ('V_SID',      'Primera digitalización', NULL::integer,
-     'El acervo que PRISMA heredó del SID. No trae control de calidad por documento: ese dato empieza con PEMR 2025.', 1),
+     'El acervo que PRISMA heredó del SID. No trae control de calidad por documento: ese dato empieza con PEMR 2025.',
+     1, 'cargada'),
+    ('V_PEM2023',  'PEM 2023',               2023,
+     'Entrega que vive en el acervo (VISOR/PEM2023) y que el catálogo del SID nunca registró: 187,347 PDF de Chetumal y Cozumel, libros e inscripciones.',
+     2, 'pendiente'),
+    ('V_PEM2024',  'PEM 2024',               2024,
+     'Entrega que vive en el acervo (VISOR/PEM2024) y que el catálogo del SID nunca registró: 7,147 PDF de Benito Juárez, libros e inscripciones.',
+     3, 'pendiente'),
     ('V_PEMR2025', 'PEMR 2025',              2025,
-     'Programa de digitalización 2025. Cozumel y parte de Chetumal, con validación y observaciones por documento.', 2)
-  ) AS v(clave, nombre, anio, descripcion, orden)
+     'Programa de digitalización 2025. Cozumel y parte de Chetumal, con validación y observaciones por documento.',
+     4, 'cargada'),
+    ('V_PEMR2026', 'PEMR 2026',              2026,
+     'Programa de digitalización 2026. Parte de Chetumal, Cancún y Playa del Carmen. Todavía no se entrega.',
+     5, 'pendiente')
+  ) AS v(clave, nombre, anio, descripcion, orden, estado)
  WHERE NOT EXISTS (SELECT 1 FROM visor_campanias c WHERE c.clave = v.clave);
 
 -- ── 2. Admitir las claves de PEMR ──────────────────────────────────────────
@@ -58,7 +76,7 @@ ALTER TABLE visor_imagenes_foja
   ADD CONSTRAINT visor_imagenes_foja_version_check
   CHECK (version IN ('V2009', 'V2022_FALTANTE', 'V3_VALIDADA')
          OR version ~ '^V_SID[0-9]*$'
-         OR version ~ '^V_PEMR[0-9]{4}$');
+         OR version ~ '^V_PEMR?[0-9]{4}$');
 
 -- ── 3. La calidad que reporta quien digitalizó ─────────────────────────────
 -- Los listados del proveedor traen, por documento, un estatus y una

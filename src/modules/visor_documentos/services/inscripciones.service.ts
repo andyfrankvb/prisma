@@ -28,6 +28,8 @@ export interface FiltrosBusquedaInscripciones {
   tomoQuery?:   string;
   /** Un número ("0001") o un rango ("0001_0010") — mismo formato que SID. */
   inscripcion?: string;
+  /** Claves de campaña a las que acotar; vacío o sin definir = todas. */
+  campanias?:   string[];
   limit:        number;
 }
 
@@ -42,6 +44,22 @@ export async function buscarInscripciones(filtros: FiltrosBusquedaInscripciones)
       'i.numero_inscripcion_texto', 'i.numero_final', 'i.volumen',
       'i.asignacion', 'i.estatus', 'i.observaciones',
       't.numero_romano', 's.numero as seccion_numero',
+      // De qué campañas hay documento para esta inscripción, con lo que
+      // reportó quien digitalizó cada uno.
+      //
+      // Las observaciones viajan AQUÍ, en el resultado de la búsqueda, y no
+      // solo al abrir el documento: dicen cosas como "faltó actualizar las
+      // anotaciones marginales de la foja 2", es decir que el archivo digital
+      // no refleja el libro físico. Quien revisa una lista de inscripciones
+      // necesita verlo antes de elegir cuál abrir, no después.
+      db.raw(`(
+        SELECT coalesce(json_agg(x ORDER BY x.orden), '[]'::json) FROM (
+          SELECT c.clave, c.nombre, c.anio, c.orden, im.estatus, im.observaciones
+            FROM visor_imagenes_foja im
+            JOIN visor_campanias     c ON c.clave = im.version
+           WHERE im.foja_id = i.foja_id
+        ) x
+      ) as digitalizaciones`),
     )
     // `indice_orden` solo lo traen los tomos capturados a mano en el
     // prototipo; los del acervo del SID lo tienen nulo, y en Postgres los
@@ -52,6 +70,18 @@ export async function buscarInscripciones(filtros: FiltrosBusquedaInscripciones)
     .limit(filtros.limit);
 
   if (filtros.seccionId) query = query.andWhere('t.seccion_id', filtros.seccionId);
+
+  // Acotar a ciertas campañas: deja fuera las inscripciones que no tengan
+  // documento de ninguna de ellas. No oculta las demás campañas de las que sí
+  // entran: una inscripción que está en dos sigue mostrando las dos.
+  if (filtros.campanias?.length) {
+    query = query.whereExists(function () {
+      this.select(db.raw('1'))
+        .from('visor_imagenes_foja as im2')
+        .whereRaw('im2.foja_id = i.foja_id')
+        .whereIn('im2.version', filtros.campanias!);
+    });
+  }
   if (filtros.tomoQuery?.trim()) query = query.andWhereRaw('UPPER(t.numero_romano) LIKE UPPER(?)', [`%${filtros.tomoQuery.trim()}%`]);
 
   const insc = filtros.inscripcion?.trim();

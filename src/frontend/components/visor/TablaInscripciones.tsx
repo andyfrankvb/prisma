@@ -40,13 +40,14 @@ export const TablaInscripciones: React.FC<Props> = ({ inscripciones, seleccionad
               <th style={s.th}>Vol.</th>
               <th style={s.th}>Inscripción</th>
               <th style={s.th}>Archivo</th>
+              <th style={s.th}>Digitalizaciones y observaciones</th>
             </tr>
           </thead>
           <tbody>
             {cargando ? (
-              <tr><td style={s.td} colSpan={5}>Consultando inscripciones…</td></tr>
+              <tr><td style={s.td} colSpan={6}>Consultando inscripciones…</td></tr>
             ) : inscripciones.length === 0 ? (
-              <tr><td style={{ ...s.td, textAlign: 'center', color: theme.colors.textSecondary }} colSpan={5}>
+              <tr><td style={{ ...s.td, textAlign: 'center', color: theme.colors.textSecondary }} colSpan={6}>
                 Realiza una búsqueda para mostrar inscripciones disponibles.
               </td></tr>
             ) : inscripciones.map((insc) => (
@@ -67,6 +68,32 @@ export const TablaInscripciones: React.FC<Props> = ({ inscripciones, seleccionad
                 <td style={{ ...s.td, maxWidth: '220px' }} title={insc.asignacion}>
                   {!insc.foja_id && <Icono nombre="alerta" inline size={11} color={theme.colors.alert.yellow} />}
                   {insc.asignacion}
+                </td>
+                {/*
+                  De qué campañas hay documento y qué reportó quien digitalizó
+                  cada uno. Va en el listado y no solo al abrir: una observación
+                  como "faltó actualizar las anotaciones marginales de la foja 2"
+                  dice que el archivo no refleja el libro físico, y eso hay que
+                  verlo antes de elegir cuál consultar.
+                */}
+                <td style={{ ...s.td, maxWidth: '360px' }}>
+                  {(insc.digitalizaciones ?? []).length === 0 ? (
+                    <span style={{ color: theme.colors.textSecondary }}>sin documento</span>
+                  ) : (insc.digitalizaciones ?? []).map((d) => (
+                    <div key={d.clave} style={{ marginBottom: '3px' }}>
+                      <span style={s.badge(theme.colors.background, theme.colors.textSecondary)}>
+                        {d.nombre}
+                      </span>
+                      {d.observaciones && (
+                        <span
+                          style={{ marginLeft: '6px', fontSize: '0.74rem', color: theme.colors.textSecondary }}
+                          title={d.observaciones}
+                        >
+                          {d.observaciones.length > 70 ? `${d.observaciones.slice(0, 70)}…` : d.observaciones}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </td>
               </tr>
             ))}

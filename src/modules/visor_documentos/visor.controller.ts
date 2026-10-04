@@ -126,6 +126,15 @@ export async function listarFojasDeTomo(req: Request, res: Response, next: NextF
 }
 
 /** Tabla "Libros Disponibles" — equivalente a LibrosService.obtenerLibrosConParametros de SID. */
+/** GET /visor-documentos/catalogos/campanias — las digitalizaciones registradas. */
+export async function listarCampanias(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const user = requireUser(req);
+    await requireModuloVisor(user);
+    res.json({ data: await campaniasService.listarCampanias() });
+  } catch (err) { next(err); }
+}
+
 export async function listarLibros(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const user = requireUser(req);
@@ -133,7 +142,12 @@ export async function listarLibros(req: Request, res: Response, next: NextFuncti
     const delegacionId = enteroRequerido(req.query.delegacion_id, 'delegacion_id');
     const seccionId     = req.query.seccion_id !== undefined ? enteroRequerido(req.query.seccion_id, 'seccion_id') : undefined;
     const tomoQuery      = typeof req.query.tomo === 'string' ? req.query.tomo : undefined;
-    res.json({ data: await tomosService.listarLibros(delegacionId, seccionId, tomoQuery) });
+    // `campanias=V_SID,V_PEMR2025`: a cuáles digitalizaciones acotar el
+    // resultado. Sin el parámetro, todas.
+    const campanias = typeof req.query.campanias === 'string'
+      ? req.query.campanias.split(',').map((c) => c.trim()).filter(Boolean)
+      : undefined;
+    res.json({ data: await tomosService.listarLibros(delegacionId, seccionId, tomoQuery, campanias) });
   } catch (err) { next(err); }
 }
 
@@ -189,7 +203,13 @@ export async function buscarInscripciones(req: Request, res: Response, next: Nex
     const inscripcion    = typeof req.query.inscripcion === 'string' ? req.query.inscripcion : undefined;
     const limit = req.query.limit !== undefined ? Math.min(1000, enteroRequerido(req.query.limit, 'limit')) : 300;
 
-    const data = await inscripcionesService.buscarInscripciones({ delegacionId, seccionId, tomoQuery, inscripcion, limit });
+    const campanias = typeof req.query.campanias === 'string'
+      ? req.query.campanias.split(',').map((c) => c.trim()).filter(Boolean)
+      : undefined;
+
+    const data = await inscripcionesService.buscarInscripciones({
+      delegacionId, seccionId, tomoQuery, inscripcion, campanias, limit,
+    });
     res.json({ data });
   } catch (err) { next(err); }
 }

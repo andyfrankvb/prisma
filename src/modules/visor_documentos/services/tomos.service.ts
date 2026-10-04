@@ -23,6 +23,12 @@ export async function listarLibros(
   delegacionId: number,
   seccionId?: number,
   tomoQuery?: string,
+  /**
+   * Claves de campaña a las que acotar la búsqueda. Vacío o sin definir = todas.
+   * Acotar NO oculta el desglose: el tomo sigue mostrando de qué campañas tiene
+   * documentos, y lo que cambia es qué tomos entran en el resultado.
+   */
+  campanias?: string[],
 ): Promise<VisorLibroResumen[]> {
   let query = db('visor_tomos as t')
     .join('visor_secciones as s', 's.id', 't.seccion_id')
@@ -39,14 +45,19 @@ export async function listarLibros(
       // una. Va aquí, en el listado, porque es justo lo que el usuario necesita
       // ANTES de abrir: un tomo puede tener documentos de varias campañas y
       // ninguna contiene a la otra.
+      // Se listan TODAS las campañas activas, con su conteo, aunque sea cero.
+      // Un cero no es lo mismo que una ausencia: dice "de esta campaña no hay
+      // nada para este tomo", y junto con `estado` distingue el caso de "esa
+      // campaña todavía no se carga".
       db.raw(`(
         SELECT coalesce(json_agg(x ORDER BY x.orden), '[]'::json) FROM (
-          SELECT c.clave, c.nombre, c.anio, c.orden, count(*)::int AS documentos
-            FROM visor_fojas f
-            JOIN visor_imagenes_foja i ON i.foja_id = f.id
-            JOIN visor_campanias     c ON c.clave   = i.version
-           WHERE f.tomo_id = t.id
-           GROUP BY c.clave, c.nombre, c.anio, c.orden
+          SELECT c.clave, c.nombre, c.anio, c.orden, c.estado,
+                 (SELECT count(*)::int
+                    FROM visor_fojas f
+                    JOIN visor_imagenes_foja i ON i.foja_id = f.id
+                   WHERE f.tomo_id = t.id AND i.version = c.clave) AS documentos
+            FROM visor_campanias c
+           WHERE c.activo
         ) x
       ) as campanias`),
     )
@@ -54,6 +65,16 @@ export async function listarLibros(
 
   if (seccionId) query = query.andWhere('t.seccion_id', seccionId);
   if (tomoQuery?.trim()) query = query.andWhereRaw('UPPER(t.numero_romano) LIKE UPPER(?)', [`%${tomoQuery.trim()}%`]);
+
+  if (campanias?.length) {
+    query = query.whereExists(function () {
+      this.select(db.raw('1'))
+        .from('visor_fojas as ff')
+        .join('visor_imagenes_foja as ii', 'ii.foja_id', 'ff.id')
+        .whereRaw('ff.tomo_id = t.id')
+        .whereIn('ii.version', campanias);
+    });
+  }
 
   return query;
 }
