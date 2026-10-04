@@ -425,10 +425,10 @@ export const Reportes_Productividad: React.FC = () => {
                         </div>
                         <DistribucionBarClicable
                           filas={[
-                            { etiqueta: 'Mismo mes · Certificación', cantidad: rezago.avance.mismo_mes_certificacion, onClick: () => abrirModalAvance('mismo_mes', 'certificacion') },
-                            { etiqueta: 'Mismo mes · Inscripción',   cantidad: rezago.avance.mismo_mes_inscripcion,   onClick: () => abrirModalAvance('mismo_mes', 'inscripcion') },
-                            { etiqueta: 'Rezago · Certificación',    cantidad: rezago.avance.de_rezago_certificacion, onClick: () => abrirModalAvance('rezago', 'certificacion') },
-                            { etiqueta: 'Rezago · Inscripción',      cantidad: rezago.avance.de_rezago_inscripcion,   onClick: () => abrirModalAvance('rezago', 'inscripcion') },
+                            { etiqueta: 'Mismo mes · Certificación', cantidad: rezago.avance.mismo_mes_certificacion, onClick: () => abrirModalAvance('mismo_mes', 'certificacion'), color: theme.colors.alert.green },
+                            { etiqueta: 'Mismo mes · Inscripción',   cantidad: rezago.avance.mismo_mes_inscripcion,   onClick: () => abrirModalAvance('mismo_mes', 'inscripcion'), color: theme.colors.alert.green },
+                            { etiqueta: 'Rezago · Certificación',    cantidad: rezago.avance.de_rezago_certificacion, onClick: () => abrirModalAvance('rezago', 'certificacion'), color: theme.colors.primary },
+                            { etiqueta: 'Rezago · Inscripción',      cantidad: rezago.avance.de_rezago_inscripcion,   onClick: () => abrirModalAvance('rezago', 'inscripcion'), color: theme.colors.primary },
                           ]}
                           color={theme.colors.charcoal}
                         />
@@ -504,15 +504,14 @@ const DistribucionBar: React.FC<{ filas: DistribucionFila[]; color: string }> = 
 };
 
 // ── DistribucionBarClicable: igual que DistribucionBar, pero cada renglón abre su propia lupa ──
-const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: () => void })[]; color: string }> = ({ filas, color }) => {
+const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: () => void; color?: string })[]; color: string }> = ({ filas, color }) => {
   if (filas.length === 0) return <p style={{ margin: 0, fontSize: '0.76rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>Sin datos con este filtro.</p>;
-  const max = Math.max(...filas.map((f) => f.cantidad), 1);
   const total = filas.reduce((a, f) => a + f.cantidad, 0);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
       {filas.map((f) => {
-        const pct = Math.round((f.cantidad / max) * 100);
         const pctTotal = total > 0 ? Math.round((f.cantidad / total) * 1000) / 10 : 0;
+        const pct = Math.max(pctTotal, f.cantidad > 0 ? 2 : 0);
         return (
           <div key={f.etiqueta} onClick={f.onClick} style={{ cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '3px' }}>
@@ -521,8 +520,8 @@ const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: 
                 {NUM.format(f.cantidad)} ({pctTotal}%) <span style={{ fontSize: '0.66rem' }}>🔍</span>
               </span>
             </div>
-            <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px' }} />
+            <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#EEF0F3', overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', backgroundColor: f.color ?? color, borderRadius: '4px' }} />
             </div>
           </div>
         );
@@ -542,20 +541,25 @@ const AntiguedadRezagoBar: React.FC<{ filas: RezagoResumen['antiguedad']; onClic
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {filas.map((f) => {
         const esCritico = f.bucket === 'Más de 1 año';
-        const anchoTotal = Math.max((f.total / max) * 100, f.total > 0 ? 2 : 0);
+        const anchoTotal = Math.max((f.total / max) * 100, f.total > 0 ? 3 : 0);
         const pctCert = f.total > 0 ? (f.certificacion / f.total) * 100 : 0;
         const pctInsc = f.total > 0 ? (f.inscripcion / f.total) * 100 : 0;
         return (
           <div key={f.bucket} onClick={() => onClickBucket(BUCKET_LABEL_A_CLAVE[f.bucket])} style={{ cursor: 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '3px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '4px' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: esCritico ? theme.colors.alert.red : theme.colors.textPrimary }}>
                 {f.bucket}{esCritico && ' ⚠'}
               </span>
-              <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, flexShrink: 0 }}>{NUM.format(f.total)} <span style={{ fontSize: '0.68rem' }}>🔍</span></span>
+              <span style={{ fontSize: '0.7rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
+                <span style={{ color: theme.colors.primary }}>{NUM.format(f.certificacion)} cert.</span> · <span style={{ color: theme.colors.gold }}>{NUM.format(f.inscripcion)} insc.</span>
+                {' = '}<b style={{ color: theme.colors.textPrimary }}>{NUM.format(f.total)}</b> <span style={{ fontSize: '0.66rem' }}>🔍</span>
+              </span>
             </div>
-            <div style={{ width: `${anchoTotal}%`, height: '14px', borderRadius: '7px', backgroundColor: '#E5E7EB', overflow: 'hidden', display: 'flex', border: esCritico ? `1px solid ${theme.colors.alert.red}` : undefined }}>
-              <div style={{ width: `${pctCert}%`, backgroundColor: theme.colors.primary }} />
-              <div style={{ width: `${pctInsc}%`, backgroundColor: theme.colors.gold }} />
+            <div style={{ height: '10px', borderRadius: '5px', backgroundColor: '#EEF0F3', overflow: 'hidden' }}>
+              <div style={{ width: `${anchoTotal}%`, height: '100%', display: 'flex', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{ width: `${pctCert}%`, backgroundColor: theme.colors.primary }} />
+                <div style={{ width: `${pctInsc}%`, backgroundColor: theme.colors.gold }} />
+              </div>
             </div>
           </div>
         );
@@ -566,23 +570,27 @@ const AntiguedadRezagoBar: React.FC<{ filas: RezagoResumen['antiguedad']; onClic
 
 // ── PieChart: donut clickeable con leyenda — reutilizado por antigüedad y avance de rezago ──
 interface PieSlice { etiqueta: string; cantidad: number; color: string; onClick?: () => void }
-const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: string }> = ({ filas, size = 140, centerLabel }) => {
+const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: string }> = ({ filas, size = 150, centerLabel }) => {
   const total = filas.reduce((s, f) => s + f.cantidad, 0);
-  const radius = size / 2 - 14;
+  const grosor = size * 0.17;
+  const radius = (size - grosor) / 2 - 2;   // el trazo cae completo dentro del viewBox (antes se recortaba)
   const circumference = 2 * Math.PI * radius;
+  const visibles = filas.filter((f) => f.cantidad > 0).length;
+  const hueco = visibles > 1 ? 2 : 0;       // separación visual entre segmentos
   let acumulado = 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
       <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
         <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#E5E7EB" strokeWidth={size * 0.24} />
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#EEF0F3" strokeWidth={grosor} />
           {filas.map((f) => {
             if (total === 0 || f.cantidad === 0) return null;
             const dash = (f.cantidad / total) * circumference;
+            const visible = Math.max(dash - hueco, 0.5);
             const el = (
               <circle
-                key={f.etiqueta} cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={f.color} strokeWidth={size * 0.24}
-                strokeDasharray={`${dash} ${circumference - dash}`} strokeDashoffset={-acumulado}
+                key={f.etiqueta} cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={f.color} strokeWidth={grosor}
+                strokeDasharray={`${visible} ${circumference - visible}`} strokeDashoffset={-acumulado}
                 onClick={f.onClick} style={{ cursor: f.onClick ? 'pointer' : undefined }}
               />
             );
@@ -592,7 +600,10 @@ const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: strin
         </svg>
         {centerLabel && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: theme.colors.textPrimary, textAlign: 'center', whiteSpace: 'pre-line', lineHeight: 1.25, padding: '0 4px' }}>{centerLabel}</div>
+            <div style={{ textAlign: 'center', lineHeight: 1.2 }}>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: theme.colors.textPrimary }}>{centerLabel.split('\n')[0]}</div>
+              <div style={{ fontSize: '0.64rem', color: theme.colors.textSecondary }}>{centerLabel.split('\n')[1]}</div>
+            </div>
           </div>
         )}
       </div>
