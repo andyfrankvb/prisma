@@ -66,8 +66,29 @@ async function buscarImagen(fojaId: number, version?: VersionDigitalizacion): Pr
     if (imagenDictaminada) return imagenDictaminada;
   }
 
-  const imagenes: ImagenRow[] = await db('visor_imagenes_foja').where({ foja_id: fojaId });
+  // Sin dictamen, gana la campaña más reciente: `visor_campanias.orden` va de
+  // la más antigua a la más nueva.
+  //
+  // Antes esto se resolvía con una lista escrita en el código, la de las tres
+  // campañas del prototipo VISAR. Con el acervo real ninguna coincide, así que
+  // la búsqueda fallaba en silencio y se devolvía la primera imagen que la base
+  // entregara: para un documento con dos digitalizaciones, cuál se veía era
+  // arbitrario. El orden ahora sale del catálogo.
+  //
+  // Las versiones que no estén en el catálogo quedan al final (NULLS LAST) en
+  // vez de desaparecer, y entre ellas decide la lista heredada.
+  const imagenes: ImagenRow[] = await db('visor_imagenes_foja as i')
+    .leftJoin('visor_campanias as c', 'c.clave', 'i.version')
+    .where('i.foja_id', fojaId)
+    .select('i.*')
+    .orderByRaw('c.orden DESC NULLS LAST, i.id DESC');
   if (!imagenes.length) throw new AppError(`No existen imágenes registradas para la foja ${fojaId}`, 404);
+
+  const enCatalogo = await db('visor_campanias')
+    .whereIn('clave', imagenes.map((i) => i.version))
+    .pluck('clave');
+  const masReciente = imagenes.find((img) => enCatalogo.includes(img.version));
+  if (masReciente) return masReciente;
 
   for (const version_ of PRIORIDAD_FALLBACK) {
     const match = imagenes.find((img) => img.version === version_);
