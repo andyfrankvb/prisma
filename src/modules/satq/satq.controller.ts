@@ -241,21 +241,21 @@ export async function getResumen(
         db.raw('COALESCE(SUM(importe) FILTER (WHERE importe > 0), 0) as ingreso_bruto'),
       ) as any[];
 
-    // Monto de subsidios — usa es_subsidio (catálogo OR importe negativo, ver
-    // vw_satq_conciliacion), no el texto del concepto: hay id_concepto no
-    // catalogados como subsidio (ej. "19.28 Fojas del documento") que de
-    // todos modos traen renglones puntuales en negativo (descuento real).
-    // Se reportan en valor absoluto porque en la fuente son montos negativos.
+    // Monto subsidiado: lo reporta SATQ como importes NEGATIVOS en su sábana.
+    // Se toma tal cual (con signo negativo) — no se cruza con RPP ni se
+    // reclasifica por catálogo, para que cuadre con el reporte de SATQ.
     const [{ monto_subsidios }] = await baseIngresos()
-      .andWhere('es_subsidio', true)
-      .select(db.raw('COALESCE(ABS(SUM(importe)), 0) as monto_subsidios')) as any[];
+      .andWhere('importe', '<', 0)
+      .select(db.raw('COALESCE(SUM(importe), 0) as monto_subsidios')) as any[];
 
-    // % de referencias que aparecen en el histórico de RPP (existencia, no monto),
-    // y el monto de las filas SIN match — lo que alimenta la alerta de conciliación.
+    // Universo = referencias distintas de SATQ en el periodo. RPP solo valida:
+    // cuántas de esas referencias están confirmadas (Entrega) en el histórico de
+    // RPPC. Se cuentan referencias, no renglones (una referencia puede traer
+    // varios conceptos). % = referencias SATQ identificadas en RPPC / total SATQ.
     const [{ total_rows, conciliados, monto_no_conciliado }] = await baseIngresos()
       .select(
-        db.raw('COUNT(*) as total_rows'),
-        db.raw('COUNT(*) FILTER (WHERE conciliado) as conciliados'),
+        db.raw('COUNT(DISTINCT referencia) as total_rows'),
+        db.raw('COUNT(DISTINCT referencia) FILTER (WHERE conciliado) as conciliados'),
         db.raw("COALESCE(SUM(importe) FILTER (WHERE NOT conciliado), 0) as monto_no_conciliado"),
       ) as any[];
 
@@ -265,7 +265,7 @@ export async function getResumen(
     const conciliacionRows = await baseIngresos()
       .groupBy('estatus_conciliacion')
       .select('estatus_conciliacion')
-      .select(db.raw('COUNT(*) as cantidad'), db.raw('SUM(importe) as monto'));
+      .select(db.raw('COUNT(DISTINCT referencia) as cantidad'), db.raw('SUM(importe) as monto'));
     const conciliacionPorCategoria = new Map<string, number>(
       conciliacionRows.map((r: any) => [r.estatus_conciliacion, Number(r.cantidad)]),
     );
@@ -421,10 +421,11 @@ export async function getResumen(
       ingreso_bruto:       ingresoBrutoNum,
       total_referencias:   Number(total_referencias),
       monto_subsidios:     montoSubsidiosNum,
-      pct_subsidios:       ingresoBrutoNum > 0 ? Math.round((montoSubsidiosNum / ingresoBrutoNum) * 1000) / 10 : 0,
+      pct_subsidios:       ingresoBrutoNum > 0 ? Math.round((Math.abs(montoSubsidiosNum) / ingresoBrutoNum) * 1000) / 10 : 0,
       tramites_rpp:        Number(tramites_rpp),
       tramites_subsidiados: tramitesSubsidiados,
       pct_conciliado:      pctConciliado,
+      referencias_conciliadas: Number(conciliados),
       monto_no_conciliado: Number(monto_no_conciliado),
       alerta_conciliacion: totalRowsNum > 0 && pctConciliado < ALERTA_CONCILIACION_UMBRAL,
       conciliacion:        armaConciliacionResumen(conciliacionPorCategoria, montoPorCategoria, totalRowsNum),
@@ -438,6 +439,22 @@ export async function getResumen(
 
     res.json({ data: resumen });
   } catch (err) { next(err); }
+}
+
+/** Filtros del detalle — compartidos por /detalle y /exportar para que el Excel salga idéntico a la tabla. */
+function aplicaFiltrosDetalle<T extends ReturnType<typeof db>>(query: T, req: Request): T {
+  let q: any = query;
+  if (req.query.municipio)   q = q.andWhere('municipio', req.query.municipio as string);
+  if (req.query.id_concepto) q = q.andWhere('id_concepto', Number(req.query.id_concepto));
+  if (req.query.programa)    q = q.andWhere('programa', req.query.programa as string);
+  if (req.query.tipo_acto)   q = q.andWhere('tipo_acto', req.query.tipo_acto as string);
+  if (req.query.delegacion)  q = q.andWhere('delegacion', req.query.delegacion as string);
+  if (req.query.conciliado === 'true')  q = q.andWhere('conciliado', true);
+  if (req.query.conciliado === 'false') q = q.andWhere('conciliado', false);
+  if (req.query.subsidio === 'true')  q = q.andWhere('importe', '<', 0);
+  if (req.query.subsidio === 'false') q = q.andWhere('importe', '>=', 0);
+  if (req.query.estatus_conciliacion) q = q.andWhere('estatus_conciliacion', req.query.estatus_conciliacion as string);
+  return q;
 }
 
 // ── GET /satq/detalle ──────────────────────────────────────────
@@ -456,18 +473,7 @@ export async function getDetalle(
     const limit = Math.min(DETALLE_LIMIT_MAX, parseInt(String(req.query.limit ?? DETALLE_LIMIT_DEFAULT), 10));
     const offset = (page - 1) * limit;
 
-    let query = db('vw_satq_conciliacion').whereBetween('fecha_contable', [desde, hasta]);
-
-    if (req.query.municipio)   query = query.andWhere('municipio', req.query.municipio as string);
-    if (req.query.id_concepto) query = query.andWhere('id_concepto', Number(req.query.id_concepto));
-    if (req.query.programa)    query = query.andWhere('programa', req.query.programa as string);
-    if (req.query.tipo_acto)   query = query.andWhere('tipo_acto', req.query.tipo_acto as string);
-    if (req.query.delegacion)  query = query.andWhere('delegacion', req.query.delegacion as string);
-    if (req.query.conciliado === 'true')  query = query.andWhere('conciliado', true);
-    if (req.query.conciliado === 'false') query = query.andWhere('conciliado', false);
-    if (req.query.subsidio === 'true')  query = query.andWhere('es_subsidio', true);
-    if (req.query.subsidio === 'false') query = query.andWhere('es_subsidio', false);
-    if (req.query.estatus_conciliacion) query = query.andWhere('estatus_conciliacion', req.query.estatus_conciliacion as string);
+    const query = aplicaFiltrosDetalle(db('vw_satq_conciliacion').whereBetween('fecha_contable', [desde, hasta]), req);
 
     // Total de filas y suma de importe sobre TODO lo filtrado (no solo la
     // página actual) — el reporte siempre debe sumar lo que arrojan los filtros.
@@ -492,6 +498,85 @@ export async function getDetalle(
 
     res.json({ data: filas, meta: { total, page, limit, suma_importe: sumaImporte } });
   } catch (err) { next(err); }
+}
+
+// ── GET /satq/exportar ─────────────────────────────────────────
+// Excel COMPLETO (sin tope de filas) de la sábana SATQ del periodo, con los
+// mismos filtros que /detalle. Se escribe en streaming para no cargar cientos
+// de miles de filas en memoria; una hoja admite 1,048,576 filas, así que si se
+// rebasa se continúa en otra hoja.
+
+const EXPORT_FILAS_POR_HOJA = 1_000_000;
+
+export async function getExportar(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await requireModuloSatq(req);
+
+    const { desde, hasta } = rangoPeriodo(req);
+    const query = aplicaFiltrosDetalle(db('vw_satq_conciliacion').whereBetween('fecha_contable', [desde, hasta]), req)
+      .select(
+        'fecha_contable', 'referencia', 'no_operacion', 'municipio', 'id_concepto', 'concepto',
+        'programa', 'tipo_acto', 'importe', 'total_referencia', 'estatus_conciliacion', 'delegacion',
+      )
+      .orderBy([{ column: 'fecha_contable', order: 'asc' }, { column: 'referencia', order: 'asc' }, { column: 'id', order: 'asc' }]);
+
+    const ExcelJS = (await import('exceljs')).default;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="ingresos_satq_${desde}_${hasta}.xlsx"`);
+
+    const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true, useSharedStrings: false });
+    const COLUMNAS = [
+      { header: 'Fecha contable', key: 'fecha', width: 14 },
+      { header: 'Referencia', key: 'referencia', width: 22 },
+      { header: 'No. Operación', key: 'no_operacion', width: 18 },
+      { header: 'Municipio', key: 'municipio', width: 18 },
+      { header: 'ID Concepto', key: 'id_concepto', width: 12 },
+      { header: 'Concepto', key: 'concepto', width: 45 },
+      { header: 'Programa', key: 'programa', width: 20 },
+      { header: 'Tipo de acto', key: 'tipo_acto', width: 26 },
+      { header: 'Importe', key: 'importe', width: 16, style: { numFmt: '#,##0.00' } },
+      { header: 'Total referencia', key: 'total_referencia', width: 16, style: { numFmt: '#,##0.00' } },
+      { header: 'Estatus en RPP', key: 'estatus', width: 22 },
+      { header: 'Delegación (RPP)', key: 'delegacion', width: 20 },
+    ];
+    const nuevaHoja = (n: number) => {
+      const ws = wb.addWorksheet(n === 1 ? 'Ingresos SATQ' : `Ingresos SATQ ${n}`, { views: [{ state: 'frozen', ySplit: 1 }] });
+      ws.columns = COLUMNAS;
+      ws.getRow(1).font = { bold: true };
+      ws.getRow(1).commit();
+      return ws;
+    };
+
+    let hoja = 1;
+    let ws = nuevaHoja(hoja);
+    let filasEnHoja = 0;
+    const stream = query.stream();
+    for await (const f of stream as AsyncIterable<any>) {
+      if (filasEnHoja >= EXPORT_FILAS_POR_HOJA) {
+        ws.commit();
+        ws = nuevaHoja(++hoja);
+        filasEnHoja = 0;
+      }
+      ws.addRow({
+        fecha: new Date(f.fecha_contable).toISOString().slice(0, 10),
+        referencia: f.referencia, no_operacion: f.no_operacion, municipio: f.municipio,
+        id_concepto: f.id_concepto, concepto: f.concepto, programa: f.programa, tipo_acto: f.tipo_acto,
+        importe: Number(f.importe), total_referencia: Number(f.total_referencia),
+        estatus: f.estatus_conciliacion, delegacion: f.delegacion ?? '',
+      }).commit();
+      filasEnHoja++;
+    }
+    ws.commit();
+    await wb.commit();
+  } catch (err) {
+    // Si ya empezó a escribirse el archivo no se puede responder JSON.
+    if (res.headersSent) { res.destroy(err as Error); return; }
+    next(err);
+  }
 }
 
 // ── GET /satq/conceptos ────────────────────────────────────────
@@ -770,7 +855,7 @@ export async function getEstimacionVsRecaudacion(
     // o no, para separar "cayó la recaudación" de "se subsidió más".
     const subsidiosRows = await db('vw_satq_conciliacion')
       .whereRaw('EXTRACT(YEAR FROM fecha_contable) = ?', [anio])
-      .andWhere('es_subsidio', true)
+      .andWhere('importe', '<', 0)
       .select(db.raw('EXTRACT(MONTH FROM fecha_contable)::int as mes'))
       .select(db.raw('ABS(SUM(importe)) as monto'))
       .groupByRaw('EXTRACT(MONTH FROM fecha_contable)') as any[];

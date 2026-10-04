@@ -106,7 +106,10 @@ async function parsearWorkbookSatq(buffer: Buffer): Promise<{ filas: FilaSatqPar
       // que un JS number puede representar sin perder precisión. cell.value
       // los convertiría a number y los corrompería silenciosamente.
       const referencia   = row.getCell(cReferencia).text?.trim();
-      const noOperacion  = row.getCell(cNoOperacion).text?.trim();
+      // Sin ceros a la izquierda: según el formato de celda el Excel de SATQ trae el
+      // mismo no_operacion como '08010141738344' o '8010141738344', y eso duplicaba
+      // el ingreso al no chocar con la llave única (no_operacion, id_concepto).
+      const noOperacion  = row.getCell(cNoOperacion).text?.trim().replace(/^0+(?=\d)/, '');
       if (!referencia || !noOperacion) return; // fila vacía / de relleno
 
       const fechaValue = row.getCell(cFecha).value;

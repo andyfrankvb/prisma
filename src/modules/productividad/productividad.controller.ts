@@ -28,6 +28,7 @@
  *  GET /productividad/terminados   → serie mensual + estatus/origen/tipo de lo trabajado
  *  GET /productividad/delegaciones → catálogo para el filtro
  *  GET /productividad/detalle      → fila por fila (la "lupa" de cada KPI), paginado
+ *  GET /productividad/indicadores  → propuesta de mejora: ingresadas / terminadas / mismo periodo / rezago / pendientes del periodo / promedio, para solicitudes y actos
  *  GET /productividad/rezago       → antigüedad del pendiente (3/6/12 meses) + avance de rezago del periodo
  *
  * Certificación vs. Inscripción: `productividad_terminados.tipo_solicitud` es
@@ -45,6 +46,7 @@ import {
   ResumenProductividad, ProductividadDelegacionResumen,
   BandejaResumen, TerminadosResumen, ProductividadMensualFila, DistribucionFila,
   ProductividadDetalleResponse, RezagoResumen,
+  IndicadoresProductividad, IndicadoresUnidad, IndicadoresDelegacion,
 } from './productividad.types';
 
 // Códigos de acto que son "certificación" (expedir un documento sobre algo ya
@@ -394,6 +396,142 @@ export async function getRezago(req: Request, res: Response, next: NextFunction)
         de_rezago_certificacion:  sumar('rezago', 'certificacion'),
         de_rezago_inscripcion:    sumar('rezago', 'inscripcion'),
       },
+    };
+    res.json(resp);
+  } catch (err) { next(err); }
+}
+
+// ── GET /productividad/indicadores ──────────────────────────────────────
+// Propuesta "Reporte de Productividad por Delegación" (bd/PROPUESTA DE REPORTE
+// DE PRODUCTIVIDAD PRISMA.docx): relaciona los universos con reglas explícitas
+// para no comparar manzanas con naranjas. Para el periodo [desde, hasta]:
+//   - ingresadas:    fecha_ingreso dentro del periodo.
+//   - terminadas:    fecha_firma dentro del periodo, sin importar cuándo ingresó.
+//   - mismo periodo: ingresadas en el periodo que ya tienen firma al cierre (≤ hasta).
+//   - rezago:        firmadas en el periodo con más de 30 días naturales entre
+//                    ingreso y firma.
+//   - pendientes:    ingresadas en el periodo sin firma al cierre (≤ hasta).
+//                    Por construcción mismo_periodo + pendientes = ingresadas.
+//   - promedio:      días ingreso→firma sobre las "mismo periodo".
+// Una fila de las tablas es un ACTO; la solicitud es el `nci` (varios actos
+// por solicitud). El cruce ingreso↔firma es por nci (+ código de acto en actos).
+const DIAS_REZAGO = 30;
+
+function sqlFiltroFecha(columna: string, f: FiltroPeriodo, params: any[]): string {
+  let sql = '';
+  if (f.desde) { sql += ` AND ${columna} >= ?::date`; params.push(f.desde); }
+  if (f.hasta) { sql += ` AND ${columna} < (?::date + interval '1 day')`; params.push(f.hasta); }
+  return sql;
+}
+
+async function indicadoresPorUnidad(f: FiltroPeriodo, unidad: 'acto' | 'solicitud'): Promise<Map<string, IndicadoresUnidad>> {
+  const porActo = unidad === 'acto';
+  const cat = (acto: string) => (f.categoria ? ` AND ${casoCategoria(acto, true)} = '${f.categoria}'` : '');
+  const params: any[] = [];
+
+  // Ingresadas (una fila por acto, o por nci si es solicitud) + su primera firma ≤ hasta.
+  let ingFiltro = ' WHERE true';
+  if (f.delegacion) { ingFiltro += ' AND i.delegacion = ?'; params.push(f.delegacion); }
+  ingFiltro += sqlFiltroFecha('i.fecha_ingreso', f, params) + cat('i.acto');
+
+  const cierre = f.hasta ? ` AND t.fecha_firma < (?::date + interval '1 day')` : '';
+  const matchActo = porActo ? ` AND split_part(t.acto, ' ', 1) = split_part(i.acto, ' ', 1)` : '';
+  const ingParams = [...params];
+  if (f.hasta) ingParams.push(f.hasta);
+
+  const ingSql = `
+    WITH base AS (
+      SELECT ${porActo ? 'i.nci, i.acto, i.delegacion, i.fecha_ingreso' : 'i.nci, i.delegacion, min(i.fecha_ingreso) AS fecha_ingreso'}
+      FROM productividad_ingresos i ${ingFiltro}
+      ${porActo ? '' : 'GROUP BY i.nci, i.delegacion'}
+    )
+    SELECT i.delegacion,
+           count(*)                                   AS ingresadas,
+           count(*) FILTER (WHERE f.fecha_firma IS NOT NULL) AS mismo_periodo,
+           count(*) FILTER (WHERE f.fecha_firma IS NULL)     AS pendientes,
+           avg(f.fecha_firma::date - i.fecha_ingreso::date) FILTER (WHERE f.fecha_firma IS NOT NULL) AS promedio
+    FROM base i
+    LEFT JOIN LATERAL (
+      SELECT min(t.fecha_firma) AS fecha_firma
+      FROM productividad_terminados t
+      WHERE t.nci = i.nci ${matchActo} ${cierre}
+    ) f ON true
+    GROUP BY i.delegacion`;
+
+  // Terminadas: firmadas dentro del periodo, y cuántas son rezago (> 30 días).
+  const tParams: any[] = [];
+  let tFiltro = ' WHERE true';
+  if (f.delegacion) { tFiltro += ' AND t.delegacion = ?'; tParams.push(f.delegacion); }
+  tFiltro += sqlFiltroFecha('t.fecha_firma', f, tParams) + cat('t.acto');
+  const cuenta = porActo ? 'count(*)' : 'count(DISTINCT t.nci)';
+  const cuentaRezago = porActo
+    ? `count(*) FILTER (WHERE (t.fecha_firma::date - t.fecha_ingreso::date) > ${DIAS_REZAGO})`
+    : `count(DISTINCT t.nci) FILTER (WHERE (t.fecha_firma::date - t.fecha_ingreso::date) > ${DIAS_REZAGO})`;
+  const termSql = `
+    SELECT t.delegacion, ${cuenta} AS terminadas, ${cuentaRezago} AS rezago
+    FROM productividad_terminados t ${tFiltro}
+    GROUP BY t.delegacion`;
+
+  const [ingRes, termRes] = await Promise.all([db.raw(ingSql, ingParams), db.raw(termSql, tParams)]);
+
+  const out = new Map<string, IndicadoresUnidad>();
+  const get = (d: string) => {
+    if (!out.has(d)) out.set(d, { ingresadas: 0, terminadas: 0, mismo_periodo: 0, rezago: 0, otras_firmadas: 0, pendientes: 0, promedio_dias: null });
+    return out.get(d)!;
+  };
+  for (const r of ingRes.rows) {
+    const u = get(r.delegacion);
+    u.ingresadas = Number(r.ingresadas); u.mismo_periodo = Number(r.mismo_periodo); u.pendientes = Number(r.pendientes);
+    u.promedio_dias = r.promedio != null ? Math.round(Number(r.promedio) * 10) / 10 : null;
+  }
+  for (const r of termRes.rows) {
+    const u = get(r.delegacion);
+    u.terminadas = Number(r.terminadas); u.rezago = Number(r.rezago);
+  }
+  return out;
+}
+
+function totalizar(lista: IndicadoresUnidad[]): IndicadoresUnidad {
+  const t: IndicadoresUnidad = { ingresadas: 0, terminadas: 0, mismo_periodo: 0, rezago: 0, otras_firmadas: 0, pendientes: 0, promedio_dias: null };
+  let pesoProm = 0, sumaProm = 0;
+  for (const u of lista) {
+    t.ingresadas += u.ingresadas; t.terminadas += u.terminadas; t.mismo_periodo += u.mismo_periodo;
+    t.rezago += u.rezago; t.pendientes += u.pendientes;
+    if (u.promedio_dias != null) { sumaProm += u.promedio_dias * u.mismo_periodo; pesoProm += u.mismo_periodo; }
+  }
+  t.otras_firmadas = Math.max(t.terminadas - t.mismo_periodo - t.rezago, 0);
+  t.promedio_dias = pesoProm > 0 ? Math.round((sumaProm / pesoProm) * 10) / 10 : null;
+  return t;
+}
+
+export async function getIndicadores(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    await requireModuloReportes(req);
+    const f = leerFiltro(req);
+
+    const [solicitudes, actos] = await Promise.all([
+      indicadoresPorUnidad(f, 'solicitud'),
+      indicadoresPorUnidad(f, 'acto'),
+    ]);
+
+    const vacio = (): IndicadoresUnidad => ({ ingresadas: 0, terminadas: 0, mismo_periodo: 0, rezago: 0, otras_firmadas: 0, pendientes: 0, promedio_dias: null });
+    const delegaciones = Array.from(new Set([...solicitudes.keys(), ...actos.keys()])).sort();
+    const data: IndicadoresDelegacion[] = delegaciones.map((delegacion) => ({
+      delegacion,
+      solicitudes: solicitudes.get(delegacion) ?? vacio(),
+      actos:       actos.get(delegacion) ?? vacio(),
+    }));
+    // "otras_firmadas": firmadas en el periodo que no son del mismo periodo ni rezago
+    // (ingresaron antes del periodo pero con ≤ 30 días) — para que el total cuadre.
+    for (const d of data) for (const u of [d.solicitudes, d.actos]) {
+      u.otras_firmadas = Math.max(u.terminadas - u.mismo_periodo - u.rezago, 0);
+    }
+
+    const resp: IndicadoresProductividad = {
+      filtros: { delegacion: f.delegacion ?? null, desde: f.desde ?? null, hasta: f.hasta ?? null, categoria: f.categoria ?? null },
+      dias_rezago: DIAS_REZAGO,
+      data,
+      total: { solicitudes: totalizar(data.map((d) => d.solicitudes)), actos: totalizar(data.map((d) => d.actos)) },
     };
     res.json(resp);
   } catch (err) { next(err); }

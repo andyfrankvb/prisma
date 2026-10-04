@@ -25,8 +25,8 @@ import { BotonImprimirReporte } from '../components/BotonImprimirReporte';
 import { SelectorPeriodo } from '../components/SelectorPeriodo';
 import { theme } from '../theme';
 import { useIsMobile } from '../hooks/useIsMobile';
-import { getProductividadResumen, getProductividadBandeja, getProductividadTerminados, getProductividadDelegaciones, getProductividadDetalle, getProductividadRezago } from '../api';
-import type { ResumenProductividad, BandejaResumen, TerminadosResumen, ProductividadMensualFila, DistribucionFila, ProductividadDetalleFila, RezagoResumen } from '../types';
+import { getProductividadResumen, getProductividadBandeja, getProductividadTerminados, getProductividadDelegaciones, getProductividadDetalle, getProductividadRezago, getProductividadIndicadores } from '../api';
+import type { ResumenProductividad, BandejaResumen, TerminadosResumen, ProductividadMensualFila, DistribucionFila, ProductividadDetalleFila, RezagoResumen, IndicadoresProductividad, IndicadoresUnidad } from '../types';
 
 const FECHA_CORTA = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -82,6 +82,7 @@ export const Reportes_Productividad: React.FC = () => {
   const [bandeja, setBandeja]       = useState<BandejaResumen | null>(null);
   const [terminados, setTerminados] = useState<TerminadosResumen | null>(null);
   const [rezago, setRezago]         = useState<RezagoResumen | null>(null);
+  const [indicadores, setIndicadores] = useState<IndicadoresProductividad | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [modalDetalle, setModalDetalle] = useState<FiltroModalProductividad | null>(null);
@@ -103,13 +104,15 @@ export const Reportes_Productividad: React.FC = () => {
       getProductividadBandeja(params),
       getProductividadTerminados(params),
       getProductividadRezago(params),
+      getProductividadIndicadores(params),
     ])
-      .then(([r, b, t, rz]) => {
+      .then(([r, b, t, rz, ind]) => {
         if (cancelado) return;
         setResumen(r);
         setBandeja(b);
         setTerminados(t);
         setRezago(rz);
+        setIndicadores(ind);
       })
       .catch((err: any) => { if (!cancelado) setError(err.message); })
       .finally(() => { if (!cancelado) setLoading(false); });
@@ -208,7 +211,7 @@ export const Reportes_Productividad: React.FC = () => {
           </div>
         </div>
         <p style={{ margin: '-12px 0 0', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
-          El periodo filtra "Ingresados" por fecha de ingreso y "Terminados" por fecha de firma (cuándo se cerró, no cuándo entró). "Pendiente" es la foto de ahora mismo y no cambia con el periodo.
+          Ingresadas por fecha de ingreso; terminadas por fecha de firma (sin importar cuándo ingresaron); "mismo periodo" y "pendientes del periodo" parten de lo ingresado en el periodo y verifican si ya está firmado al cierre. Rezago: firmadas en el periodo con más de {indicadores?.dias_rezago ?? 30} días desde su ingreso.
         </p>
 
         {error && (
@@ -220,29 +223,40 @@ export const Reportes_Productividad: React.FC = () => {
 
         {!loading && !error && resumen && (
           <>
-            {/* ── KPIs ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-              <KpiCard label="Ingresados" value={NUM.format(totalIngresados)} icon="subir" color={theme.colors.primary}
-                onClick={() => setModalDetalle({ titulo: 'Ingresados', fuente: 'ingresos', delegacion: delegacionFiltro || undefined })} />
-              <KpiCard label="Terminados" value={NUM.format(totalTerminados)} icon="check" color={theme.colors.alert.green}
-                sub={`${pctFirmadas}% firmadas · ${NUM.format(totalFirmadas)} firmadas / ${NUM.format(totalRechazadas)} rechazadas`}
-                onClick={() => setModalDetalle({ titulo: 'Terminados', fuente: 'terminados', delegacion: delegacionFiltro || undefined })} />
-              <KpiCard label="Pendientes ahora" value={NUM.format(totalPendiente)} icon="reloj" color={theme.colors.gold}
-                sub="foto actual — no cambia con el filtro de periodo"
-                onClick={() => setModalDetalle({ titulo: 'Pendientes ahora', fuente: 'bandeja', delegacion: delegacionFiltro || undefined })} />
-              <KpiCard label="Días de atención (promedio)" value={terminados?.dias_atencion_promedio != null ? `${terminados.dias_atencion_promedio} días` : '—'} icon="historial" color={theme.colors.charcoal}
-                onClick={() => setModalDetalle({ titulo: 'Terminados (días de atención)', fuente: 'terminados', delegacion: delegacionFiltro || undefined })} />
-            </div>
+            {/* ── Indicadores de la propuesta: solicitudes y actos ── */}
+            {indicadores && (
+              <>
+                <IndicadoresFila titulo="Solicitudes" singular="Solicitudes" u={indicadores.total.solicitudes} diasRezago={indicadores.dias_rezago}
+                  onIngresadas={() => setModalDetalle({ titulo: 'Ingresados', fuente: 'ingresos', delegacion: delegacionFiltro || undefined })}
+                  onTerminadas={() => setModalDetalle({ titulo: 'Terminados', fuente: 'terminados', delegacion: delegacionFiltro || undefined })} />
+                <IndicadoresFila titulo="Actos" singular="Actos" u={indicadores.total.actos} diasRezago={indicadores.dias_rezago}
+                  onIngresadas={() => setModalDetalle({ titulo: 'Ingresados', fuente: 'ingresos', delegacion: delegacionFiltro || undefined })}
+                  onTerminadas={() => setModalDetalle({ titulo: 'Terminados', fuente: 'terminados', delegacion: delegacionFiltro || undefined })} />
+                <div style={{ fontSize: '0.7rem', color: theme.colors.textSecondary, marginTop: '-8px' }}>
+                  Pendientes ahora (foto de la bandeja, sin filtro de periodo): <b>{NUM.format(totalPendiente)}</b> actos.
+                </div>
 
-            {/* ── Avance por delegación ── */}
-            <div>
-              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primaryDark, marginBottom: '10px' }}>
-                Terminados vs. ingresados, por delegación
-              </div>
-              <div style={{ backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`, padding: '18px 20px' }}>
-                <AvanceBar filas={filas} />
-              </div>
-            </div>
+                {/* ── Tiempo de atención: terminados vs. ingresados ── */}
+                <div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primaryDark, marginBottom: '10px' }}>
+                    Terminados vs. ingresados, por delegación
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
+                    {(['actos', 'solicitudes'] as const).map((unidad) => (
+                      <div key={unidad} style={{ backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`, padding: '18px 20px' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: theme.colors.textPrimary, marginBottom: '2px' }}>
+                          {unidad === 'actos' ? 'Actos' : 'Solicitudes'}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: theme.colors.textSecondary, marginBottom: '12px' }}>
+                          Porcentaje respecto a lo ingresado en el periodo
+                        </div>
+                        <AvanceBar filas={indicadores.data.map((d) => ({ delegacion: d.delegacion, u: d[unidad] }))} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* ── Tabla detalle por delegación ── */}
             <div style={{ backgroundColor: '#fff', borderRadius: '14px', border: `1px solid ${theme.colors.border}`, overflow: 'hidden' }}>
@@ -411,10 +425,10 @@ export const Reportes_Productividad: React.FC = () => {
                         </div>
                         <DistribucionBarClicable
                           filas={[
-                            { etiqueta: 'Mismo mes · Certificación', cantidad: rezago.avance.mismo_mes_certificacion, onClick: () => abrirModalAvance('mismo_mes', 'certificacion') },
-                            { etiqueta: 'Mismo mes · Inscripción',   cantidad: rezago.avance.mismo_mes_inscripcion,   onClick: () => abrirModalAvance('mismo_mes', 'inscripcion') },
-                            { etiqueta: 'Rezago · Certificación',    cantidad: rezago.avance.de_rezago_certificacion, onClick: () => abrirModalAvance('rezago', 'certificacion') },
-                            { etiqueta: 'Rezago · Inscripción',      cantidad: rezago.avance.de_rezago_inscripcion,   onClick: () => abrirModalAvance('rezago', 'inscripcion') },
+                            { etiqueta: 'Mismo mes · Certificación', cantidad: rezago.avance.mismo_mes_certificacion, onClick: () => abrirModalAvance('mismo_mes', 'certificacion'), color: theme.colors.alert.green },
+                            { etiqueta: 'Mismo mes · Inscripción',   cantidad: rezago.avance.mismo_mes_inscripcion,   onClick: () => abrirModalAvance('mismo_mes', 'inscripcion'), color: theme.colors.alert.green },
+                            { etiqueta: 'Rezago · Certificación',    cantidad: rezago.avance.de_rezago_certificacion, onClick: () => abrirModalAvance('rezago', 'certificacion'), color: theme.colors.primary },
+                            { etiqueta: 'Rezago · Inscripción',      cantidad: rezago.avance.de_rezago_inscripcion,   onClick: () => abrirModalAvance('rezago', 'inscripcion'), color: theme.colors.primary },
                           ]}
                           color={theme.colors.charcoal}
                         />
@@ -490,15 +504,14 @@ const DistribucionBar: React.FC<{ filas: DistribucionFila[]; color: string }> = 
 };
 
 // ── DistribucionBarClicable: igual que DistribucionBar, pero cada renglón abre su propia lupa ──
-const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: () => void })[]; color: string }> = ({ filas, color }) => {
+const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: () => void; color?: string })[]; color: string }> = ({ filas, color }) => {
   if (filas.length === 0) return <p style={{ margin: 0, fontSize: '0.76rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>Sin datos con este filtro.</p>;
-  const max = Math.max(...filas.map((f) => f.cantidad), 1);
   const total = filas.reduce((a, f) => a + f.cantidad, 0);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
       {filas.map((f) => {
-        const pct = Math.round((f.cantidad / max) * 100);
         const pctTotal = total > 0 ? Math.round((f.cantidad / total) * 1000) / 10 : 0;
+        const pct = Math.max(pctTotal, f.cantidad > 0 ? 2 : 0);
         return (
           <div key={f.etiqueta} onClick={f.onClick} style={{ cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '3px' }}>
@@ -507,8 +520,8 @@ const DistribucionBarClicable: React.FC<{ filas: (DistribucionFila & { onClick: 
                 {NUM.format(f.cantidad)} ({pctTotal}%) <span style={{ fontSize: '0.66rem' }}>🔍</span>
               </span>
             </div>
-            <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px' }} />
+            <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#EEF0F3', overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', backgroundColor: f.color ?? color, borderRadius: '4px' }} />
             </div>
           </div>
         );
@@ -528,20 +541,25 @@ const AntiguedadRezagoBar: React.FC<{ filas: RezagoResumen['antiguedad']; onClic
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {filas.map((f) => {
         const esCritico = f.bucket === 'Más de 1 año';
-        const anchoTotal = Math.max((f.total / max) * 100, f.total > 0 ? 2 : 0);
+        const anchoTotal = Math.max((f.total / max) * 100, f.total > 0 ? 3 : 0);
         const pctCert = f.total > 0 ? (f.certificacion / f.total) * 100 : 0;
         const pctInsc = f.total > 0 ? (f.inscripcion / f.total) * 100 : 0;
         return (
           <div key={f.bucket} onClick={() => onClickBucket(BUCKET_LABEL_A_CLAVE[f.bucket])} style={{ cursor: 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '3px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '4px' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: esCritico ? theme.colors.alert.red : theme.colors.textPrimary }}>
                 {f.bucket}{esCritico && ' ⚠'}
               </span>
-              <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, flexShrink: 0 }}>{NUM.format(f.total)} <span style={{ fontSize: '0.68rem' }}>🔍</span></span>
+              <span style={{ fontSize: '0.7rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
+                <span style={{ color: theme.colors.primary }}>{NUM.format(f.certificacion)} cert.</span> · <span style={{ color: theme.colors.gold }}>{NUM.format(f.inscripcion)} insc.</span>
+                {' = '}<b style={{ color: theme.colors.textPrimary }}>{NUM.format(f.total)}</b> <span style={{ fontSize: '0.66rem' }}>🔍</span>
+              </span>
             </div>
-            <div style={{ width: `${anchoTotal}%`, height: '14px', borderRadius: '7px', backgroundColor: '#E5E7EB', overflow: 'hidden', display: 'flex', border: esCritico ? `1px solid ${theme.colors.alert.red}` : undefined }}>
-              <div style={{ width: `${pctCert}%`, backgroundColor: theme.colors.primary }} />
-              <div style={{ width: `${pctInsc}%`, backgroundColor: theme.colors.gold }} />
+            <div style={{ height: '10px', borderRadius: '5px', backgroundColor: '#EEF0F3', overflow: 'hidden' }}>
+              <div style={{ width: `${anchoTotal}%`, height: '100%', display: 'flex', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{ width: `${pctCert}%`, backgroundColor: theme.colors.primary }} />
+                <div style={{ width: `${pctInsc}%`, backgroundColor: theme.colors.gold }} />
+              </div>
             </div>
           </div>
         );
@@ -552,23 +570,27 @@ const AntiguedadRezagoBar: React.FC<{ filas: RezagoResumen['antiguedad']; onClic
 
 // ── PieChart: donut clickeable con leyenda — reutilizado por antigüedad y avance de rezago ──
 interface PieSlice { etiqueta: string; cantidad: number; color: string; onClick?: () => void }
-const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: string }> = ({ filas, size = 140, centerLabel }) => {
+const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: string }> = ({ filas, size = 150, centerLabel }) => {
   const total = filas.reduce((s, f) => s + f.cantidad, 0);
-  const radius = size / 2 - 14;
+  const grosor = size * 0.17;
+  const radius = (size - grosor) / 2 - 2;   // el trazo cae completo dentro del viewBox (antes se recortaba)
   const circumference = 2 * Math.PI * radius;
+  const visibles = filas.filter((f) => f.cantidad > 0).length;
+  const hueco = visibles > 1 ? 2 : 0;       // separación visual entre segmentos
   let acumulado = 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
       <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
         <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#E5E7EB" strokeWidth={size * 0.24} />
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#EEF0F3" strokeWidth={grosor} />
           {filas.map((f) => {
             if (total === 0 || f.cantidad === 0) return null;
             const dash = (f.cantidad / total) * circumference;
+            const visible = Math.max(dash - hueco, 0.5);
             const el = (
               <circle
-                key={f.etiqueta} cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={f.color} strokeWidth={size * 0.24}
-                strokeDasharray={`${dash} ${circumference - dash}`} strokeDashoffset={-acumulado}
+                key={f.etiqueta} cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={f.color} strokeWidth={grosor}
+                strokeDasharray={`${visible} ${circumference - visible}`} strokeDashoffset={-acumulado}
                 onClick={f.onClick} style={{ cursor: f.onClick ? 'pointer' : undefined }}
               />
             );
@@ -578,7 +600,10 @@ const PieChart: React.FC<{ filas: PieSlice[]; size?: number; centerLabel?: strin
         </svg>
         {centerLabel && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: theme.colors.textPrimary, textAlign: 'center', whiteSpace: 'pre-line', lineHeight: 1.25, padding: '0 4px' }}>{centerLabel}</div>
+            <div style={{ textAlign: 'center', lineHeight: 1.2 }}>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: theme.colors.textPrimary }}>{centerLabel.split('\n')[0]}</div>
+              <div style={{ fontSize: '0.64rem', color: theme.colors.textSecondary }}>{centerLabel.split('\n')[1]}</div>
+            </div>
           </div>
         )}
       </div>
@@ -860,30 +885,55 @@ const ModalDetalleProductividad: React.FC<{ filtro: FiltroModalProductividad | n
   );
 };
 
-// ── AvanceBar: terminados (relleno) vs. ingresados (barra completa), por delegación ──
-const AvanceBar: React.FC<{ filas: ResumenProductividad['data'] }> = ({ filas }) => {
+// ── IndicadoresFila: los 6 indicadores de la propuesta (ingresadas, terminadas, mismo periodo, rezago, pendientes, promedio) ──
+const COLOR_REZAGO = '#2563EB';
+const COLOR_PENDIENTE = '#6D28D9';
+const IndicadoresFila: React.FC<{ titulo: string; singular: string; u: IndicadoresUnidad; diasRezago: number; onIngresadas: () => void; onTerminadas: () => void }> = ({ titulo, u, diasRezago, onIngresadas, onTerminadas }) => (
+  <div>
+    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: theme.colors.primaryDark, marginBottom: '10px' }}>{titulo}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+      <KpiCard label={`${titulo} ingresadas`} value={NUM.format(u.ingresadas)} icon="subir" color={theme.colors.primary} onClick={onIngresadas} />
+      <KpiCard label={`${titulo} terminadas`} value={NUM.format(u.terminadas)} icon="check" color={theme.colors.alert.green}
+        sub={u.otras_firmadas > 0 ? `incluye ${NUM.format(u.otras_firmadas)} de ingreso anterior con ≤ ${diasRezago} días` : undefined} onClick={onTerminadas} />
+      <KpiCard label="Terminadas del mismo periodo" value={NUM.format(u.mismo_periodo)} icon="reloj" color={theme.colors.gold}
+        sub="ingresadas en el periodo y ya firmadas" />
+      <KpiCard label="Terminadas de rezago" value={NUM.format(u.rezago)} icon="refrescar" color={COLOR_REZAGO}
+        sub={`firmadas en el periodo con más de ${diasRezago} días`} />
+      <KpiCard label="Pendientes del periodo" value={NUM.format(u.pendientes)} icon="historial" color={COLOR_PENDIENTE}
+        sub="ingresadas en el periodo sin firma al cierre" />
+      <KpiCard label="Promedio de atención" value={u.promedio_dias != null ? `${u.promedio_dias} días` : '—'} icon="calendario" color={theme.colors.charcoal}
+        sub="ingreso → firma, mismo periodo" />
+    </div>
+  </div>
+);
+
+// ── AvanceBar: por delegación, 2 barras — atendido del mismo periodo (%) y rezago trabajado (%), sobre lo ingresado ──
+const AvanceBar: React.FC<{ filas: { delegacion: string; u: IndicadoresUnidad }[] }> = ({ filas }) => {
   if (filas.length === 0) return <p style={{ margin: 0, fontSize: '0.8rem', color: theme.colors.textSecondary, fontStyle: 'italic' }}>Sin datos con este filtro.</p>;
-  const max = Math.max(...filas.map((f) => Math.max(f.ingresados, f.terminados)), 1);
+  const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+  const max = Math.max(100, ...filas.flatMap(({ u }) => [pct(u.mismo_periodo, u.ingresadas), pct(u.rezago, u.ingresadas)]));
+  const Barra: React.FC<{ valor: number; color: string; detalle: string }> = ({ valor, color, detalle }) => (
+    <div title={detalle} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+      <div style={{ width: `${Math.max((valor / max) * 100, valor > 0 ? 1.5 : 0)}%`, height: '12px', borderRadius: '6px', backgroundColor: color }} />
+      <span style={{ fontSize: '0.72rem', fontWeight: 700, color, whiteSpace: 'nowrap' }}>{valor}%</span>
+    </div>
+  );
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {filas.map((f) => {
-        const anchoTotal = Math.max((Math.max(f.ingresados, f.terminados) / max) * 100, 2);
-        const anchoTerminado = f.ingresados > 0 ? Math.min((f.terminados / f.ingresados) * 100, 100) : 0;
-        const pct = f.ingresados > 0 ? Math.round((f.terminados / f.ingresados) * 1000) / 10 : 0;
-        return (
-          <div key={f.delegacion}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', marginBottom: '4px' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: theme.colors.textPrimary }}>{f.delegacion}</span>
-              <span style={{ fontSize: '0.72rem', color: theme.colors.textSecondary, flexShrink: 0 }}>
-                {NUM.format(f.terminados)} terminados de {NUM.format(f.ingresados)} ingresados · {pct}%
-              </span>
-            </div>
-            <div style={{ width: `${anchoTotal}%`, height: '14px', borderRadius: '7px', backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
-              <div style={{ width: `${anchoTerminado}%`, height: '100%', backgroundColor: DELEGACION_COLORS[f.delegacion] ?? theme.colors.grayMid, borderRadius: '7px' }} />
-            </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {filas.map(({ delegacion, u }) => (
+        <div key={delegacion}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: theme.colors.textPrimary }}>{delegacion}</span>
+            <span style={{ fontSize: '0.68rem', color: theme.colors.textSecondary }}>{NUM.format(u.ingresadas)} ingresadas</span>
           </div>
-        );
-      })}
+          <Barra valor={pct(u.mismo_periodo, u.ingresadas)} color={theme.colors.primary} detalle={`${NUM.format(u.mismo_periodo)} del mismo periodo de ${NUM.format(u.ingresadas)} ingresadas`} />
+          <Barra valor={pct(u.rezago, u.ingresadas)} color={theme.colors.gold} detalle={`${NUM.format(u.rezago)} de rezago respecto a ${NUM.format(u.ingresadas)} ingresadas`} />
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: '14px', fontSize: '0.7rem', color: theme.colors.textSecondary }}>
+        <span><span style={{ display: 'inline-block', width: '9px', height: '9px', backgroundColor: theme.colors.primary, borderRadius: '2px', marginRight: '4px' }} />Atendido del mismo periodo (%)</span>
+        <span><span style={{ display: 'inline-block', width: '9px', height: '9px', backgroundColor: theme.colors.gold, borderRadius: '2px', marginRight: '4px' }} />Rezago trabajado (%)</span>
+      </div>
     </div>
   );
 };

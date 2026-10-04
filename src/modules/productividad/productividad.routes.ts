@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
-import { getResumen, getBandeja, getTerminados, getDelegaciones, getDetalle, getRezago } from './productividad.controller';
+import { getResumen, getBandeja, getTerminados, getDelegaciones, getDetalle, getRezago, getIndicadores } from './productividad.controller';
 
 const router = Router();
 
@@ -17,5 +17,6 @@ router.get('/terminados',    getTerminados);
 router.get('/delegaciones',  getDelegaciones);
 router.get('/detalle',       getDetalle);
 router.get('/rezago',        getRezago);
+router.get('/indicadores',   getIndicadores);
 
 export default router;

@@ -29,6 +29,7 @@ import type {
   TerminadosResumen,
   ProductividadDetalleResponse,
   RezagoResumen,
+  IndicadoresProductividad,
   ProgramaCatalogoFila,
   ResumenProgramasSociales,
   BandejaProgramaResumen,
@@ -1415,6 +1416,25 @@ export async function getSatqDetalle(params: {
   return handleResponse<SatqDetalleResponse>(res);
 }
 
+/** Descarga el Excel COMPLETO (sin tope de filas) generado por el servidor, con los mismos filtros que el detalle. */
+export async function descargarSatqExcel(params: {
+  desde: string; hasta: string;
+  municipio?: string; id_concepto?: number; programa?: string; tipo_acto?: string; delegacion?: string;
+  conciliado?: 'true' | 'false'; subsidio?: 'true' | 'false'; estatus_conciliacion?: string;
+}): Promise<void> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, String(v));
+  const res = await fetch(`${BASE}/satq/exportar?${qs}`, { headers: authHeaders() });
+  if (!res.ok) await handleResponse(res);
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `ingresos_satq_${params.desde}_${params.hasta}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function getSatqConceptos(): Promise<{ data: SatqConcepto[] }> {
   const res = await fetch(`${BASE}/satq/conceptos`, { headers: authHeaders() });
   return handleResponse(res);
@@ -1640,6 +1660,11 @@ export async function getProductividadDetalle(params: ProductividadDetalleFiltro
 export async function getProductividadRezago(params: ProductividadFiltros): Promise<RezagoResumen> {
   const res = await fetch(`${BASE}/productividad/rezago?${productividadQueryString(params)}`, { headers: authHeaders() });
   return handleResponse<RezagoResumen>(res);
+}
+
+export async function getProductividadIndicadores(params: ProductividadFiltros): Promise<IndicadoresProductividad> {
+  const res = await fetch(`${BASE}/productividad/indicadores?${productividadQueryString(params)}`, { headers: authHeaders() });
+  return handleResponse<IndicadoresProductividad>(res);
 }
 
 // ── Programas Sociales ────────────────────────────────────────────

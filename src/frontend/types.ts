@@ -532,6 +532,7 @@ export interface ResumenSatq {
   tramites_rpp:        number;
   tramites_subsidiados: number;
   pct_conciliado:      number;
+  referencias_conciliadas: number;
   monto_no_conciliado: number;
   alerta_conciliacion: boolean;
   conciliacion:        ConciliacionResumenSatq;
@@ -1489,4 +1490,29 @@ export interface VisorTranscripcion {
   creado_por:          number;
   ultimo_editor_id:    number | null;
   fecha_actualizacion: string;
+}
+
+
+/** Seis indicadores de la propuesta, para una unidad (solicitudes = nci distintos, actos = filas). */
+export interface IndicadoresUnidad {
+  ingresadas:      number;        // fecha_ingreso dentro del periodo
+  terminadas:      number;        // fecha_firma dentro del periodo (cualquier ingreso)
+  mismo_periodo:   number;        // ingresadas en el periodo y firmadas al cierre
+  rezago:          number;        // firmadas en el periodo con > 30 días desde el ingreso
+  otras_firmadas:  number;        // firmadas en el periodo, de ingreso anterior y ≤ 30 días (cuadra el total)
+  pendientes:      number;        // ingresadas en el periodo sin firma al cierre
+  promedio_dias:   number | null; // días ingreso→firma sobre "mismo periodo"
+}
+
+export interface IndicadoresDelegacion {
+  delegacion:  string;
+  solicitudes: IndicadoresUnidad;
+  actos:       IndicadoresUnidad;
+}
+
+export interface IndicadoresProductividad {
+  filtros:     ResumenProductividad['filtros'];
+  dias_rezago: number;
+  data:        IndicadoresDelegacion[];
+  total:       { solicitudes: IndicadoresUnidad; actos: IndicadoresUnidad };
 }
