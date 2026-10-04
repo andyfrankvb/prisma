@@ -231,6 +231,11 @@ export interface Modulo {
 export interface ModuloConEstado extends Modulo {
   habilitado:  boolean;
   asignado_en: string | null;
+  /**
+   * Solo del Visor de Documentos: si esta persona puede ver las observaciones
+   * del proveedor. Confidencial, se concede aparte de dar el módulo.
+   */
+  ver_observaciones: boolean;
 }
 
 export interface ResumenModulo {
@@ -1370,6 +1375,24 @@ export interface VisorImagenFoja {
   observaciones:   string | null;
   campania_nombre: string | null;
   campania_anio:   number | null;
+}
+
+/** Un documento encontrado por su contenido transcrito. */
+export interface VisorResultadoTexto {
+  foja_id:         number;
+  tomo_id:         number;
+  numero_foja:     string;
+  numero_romano:   string;
+  volumen:         string | null;
+  delegacion:      string;
+  seccion_numero:  number;
+  /** La asignación cuando la foja es una inscripción; nula si es página de libro. */
+  asignacion:      string | null;
+  version:         string;
+  campania_nombre: string | null;
+  /** El trozo donde aparece lo buscado, con `<b>` en las coincidencias. */
+  fragmento:       string;
+  relevancia:      number;
 }
 
 /** Una campaña de digitalización del catálogo. */

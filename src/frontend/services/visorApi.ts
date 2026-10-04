@@ -11,6 +11,7 @@ import type {
   VisorDelegacion, VisorSeccion, VisorTomo, VisorFoja, VisorFojaDetalle,
   VersionDigitalizacion, VisorDictamenVersion, VisorTranscripcion, VisorInscripcion,
   VisorLibroResumen, VisorInscripcionConTomo, VisorCampania,
+  VisorResultadoTexto,
 } from '../types';
 
 const BASE = (import.meta.env.VITE_API_URL ?? '/api/v1') + '/visor-documentos';
@@ -76,6 +77,33 @@ export async function buscarTomo(delegacionId: number, seccionId: number, numero
 }
 
 /** Tabla "Libros Disponibles" — un renglón por tomo con fojas/inscripciones ya contadas. */
+export interface FiltrosBusquedaTexto {
+  texto:         string;
+  delegacionId?: number;
+  seccionId?:    number;
+  campanias?:    string[];
+  limit?:        number;
+}
+
+/**
+ * Busca por el contenido de los documentos transcritos.
+ *
+ * Devuelve también cuántos hay transcritos de cuántos existen: sin ese dato,
+ * no encontrar nada se confunde con que lo buscado no exista.
+ */
+export async function buscarEnTranscripciones(
+  filtros: FiltrosBusquedaTexto,
+): Promise<{ resultados: VisorResultadoTexto[]; transcritos: number; documentos: number }> {
+  const qs = new URLSearchParams({ texto: filtros.texto });
+  if (filtros.delegacionId) qs.set('delegacion_id', String(filtros.delegacionId));
+  if (filtros.seccionId)    qs.set('seccion_id', String(filtros.seccionId));
+  if (filtros.campanias?.length) qs.set('campanias', filtros.campanias.join(','));
+  if (filtros.limit) qs.set('limit', String(filtros.limit));
+  const res = await fetch(`${BASE}/transcripciones/buscar?${qs}`, { headers: authHeaders() });
+  const body = await handleResponse<{ data: VisorResultadoTexto[]; meta: { transcritos: number; documentos: number } }>(res);
+  return { resultados: body.data, transcritos: body.meta?.transcritos ?? 0, documentos: body.meta?.documentos ?? 0 };
+}
+
 export async function getCampanias(): Promise<VisorCampania[]> {
   const res = await fetch(`${BASE}/catalogos/campanias`, { headers: authHeaders() });
   const body = await handleResponse<{ data: VisorCampania[] }>(res);
@@ -181,14 +209,24 @@ export async function guardarDictamen(
 
 // ── Transcripción ─────────────────────────────────────────────────────────────
 
-export async function getTranscripcion(fojaId: number): Promise<VisorTranscripcion | null> {
-  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion`, { headers: authHeaders() });
+/**
+ * La transcripción del documento que se está viendo.
+ *
+ * Lleva la campaña porque cada digitalización tiene su propio texto reconocido:
+ * dos escaneos del mismo acto registral no dan lo mismo, y de hecho en el
+ * acervo se nota —el de PEMR 2025 reconoce palabras donde el anterior solo
+ * devuelve ruido—. Sin versión, el servidor usa la que serviría el visor.
+ */
+export async function getTranscripcion(fojaId: number, version?: string): Promise<VisorTranscripcion | null> {
+  const qs = version ? `?version=${encodeURIComponent(version)}` : '';
+  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion${qs}`, { headers: authHeaders() });
   const body = await handleResponse<{ data: VisorTranscripcion | null }>(res);
   return body.data;
 }
 
-export async function generarTranscripcionIA(fojaId: number): Promise<VisorTranscripcion> {
-  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion`, {
+export async function generarTranscripcionIA(fojaId: number, version?: string): Promise<VisorTranscripcion> {
+  const qs = version ? `?version=${encodeURIComponent(version)}` : '';
+  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion${qs}`, {
     method:  'POST',
     headers: authHeaders(),
   });
@@ -196,8 +234,9 @@ export async function generarTranscripcionIA(fojaId: number): Promise<VisorTrans
   return body.data;
 }
 
-export async function actualizarTranscripcion(fojaId: number, texto: string): Promise<VisorTranscripcion> {
-  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion`, {
+export async function actualizarTranscripcion(fojaId: number, texto: string, version?: string): Promise<VisorTranscripcion> {
+  const qs = version ? `?version=${encodeURIComponent(version)}` : '';
+  const res = await fetch(`${BASE}/fojas/${fojaId}/transcripcion${qs}`, {
     method:  'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify({ texto_transcrito: texto }),

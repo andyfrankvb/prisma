@@ -32,6 +32,11 @@ const MAX_PAGES = 4;
 const DPI       = 200;
 const PDFTOPPM_TIMEOUT_MS = 20_000;
 
+/** Base fija más un margen por página, con un tope para no esperar sin fin. */
+function tiempoDeEspera(paginas: number): number {
+  return Math.min(PDFTOPPM_TIMEOUT_MS + paginas * 5_000, 180_000);
+}
+
 export const googleVisionAdapter: OcrAdapter = {
   name: 'google-vision',
 
@@ -42,7 +47,7 @@ export const googleVisionAdapter: OcrAdapter = {
     );
   },
 
-  async extractText(pdfBuffer: Buffer): Promise<OcrResult> {
+  async extractText(pdfBuffer: Buffer, maxPages?: number): Promise<OcrResult> {
     const startedAt = Date.now();
     const tmpDir    = os.tmpdir();
     const uid       = `gcv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -58,8 +63,14 @@ export const googleVisionAdapter: OcrAdapter = {
       // Convertir PDF → PNG (asíncrono, no bloquea el event loop)
       await execFileAsync(
         'pdftoppm',
-        ['-r', String(DPI), '-png', '-l', String(MAX_PAGES), tmpPdf, tmpPrefix],
-        { timeout: PDFTOPPM_TIMEOUT_MS },
+        // Respeta el máximo que pida quien llama; `MAX_PAGES` es solo el tope
+        // por omisión. Antes el parámetro se recibía y se ignoraba, así que un
+        // documento de 8 páginas se cortaba en 4 sin que nadie lo notara.
+        ['-r', String(DPI), '-png', '-l', String(maxPages ?? MAX_PAGES), tmpPdf, tmpPrefix],
+        // El tiempo de espera crece con el documento: convertir 20 páginas a
+        // imagen tarda mucho más que convertir una, y un tope fijo cortaba los
+        // expedientes largos a media conversión.
+        { timeout: tiempoDeEspera(maxPages ?? MAX_PAGES) },
       );
 
       const images = fs.readdirSync(tmpDir)

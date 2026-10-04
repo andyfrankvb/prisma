@@ -418,10 +418,52 @@ export async function listarModulosUsuario(
         'm.orden',
         db.raw('CASE WHEN um.usuario_id IS NOT NULL THEN true ELSE false END AS habilitado'),
         'um.asignado_en',
+        // Permiso adicional del Visor: ver las observaciones del proveedor.
+        // Viaja con cada módulo aunque solo el Visor lo use, para que la
+        // pantalla no tenga que pedirlo aparte.
+        db.raw('coalesce(um.ver_observaciones, false) AS ver_observaciones'),
       )
       .orderBy('m.orden', 'asc');
 
     res.json({ data: modulos });
+  } catch (err) { next(err); }
+}
+
+// ── PATCH /admin/usuarios/:id/modulos/:moduloId/observaciones ──
+
+/**
+ * Concede o retira el permiso de ver las observaciones del proveedor.
+ *
+ * Es un permiso aparte del módulo porque la información es confidencial: dice
+ * dónde el acervo digital no refleja el libro físico. Tener el Visor no implica
+ * verla; se concede a propósito, persona por persona.
+ */
+export async function cambiarVerObservaciones(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const usuarioId = parseInt(req.params.id, 10);
+    const moduloId  = parseInt(req.params.moduloId, 10);
+    const permitir  = req.body?.ver_observaciones;
+
+    if (typeof permitir !== 'boolean') {
+      throw new AppError('ver_observaciones debe ser verdadero o falso', 422);
+    }
+
+    const asignacion = await db('usuario_modulos')
+      .where({ usuario_id: usuarioId, modulo_id: moduloId })
+      .first();
+    if (!asignacion) {
+      throw new AppError('El módulo no está habilitado para este usuario', 409);
+    }
+
+    await db('usuario_modulos')
+      .where({ usuario_id: usuarioId, modulo_id: moduloId })
+      .update({ ver_observaciones: permitir });
+
+    res.json({ data: { usuario_id: usuarioId, modulo_id: moduloId, ver_observaciones: permitir } });
   } catch (err) { next(err); }
 }
 

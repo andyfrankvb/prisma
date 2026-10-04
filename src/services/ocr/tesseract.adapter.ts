@@ -31,6 +31,11 @@ const DPI = 200;
 // Timeout de pdftoppm: por debajo del límite del gateway (60s) para no provocar 504
 const PDFTOPPM_TIMEOUT_MS = 20_000;
 
+/** Base fija más un margen por página, con un tope para no esperar sin fin. */
+function tiempoDeEspera(paginas: number): number {
+  return Math.min(PDFTOPPM_TIMEOUT_MS + paginas * 5_000, 180_000);
+}
+
 export const tesseractAdapter: OcrAdapter = {
   name: 'tesseract',
 
@@ -62,7 +67,10 @@ export const tesseractAdapter: OcrAdapter = {
       await execFileAsync(
         'pdftoppm',
         ['-r', String(DPI), '-png', '-l', String(maxPages ?? MAX_PAGES), tmpPdf, tmpPrefix],
-        { timeout: PDFTOPPM_TIMEOUT_MS },
+        // El tiempo de espera crece con el documento: convertir 20 páginas a
+        // imagen tarda mucho más que convertir una, y un tope fijo cortaba los
+        // expedientes largos a media conversión.
+        { timeout: tiempoDeEspera(maxPages ?? MAX_PAGES) },
       );
 
       // 3. Recopilar imágenes generadas (orden: -1, -2, -3…)

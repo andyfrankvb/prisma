@@ -233,7 +233,7 @@ export const VisorModal: React.FC<Props> = ({ abierto, onCerrar, items, indiceAc
                   <PanelCuraduria fojaId={item.fojaId} imagenesDisponibles={fojaDetalle?.imagenes ?? []} puedeCurar={puedeCurarCliente(user?.rol)} />
                 )}
                 {tabDrawer === 'transcripcion' && (
-                  <PanelTranscripcion fojaId={item.fojaId} puedeEditar={puedeCurarCliente(user?.rol)} />
+                  <PanelTranscripcion fojaId={item.fojaId} puedeEditar={puedeCurarCliente(user?.rol)} version={version} />
                 )}
               </div>
             </div>

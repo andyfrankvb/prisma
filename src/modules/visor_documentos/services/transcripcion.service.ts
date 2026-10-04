@@ -25,8 +25,27 @@ import { extractTextFromPdf } from '../../../services/ocr/ocr.engine';
 import { resolverImagenFoja } from './imagen.service';
 import type { VisorTranscripcion } from '../visor.types';
 
-export async function obtenerTranscripcion(fojaId: number): Promise<VisorTranscripcion | null> {
-  const transcripcion = await db('visor_transcripciones_foja').where({ foja_id: fojaId }).first();
+/**
+ * Resuelve de qué campaña se está hablando.
+ *
+ * Sin versión explícita se usa la misma que serviría el visor —la dictaminada
+ * por Jurídico, o la más reciente— para que transcribir y leer caigan siempre
+ * sobre el documento que la persona tiene enfrente.
+ */
+async function versionEfectiva(fojaId: number, version?: string): Promise<string> {
+  if (version) return version;
+  const { version: resuelta } = await resolverImagenFoja(fojaId);
+  return resuelta;
+}
+
+export async function obtenerTranscripcion(
+  fojaId: number,
+  version?: string,
+): Promise<VisorTranscripcion | null> {
+  const clave = await versionEfectiva(fojaId, version);
+  const transcripcion = await db('visor_transcripciones_foja')
+    .where({ foja_id: fojaId, version: clave })
+    .first();
   return transcripcion ?? null;
 }
 
@@ -44,32 +63,54 @@ async function imagenAPdfBuffer(rutaAbsoluta: string): Promise<Buffer> {
   return Buffer.from(await pdfDoc.save());
 }
 
-export async function generarTranscripcionIA(fojaId: number, usuarioId: number): Promise<VisorTranscripcion> {
+export async function generarTranscripcionIA(
+  fojaId: number,
+  usuarioId: number,
+  version?: string,
+): Promise<VisorTranscripcion> {
   const foja = await db('visor_fojas').where({ id: fojaId }).first();
   if (!foja) throw new AppError('Foja no encontrada', 404);
 
-  const { rutaAbsoluta, formato } = await resolverImagenFoja(fojaId);
+  // Se transcribe el documento de UNA campaña concreta y se guarda junto con
+  // ella: dos escaneos del mismo acto registral no dan el mismo texto, y antes
+  // el segundo sobrescribía al primero sin dejar rastro.
+  const { rutaAbsoluta, formato, version: versionServida } = await resolverImagenFoja(fojaId, version);
   const pdfBuffer = formato.toLowerCase() === 'pdf'
     ? await fs.promises.readFile(rutaAbsoluta)
     : await imagenAPdfBuffer(rutaAbsoluta);
-  const resultado = await extractTextFromPdf(pdfBuffer, 1);
+  // Se transcribe el documento COMPLETO, no su primera página.
+  //
+  // Antes se pedía una sola, y en el acervo eso dejaba fuera lo que más pesa:
+  // las anotaciones marginales viven en la foja 2 —los propios listados del
+  // proveedor avisan "faltó actualizar las anotaciones marginales de la foja
+  // 2"— y ahí es donde se asientan gravámenes, cancelaciones y traspasos. Una
+  // transcripción de la primera página puede hacer parecer libre un inmueble
+  // que no lo está.
+  const totalPaginas = (await PDFDocument.load(pdfBuffer)).getPageCount();
+  const resultado = await extractTextFromPdf(pdfBuffer, totalPaginas);
 
   const texto = resultado.text.trim() || 'No se detectó texto legible en la imagen.';
+
+  // Queda constancia de cuántas páginas se leyeron de cuántas tiene el
+  // documento: si alguna vez se procesa de menos, se ve en el dato en vez de
+  // pasar por una transcripción completa.
+  const paginas = `${resultado.pages}/${totalPaginas}`;
 
   const [transcripcion] = await db('visor_transcripciones_foja')
     .insert({
       foja_id:             fojaId,
+      version:             versionServida,
       texto_transcrito:    texto,
       origen:              'IA',
-      modelo_ia:           resultado.provider,
+      modelo_ia:           `${resultado.provider} · ${paginas} págs`,
       creado_por:          usuarioId,
       fecha_actualizacion: new Date(),
     })
-    .onConflict('foja_id')
+    .onConflict(['foja_id', 'version'])
     .merge({
       texto_transcrito:    texto,
       origen:              'IA',
-      modelo_ia:           resultado.provider,
+      modelo_ia:           `${resultado.provider} · ${paginas} págs`,
       ultimo_editor_id:    null,
       fecha_actualizacion: new Date(),
     })
@@ -82,13 +123,18 @@ export async function actualizarTranscripcion(
   fojaId: number,
   texto: string,
   usuarioId: number,
+  version?: string,
 ): Promise<VisorTranscripcion> {
-  const existente = await db('visor_transcripciones_foja').where({ foja_id: fojaId }).first();
+  const clave = await versionEfectiva(fojaId, version);
+  const existente = await db('visor_transcripciones_foja')
+    .where({ foja_id: fojaId, version: clave })
+    .first();
 
   if (!existente) {
     const [creada] = await db('visor_transcripciones_foja')
       .insert({
         foja_id:             fojaId,
+        version:             clave,
         texto_transcrito:    texto,
         origen:              'HUMANO',
         creado_por:          usuarioId,
@@ -99,7 +145,7 @@ export async function actualizarTranscripcion(
   }
 
   const [actualizada] = await db('visor_transcripciones_foja')
-    .where({ foja_id: fojaId })
+    .where({ foja_id: fojaId, version: clave })
     .update({
       texto_transcrito:    texto,
       origen:              'HUMANO',

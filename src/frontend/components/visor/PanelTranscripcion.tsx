@@ -16,9 +16,14 @@ import type { VisorTranscripcion } from '../../types';
 interface Props {
   fojaId:    number | null;
   puedeEditar: boolean;
+  /**
+   * Campaña del documento que se está viendo. Cada digitalización tiene su
+   * propia transcripción: sin esto, el panel mostraba la de otra versión.
+   */
+  version?:  string;
 }
 
-export const PanelTranscripcion: React.FC<Props> = ({ fojaId, puedeEditar }) => {
+export const PanelTranscripcion: React.FC<Props> = ({ fojaId, puedeEditar, version }) => {
   const [transcripcion, setTranscripcion] = useState<VisorTranscripcion | null>(null);
   const [cargando, setCargando] = useState(false);
   const [generando, setGenerando] = useState(false);
@@ -30,17 +35,17 @@ export const PanelTranscripcion: React.FC<Props> = ({ fojaId, puedeEditar }) => 
   useEffect(() => {
     if (!fojaId) { setTranscripcion(null); setEditando(false); return; }
     setCargando(true); setError(null); setEditando(false);
-    getTranscripcion(fojaId)
+    getTranscripcion(fojaId, version)
       .then(setTranscripcion)
       .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
       .finally(() => setCargando(false));
-  }, [fojaId]);
+  }, [fojaId, version]);
 
   const generar = async () => {
     if (!fojaId) return;
     setGenerando(true); setError(null);
     try {
-      setTranscripcion(await generarTranscripcionIA(fojaId));
+      setTranscripcion(await generarTranscripcionIA(fojaId, version));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al generar la transcripción.');
     } finally { setGenerando(false); }
@@ -50,7 +55,7 @@ export const PanelTranscripcion: React.FC<Props> = ({ fojaId, puedeEditar }) => 
     if (!fojaId || !texto.trim()) return;
     setGuardando(true); setError(null);
     try {
-      setTranscripcion(await actualizarTranscripcion(fojaId, texto));
+      setTranscripcion(await actualizarTranscripcion(fojaId, texto, version));
       setEditando(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar.');
@@ -75,7 +80,7 @@ export const PanelTranscripcion: React.FC<Props> = ({ fojaId, puedeEditar }) => 
         </p>
         {puedeEditar && (
           <button onClick={generar} disabled={generando} style={btnPrimario(generando)}>
-            {generando ? 'Generando…' : 'Generar con IA'}
+            {generando ? 'Generando…' : 'Generar transcripción'}
           </button>
         )}
       </div>

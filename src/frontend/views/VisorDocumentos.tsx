@@ -14,7 +14,7 @@
  * en un cajón adicional — el diseño y la forma de buscar/abrir/interactuar
  * con el documento son los de SID, no los de VISAR.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import * as s from '../components/visor/estilosSid';
@@ -25,17 +25,19 @@ import { TablaInscripciones } from '../components/visor/TablaInscripciones';
 import { VisorModal } from '../components/visor/VisorModal';
 import type { VisorModalItem } from '../components/visor/VisorModal';
 import {
-  getDelegaciones, getSecciones, getLibros, getFojasDeTomo, getCampanias,
+  getDelegaciones, getSecciones, getLibros, getFojasDeTomo, getCampanias, buscarEnTranscripciones,
   buscarInscripciones, mergeRangoPdf,
 } from '../services/visorApi';
 import type {
   VisorDelegacion, VisorSeccion, VisorLibroResumen, VisorFoja, VisorInscripcionConTomo,
+  VisorResultadoTexto,
   VisorCampania,
 } from '../types';
 import { etiquetaInscripcion } from '../components/visor/etiquetas';
 import { FiltroCampanias } from '../components/visor/FiltroCampanias';
+import { BuscadorTexto } from '../components/visor/BuscadorTexto';
 
-type Tab = 'libros' | 'inscripciones';
+type Tab = 'libros' | 'inscripciones' | 'contenido';
 
 export const VisorDocumentos: React.FC = () => {
   const [tab, setTab] = useState<Tab>('libros');
@@ -57,6 +59,13 @@ export const VisorDocumentos: React.FC = () => {
   const [libSeccionId, setLibSeccionId] = useState('');
   const [libTomoQuery, setLibTomoQuery] = useState('');
   const [libros, setLibros] = useState<VisorLibroResumen[]>([]);
+
+  // ── Estado: pestaña Contenido ───────────────────────────────────────────────
+  const [textoBusqueda, setTextoBusqueda] = useState('');
+  const [resultadosTexto, setResultadosTexto] = useState<VisorResultadoTexto[]>([]);
+  const [coberturaTexto, setCoberturaTexto] = useState({ transcritos: 0, documentos: 0 });
+  const [buscandoTexto, setBuscandoTexto] = useState(false);
+  const [busqueTexto, setBusqueTexto] = useState(false);
   const [cargandoLibros, setCargandoLibros] = useState(false);
   const [libroSeleccionado, setLibroSeleccionado] = useState<VisorLibroResumen | null>(null);
   const [fojasDelLibro, setFojasDelLibro] = useState<VisorFoja[]>([]);
@@ -132,6 +141,27 @@ export const VisorDocumentos: React.FC = () => {
     } finally { setCargandoInscripciones(false); }
   };
 
+  /**
+   * Al cambiar las digitalizaciones elegidas se repite la búsqueda que ya
+   * estaba hecha.
+   *
+   * Sin esto las fichas parecían no hacer nada: cambiaban de color pero la
+   * tabla seguía mostrando el resultado anterior, y había que volver a pulsar
+   * "Buscar" sin que nada lo indicara. Solo se repite si ya se había buscado
+   * —de ahí la bandera—, para no lanzar una consulta en cuanto se abre la
+   * pantalla.
+   */
+  const primeraVez = useRef(true);
+  useEffect(() => {
+    if (primeraVez.current) { primeraVez.current = false; return; }
+    if (tab === 'libros' && libros.length > 0)              void buscarLibros();
+    if (tab === 'inscripciones' && inscripciones.length > 0) void buscarInscripcionesTab();
+    if (tab === 'contenido' && busqueTexto)                   void buscarPorContenido();
+    // Depende solo de la selección: repetir la búsqueda vigente, no reaccionar
+    // a cada tecla de los filtros de texto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaniasSel]);
+
   // ── Modal visor ──────────────────────────────────────────────────────────────
   const [modalAbierto, setModalAbierto] = useState(false);
   const [modalItems, setModalItems] = useState<VisorModalItem[]>([]);
@@ -152,6 +182,36 @@ export const VisorDocumentos: React.FC = () => {
     if (!rangoDesde) return;
     const indice = Math.max(0, Math.min(fojasDelLibro.length - 1, Number(rangoDesde) - 1));
     abrirDesdeLibro(indice);
+  };
+
+  const buscarPorContenido = async () => {
+    if (!textoBusqueda.trim()) return;
+    setBuscandoTexto(true);
+    try {
+      const r = await buscarEnTranscripciones({ texto: textoBusqueda, campanias: campaniasSel, limit: 50 });
+      setResultadosTexto(r.resultados);
+      setCoberturaTexto({ transcritos: r.transcritos, documentos: r.documentos });
+      setBusqueTexto(true);
+    } finally { setBuscandoTexto(false); }
+  };
+
+  /**
+   * Abre el documento encontrado. La lista del visor es el propio resultado de
+   * la búsqueda, para poder recorrer las coincidencias sin volver atrás.
+   */
+  const abrirDesdeTexto = (r: VisorResultadoTexto) => {
+    const items: VisorModalItem[] = resultadosTexto.map((x) => ({
+      key: `${x.foja_id}-${x.version}`,
+      fojaId: x.foja_id,
+      titulo: x.asignacion ?? `Tomo ${x.numero_romano} · foja ${x.numero_foja}`,
+      detalle: `${x.delegacion} · Sección ${x.seccion_numero} · ${x.campania_nombre ?? x.version}`,
+    }));
+    const indice = resultadosTexto.findIndex((x) => x.foja_id === r.foja_id && x.version === r.version);
+    if (indice < 0) return;
+    setModalItems(items);
+    setModalIndice(indice);
+    setModalCacheKey(`texto-${textoBusqueda}`);
+    setModalAbierto(true);
   };
 
   const abrirDesdeInscripcion = (insc: VisorInscripcionConTomo) => {
@@ -179,6 +239,9 @@ export const VisorDocumentos: React.FC = () => {
         <button style={s.tab(tab === 'libros')} onClick={() => setTab('libros')}>
           <Icono nombre="documento" size={14} color={tab === 'libros' ? '#fff' : theme.colors.textSecondary} />Libros
         </button>
+        <button style={s.tab(tab === 'contenido')} onClick={() => setTab('contenido')}>
+          <Icono nombre="buscar" size={14} color={tab === 'contenido' ? '#fff' : theme.colors.textSecondary} />Contenido
+        </button>
         <button style={s.tab(tab === 'inscripciones')} onClick={() => setTab('inscripciones')}>
           <Icono nombre="etiqueta" size={14} color={tab === 'inscripciones' ? '#fff' : theme.colors.textSecondary} />Inscripciones
         </button>
@@ -202,6 +265,27 @@ export const VisorDocumentos: React.FC = () => {
             onCambiar={setCampaniasSel}
           />
           <TablaLibros libros={libros} seleccionado={libroSeleccionado} cargando={cargandoLibros} onSeleccionar={seleccionarLibro} />
+        </div>
+      )}
+
+      {tab === 'contenido' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <FiltroCampanias
+            campanias={campanias}
+            seleccionadas={campaniasSel}
+            onCambiar={setCampaniasSel}
+          />
+          <BuscadorTexto
+            texto={textoBusqueda}
+            onTextoChange={setTextoBusqueda}
+            onBuscar={buscarPorContenido}
+            buscando={buscandoTexto}
+            resultados={resultadosTexto}
+            transcritos={coberturaTexto.transcritos}
+            documentos={coberturaTexto.documentos}
+            busco={busqueTexto}
+            onAbrir={abrirDesdeTexto}
+          />
         </div>
       )}
 

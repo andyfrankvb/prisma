@@ -73,7 +73,7 @@ export const FiltroCampanias: React.FC<Props> = ({ campanias, seleccionadas, onC
             title={pendiente ? `${c.nombre}: su acervo todavía no se carga` : c.descripcion ?? c.nombre}
             style={estiloFicha(seleccionadas.includes(c.clave), pendiente)}
           >
-            {c.nombre}{pendiente ? ' · sin cargar' : ''}
+            {c.nombre}
           </button>
         );
       })}

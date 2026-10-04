@@ -144,6 +144,41 @@ export const SeccionModulos: React.FC = () => {
     fetchModulos(u.id);
   };
 
+  /**
+   * Concede o retira el permiso de ver las observaciones del proveedor.
+   *
+   * Es un permiso aparte del módulo porque la información es confidencial: dice
+   * dónde el acervo digital no refleja el libro físico. Tener el Visor no
+   * implica verla.
+   */
+  const handleObservaciones = async (modulo: ModuloConEstado) => {
+    if (!selectedUser) return;
+    const permitir = !modulo.ver_observaciones;
+
+    const previos = modulos;
+    const siguientes = modulos.map((m) => m.id === modulo.id ? { ...m, ver_observaciones: permitir } : m);
+    setModulos(siguientes);
+    modulosCache[selectedUser.id] = siguientes;
+    setToggleErrors((prev) => { const n = { ...prev }; delete n[modulo.id]; return n; });
+
+    try {
+      await apiFetch(`/admin/usuarios/${selectedUser.id}/modulos/${modulo.id}/observaciones`, {
+        method: 'PATCH',
+        // `authHeaders()` solo pone la autorización: sin este encabezado Express
+        // no interpreta el cuerpo y el permiso llegaba vacío al servidor.
+        headers: { 'Content-Type': 'application/json' },
+        body:   JSON.stringify({ ver_observaciones: permitir }),
+      });
+    } catch (err) {
+      setModulos(previos);
+      modulosCache[selectedUser.id] = previos;
+      setToggleErrors((prev) => ({
+        ...prev,
+        [modulo.id]: err instanceof Error ? err.message : 'No se pudo cambiar el permiso',
+      }));
+    }
+  };
+
   const handleToggle = async (modulo: ModuloConEstado) => {
     if (!selectedUser) return;
 
@@ -408,6 +443,34 @@ export const SeccionModulos: React.FC = () => {
                         label={m.habilitado ? 'ON' : 'OFF'}
                       />
                     </div>
+                    {m.clave === 'visor_documentos' && m.habilitado && (
+                      <div style={{
+                        display:        'flex',
+                        alignItems:     'center',
+                        justifyContent: 'space-between',
+                        gap:            '12px',
+                        margin:         '6px 0 0 14px',
+                        padding:        '10px 12px',
+                        borderRadius:   '6px',
+                        backgroundColor: theme.colors.background,
+                        border:         `1px dashed ${theme.colors.border}`,
+                      }}>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.78rem', color: theme.colors.textPrimary }}>
+                            Ver observaciones del proveedor
+                          </p>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: theme.colors.textSecondary, maxWidth: '420px' }}>
+                            Lo que reportó quien digitalizó cada documento, incluido dónde el archivo
+                            digital no refleja el libro físico. Confidencial: concédelo solo a quien lo necesite.
+                          </p>
+                        </div>
+                        <Toggle
+                          checked={Boolean(m.ver_observaciones)}
+                          onChange={() => handleObservaciones(m)}
+                          label={m.ver_observaciones ? 'SÍ' : 'NO'}
+                        />
+                      </div>
+                    )}
                     {toggleErrors[m.id] && (
                       <p style={{ margin: '4px 0 0 14px', fontSize: '0.72rem', color: theme.colors.alert.red }}>
                         <Icono nombre="alerta" inline />{toggleErrors[m.id]}

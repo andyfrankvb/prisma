@@ -28,7 +28,11 @@ export interface VisorCampania {
 export async function listarCampanias(): Promise<VisorCampania[]> {
   return db('visor_campanias')
     .where({ activo: true })
-    .select('id', 'clave', 'nombre', 'anio', 'descripcion', 'orden', 'activo')
+    // `estado` es imprescindible en la pantalla: distingue una campaña sin
+    // documentos para ese tomo de una cuyo acervo todavía no se carga. Sin él,
+    // las fichas de PEM 2023, PEM 2024 y PEMR 2026 se veían seleccionables y
+    // filtrar por ellas dejaba la búsqueda en blanco sin explicar por qué.
+    .select('id', 'clave', 'nombre', 'anio', 'descripcion', 'orden', 'estado', 'activo')
     .orderBy('orden', 'asc');
 }
 

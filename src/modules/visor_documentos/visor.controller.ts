@@ -31,11 +31,13 @@ import * as tomosService        from './services/tomos.service';
 import * as fojasService        from './services/fojas.service';
 import * as imagenService       from './services/imagen.service';
 import * as campaniasService from './services/campanias.service';
+import * as busquedaTextoService from './services/busqueda-texto.service';
 import * as dictamenService     from './services/dictamen.service';
 import * as transcripcionService from './services/transcripcion.service';
 import * as mergeService        from './services/merge.service';
 import * as inscripcionesService from './services/inscripciones.service';
-import { esAdminEquivalente, puedeCurar } from './services/roles.service';
+import { esAdminEquivalente, puedeCurar, puedeVerObservaciones } from './services/roles.service';
+import type { VisorInscripcionConTomo, VisorImagenFoja } from './visor.types';
 
 const MODULO_CLAVE = 'visor_documentos';
 
@@ -127,6 +129,76 @@ export async function listarFojasDeTomo(req: Request, res: Response, next: NextF
 
 /** Tabla "Libros Disponibles" — equivalente a LibrosService.obtenerLibrosConParametros de SID. */
 /** GET /visor-documentos/catalogos/campanias — las digitalizaciones registradas. */
+/**
+ * Quita las observaciones del proveedor cuando quien consulta no tiene permiso.
+ *
+ * Se recorta aquí, al salir, y no en la pantalla: es información confidencial
+ * —señala qué documentos no reflejan el libro físico— y lo que no se debe ver
+ * no se envía. Ocultarlo con CSS dejaría el dato al alcance de cualquiera que
+ * abra las herramientas del navegador.
+ *
+ * Se vacían a nulo en vez de omitir las claves para que la pantalla no tenga
+ * que distinguir "no hay observación" de "no la puedes ver": en ambos casos no
+ * hay nada que mostrar.
+ */
+function inscripcionesSinObservaciones(filas: VisorInscripcionConTomo[]): VisorInscripcionConTomo[] {
+  return filas.map((f) => ({
+    ...f,
+    estatus:       null,
+    observaciones: null,
+    digitalizaciones: (f.digitalizaciones ?? []).map((d) => ({ ...d, estatus: null, observaciones: null })),
+  }));
+}
+
+function imagenesSinObservaciones(filas: VisorImagenFoja[]): VisorImagenFoja[] {
+  return filas.map((f) => ({ ...f, estatus: null, observaciones: null }));
+}
+
+/**
+ * Campaña pedida en la petición, si viene y está registrada.
+ *
+ * Nula cuando no se indica: entonces el servicio usa la que serviría el visor
+ * —la dictaminada, o la más reciente—, de modo que transcribir y leer caen
+ * sobre el documento que la persona tiene enfrente.
+ */
+async function campaniaDeLaPeticion(valor: unknown): Promise<string | undefined> {
+  if (typeof valor !== 'string' || !valor.trim()) return undefined;
+  return await campaniasService.existeCampania(valor) ? valor : undefined;
+}
+
+/**
+ * GET /visor-documentos/transcripciones/buscar — buscar por el contenido.
+ *
+ * Sirve igual para inscripciones y libros: lo que se busca es el texto de la
+ * foja, y una foja puede ser cualquiera de las dos.
+ */
+export async function buscarEnTranscripciones(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const user = requireUser(req);
+    await requireModuloVisor(user);
+
+    const texto = typeof req.query.texto === 'string' ? req.query.texto : '';
+    if (!texto.trim()) throw new AppError('Escribe qué quieres buscar', 422);
+
+    const delegacionId = req.query.delegacion_id !== undefined
+      ? enteroRequerido(req.query.delegacion_id, 'delegacion_id') : undefined;
+    const seccionId = req.query.seccion_id !== undefined
+      ? enteroRequerido(req.query.seccion_id, 'seccion_id') : undefined;
+    const campanias = typeof req.query.campanias === 'string'
+      ? req.query.campanias.split(',').map((c) => c.trim()).filter(Boolean)
+      : undefined;
+    const limit = req.query.limit !== undefined
+      ? Math.min(200, enteroRequerido(req.query.limit, 'limit')) : 50;
+
+    const [resultados, cobertura] = await Promise.all([
+      busquedaTextoService.buscarEnTranscripciones({ texto, delegacionId, seccionId, campanias, limit }),
+      busquedaTextoService.coberturaTranscripciones(),
+    ]);
+
+    res.json({ data: resultados, meta: cobertura });
+  } catch (err) { next(err); }
+}
+
 export async function listarCampanias(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const user = requireUser(req);
@@ -210,7 +282,8 @@ export async function buscarInscripciones(req: Request, res: Response, next: Nex
     const data = await inscripcionesService.buscarInscripciones({
       delegacionId, seccionId, tomoQuery, inscripcion, campanias, limit,
     });
-    res.json({ data });
+    const puedeVerlas = await puedeVerObservaciones(user);
+    res.json({ data: puedeVerlas ? data : inscripcionesSinObservaciones(data) });
   } catch (err) { next(err); }
 }
 
@@ -223,7 +296,8 @@ export async function obtenerFoja(req: Request, res: Response, next: NextFunctio
     const fojaId = idDeParam(req, 'id');
     const foja = await fojasService.obtenerFoja(fojaId);
     const imagenes = await fojasService.listarImagenesDeFoja(fojaId);
-    res.json({ data: { ...foja, imagenes } });
+    const puedeVerlas = await puedeVerObservaciones(user);
+    res.json({ data: { ...foja, imagenes: puedeVerlas ? imagenes : imagenesSinObservaciones(imagenes) } });
   } catch (err) { next(err); }
 }
 
@@ -312,7 +386,8 @@ export async function obtenerTranscripcion(req: Request, res: Response, next: Ne
     const user = requireUser(req);
     await requireModuloVisor(user);
     const fojaId = idDeParam(req, 'id');
-    res.json({ data: await transcripcionService.obtenerTranscripcion(fojaId) });
+    const version = await campaniaDeLaPeticion(req.query.version);
+    res.json({ data: await transcripcionService.obtenerTranscripcion(fojaId, version) });
   } catch (err) { next(err); }
 }
 
@@ -321,7 +396,8 @@ export async function generarTranscripcion(req: Request, res: Response, next: Ne
     const user = requireUser(req);
     await requireModuloVisor(user);
     const fojaId = idDeParam(req, 'id');
-    const data = await transcripcionService.generarTranscripcionIA(fojaId, user.id);
+    const version = await campaniaDeLaPeticion(req.query.version ?? req.body?.version);
+    const data = await transcripcionService.generarTranscripcionIA(fojaId, user.id, version);
     res.status(201).json({ data, message: 'Transcripción generada' });
   } catch (err) { next(err); }
 }
@@ -332,7 +408,8 @@ export async function actualizarTranscripcion(req: Request, res: Response, next:
     await requireModuloVisor(user);
     const fojaId = idDeParam(req, 'id');
     const texto  = stringRequerido(req.body.texto_transcrito, 'texto_transcrito', 20_000);
-    const data = await transcripcionService.actualizarTranscripcion(fojaId, texto, user.id);
+    const version = await campaniaDeLaPeticion(req.query.version ?? req.body?.version);
+    const data = await transcripcionService.actualizarTranscripcion(fojaId, texto, user.id, version);
     res.json({ data, message: 'Transcripción actualizada' });
   } catch (err) { next(err); }
 }

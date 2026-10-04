@@ -23,6 +23,7 @@ import {
   listarModulosUsuario,
   habilitarModulo,
   revocarModulo,
+  cambiarVerObservaciones,
   listarFlujos,
   actualizarFlujo,
   eliminarFlujoUnidad,
@@ -61,6 +62,7 @@ router.get('/modulos',                              listarModulos);
 router.get('/usuarios/:id/modulos',                 listarModulosUsuario);
 router.post('/usuarios/:id/modulos/:moduloId',      habilitarModulo);
 router.delete('/usuarios/:id/modulos/:moduloId',    revocarModulo);
+router.patch('/usuarios/:id/modulos/:moduloId/observaciones', cambiarVerObservaciones);
 
 // ── Flujos ────────────────────────────────────────────────────
 router.get('/flujos',                                          listarFlujos);
