@@ -30,6 +30,7 @@ import * as catalogoService     from './services/catalogo.service';
 import * as tomosService        from './services/tomos.service';
 import * as fojasService        from './services/fojas.service';
 import * as imagenService       from './services/imagen.service';
+import * as campaniasService from './services/campanias.service';
 import * as dictamenService     from './services/dictamen.service';
 import * as transcripcionService from './services/transcripcion.service';
 import * as mergeService        from './services/merge.service';
@@ -212,8 +213,13 @@ export async function obtenerImagen(req: Request, res: Response, next: NextFunct
     await requireModuloVisor(user);
     const fojaId = idDeParam(req, 'id');
 
+    // Se valida contra el catálogo de campañas y no contra una lista en el
+    // código: con la lista fija, pedir `V_PEMR2025` se rechazaba aquí y el
+    // usuario nunca podía elegir una campaña real.
     const versionQuery = req.query.version;
-    const version = imagenService.esVersionValida(versionQuery) ? versionQuery : undefined;
+    const version = typeof versionQuery === 'string' && await campaniasService.existeCampania(versionQuery)
+      ? versionQuery
+      : undefined;
     if (versionQuery !== undefined && !version) throw new AppError('Versión de digitalización inválida', 422);
 
     const resultado = await imagenService.obtenerImagenProcesada({
@@ -262,7 +268,9 @@ export async function guardarDictamen(req: Request, res: Response, next: NextFun
     const fojaId = idDeParam(req, 'id');
 
     const versionQuery = req.body.version_seleccionada;
-    if (!imagenService.esVersionValida(versionQuery)) throw new AppError('version_seleccionada inválida', 422);
+    if (!await campaniasService.existeCampania(versionQuery)) {
+      throw new AppError('version_seleccionada inválida', 422);
+    }
 
     const data = await dictamenService.guardarDictamen(
       fojaId,

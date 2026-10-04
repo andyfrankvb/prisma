@@ -1318,7 +1318,12 @@ export interface FolioSalidaHistorialEntry {
 // tomo → foja → imagen (una por versión), con curaduría (dictamen de qué
 // versión es la válida) y transcripción IA/humana.
 
-export type VersionDigitalizacion = 'V2009' | 'V2022_FALTANTE' | 'V3_VALIDADA';
+/**
+ * Clave de la campaña de digitalización ('V_SID', 'V_PEMR2025', …). No es un
+ * conjunto cerrado: el catálogo vive en la base, y el nombre que se muestra
+ * viene con cada imagen en `campania_nombre`.
+ */
+export type VersionDigitalizacion = string;
 export type OrigenTranscripcion   = 'IA' | 'HUMANO';
 
 export interface VisorDelegacion {
@@ -1360,6 +1365,20 @@ export interface VisorImagenFoja {
   version:      VersionDigitalizacion;
   ruta_storage: string;
   formato:      string;
+  /** Lo que reportó quien digitalizó este archivo. */
+  estatus:         string | null;
+  observaciones:   string | null;
+  campania_nombre: string | null;
+  campania_anio:   number | null;
+}
+
+/** Cuántos documentos aportó cada campaña a un tomo. */
+export interface VisorCampaniaDelTomo {
+  clave:      string;
+  nombre:     string;
+  anio:       number | null;
+  orden:      number;
+  documentos: number;
 }
 
 export interface VisorFojaDetalle extends VisorFoja {
@@ -1408,6 +1427,8 @@ export interface VisorLibroResumen {
   foja_inicial:        string | null;
   foja_final:          string | null;
   total_inscripciones: number;
+  /** De qué digitalizaciones tiene documentos este tomo. */
+  campanias:           VisorCampaniaDelTomo[];
 }
 
 export interface VisorTranscripcion {

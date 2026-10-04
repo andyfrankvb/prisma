@@ -40,13 +40,14 @@ export const TablaLibros: React.FC<Props> = ({ libros, seleccionado, cargando, o
               <th style={s.th}>Cajón</th>
               <th style={s.th}>Fojas</th>
               <th style={s.th}>Inscripciones</th>
+              <th style={s.th}>Digitalizaciones</th>
             </tr>
           </thead>
           <tbody>
             {cargando ? (
-              <tr><td style={s.td} colSpan={5}>Cargando…</td></tr>
+              <tr><td style={s.td} colSpan={6}>Cargando…</td></tr>
             ) : libros.length === 0 ? (
-              <tr><td style={{ ...s.td, textAlign: 'center', color: theme.colors.textSecondary }} colSpan={5}>
+              <tr><td style={{ ...s.td, textAlign: 'center', color: theme.colors.textSecondary }} colSpan={6}>
                 Busca una oficina para ver sus libros disponibles.
               </td></tr>
             ) : libros.map((libro) => (
@@ -59,6 +60,26 @@ export const TablaLibros: React.FC<Props> = ({ libros, seleccionado, cargando, o
                 </td>
                 <td style={s.td}>
                   <span style={s.badge(theme.colors.background, theme.colors.textSecondary)}>{libro.total_inscripciones}</span>
+                </td>
+                {/*
+                  De qué campañas tiene documentos este tomo, antes de abrirlo.
+                  Importa porque ninguna contiene a la otra: hay documentos que
+                  solo están en la digitalización vieja y otros solo en la nueva.
+                */}
+                <td style={s.td}>
+                  {(libro.campanias ?? []).length === 0 ? '—' : (
+                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {(libro.campanias ?? []).map((c) => (
+                        <span
+                          key={c.clave}
+                          title={`${c.documentos} documento${c.documentos === 1 ? '' : 's'} de ${c.nombre}`}
+                          style={s.badge(theme.colors.background, theme.colors.textSecondary)}
+                        >
+                          {c.nombre} · {c.documentos}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -8,8 +8,19 @@
  * BD (no ENUM nativo), mismo estilo que tickets.dto.ts.
  */
 
+/**
+ * Las campañas del prototipo VISAR. Se conservan porque la restricción de la
+ * tabla todavía las admite, pero ya NO son la lista de versiones válidas: ésa
+ * vive en `visor_campanias` y se consulta con `campanias.service.ts`.
+ */
 export const VERSIONES_DIGITALIZACION = ['V2009', 'V2022_FALTANTE', 'V3_VALIDADA'] as const;
-export type VersionDigitalizacion = (typeof VERSIONES_DIGITALIZACION)[number];
+
+/**
+ * Clave de la campaña de digitalización de la que viene un documento
+ * ('V_SID', 'V_PEMR2025', …). Es la clave del catálogo `visor_campanias`, no un
+ * conjunto cerrado: agregar una campaña es un renglón en la base.
+ */
+export type VersionDigitalizacion = string;
 
 export const ORIGENES_TRANSCRIPCION = ['IA', 'HUMANO'] as const;
 export type OrigenTranscripcion = (typeof ORIGENES_TRANSCRIPCION)[number];
@@ -57,6 +68,21 @@ export interface VisorImagenFoja {
   formato:       string;
   subido_por_id: number | null;
   created_at:    string;
+  /** Lo que reportó quien digitalizó este archivo. Nulo en la primera digitalización, que no trajo control de calidad. */
+  estatus:       string | null;
+  observaciones: string | null;
+  /** Del catálogo de campañas; nulo si la versión no está registrada. */
+  campania_nombre: string | null;
+  campania_anio:   number | null;
+}
+
+/** Cuántos documentos aportó cada campaña a un tomo. */
+export interface VisorCampaniaDelTomo {
+  clave:      string;
+  nombre:     string;
+  anio:       number | null;
+  orden:      number;
+  documentos: number;
 }
 
 export interface VisorDictamenVersion {
@@ -112,6 +138,8 @@ export interface VisorLibroResumen {
   foja_inicial:         string | null;
   foja_final:           string | null;
   total_inscripciones:  number;
+  /** De qué digitalizaciones tiene documentos este tomo. */
+  campanias:            VisorCampaniaDelTomo[];
 }
 
 /** Un renglón de la tabla "Inscripciones Disponibles", con el tomo ya resuelto (para no pedirlo aparte). */

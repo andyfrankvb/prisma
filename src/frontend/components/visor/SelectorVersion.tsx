@@ -2,18 +2,26 @@
  * Component: SelectorVersion
  * File: src/frontend/components/visor/SelectorVersion.tsx
  *
- * Elegir explícitamente qué versión de digitalización ver (V2009 /
- * V2022_FALTANTE / V3_VALIDADA), marcando cuál es la dictaminada.
+ * Elegir explícitamente de qué campaña de digitalización ver un documento,
+ * marcando cuál dictaminó Jurídico.
+ *
+ * El nombre de cada campaña viaja con la imagen (`campania_nombre`) y ya no
+ * está escrito aquí: las campañas viven en la base, y la lista fija de tres que
+ * había dejaba sin etiqueta a todo el acervo real.
  */
 import React from 'react';
 import { theme } from '../../theme';
 import type { VersionDigitalizacion, VisorImagenFoja, VisorDictamenVersion } from '../../types';
 
-const ETIQUETAS: Record<VersionDigitalizacion, string> = {
-  V2009:          'V2009 — Original',
-  V2022_FALTANTE: 'V2022 — Faltante',
-  V3_VALIDADA:    'V3 — Validada',
-};
+/**
+ * Lo que se muestra de una campaña: su nombre con el año cuando lo tiene. Si la
+ * versión no está en el catálogo se cae a la clave cruda, para que el documento
+ * siga siendo elegible en vez de aparecer como una opción en blanco.
+ */
+function etiqueta(img: VisorImagenFoja): string {
+  if (!img.campania_nombre) return img.version;
+  return img.campania_anio ? `${img.campania_nombre} (${img.campania_anio})` : img.campania_nombre;
+}
 
 interface Props {
   imagenesDisponibles: VisorImagenFoja[];
@@ -24,6 +32,10 @@ interface Props {
 
 export const SelectorVersion: React.FC<Props> = ({ imagenesDisponibles, dictamen, versionSeleccionada, onCambiar }) => {
   if (imagenesDisponibles.length <= 1) return null;
+
+  const dictaminada = dictamen
+    ? imagenesDisponibles.find((i) => i.version === dictamen.version_seleccionada)
+    : undefined;
 
   return (
     <select
@@ -36,10 +48,12 @@ export const SelectorVersion: React.FC<Props> = ({ imagenesDisponibles, dictamen
       }}
       title="Versión de digitalización"
     >
-      <option value="">Automática{dictamen ? ` (dictaminada: ${ETIQUETAS[dictamen.version_seleccionada]})` : ''}</option>
+      <option value="">
+        Automática{dictaminada ? ` (dictaminada: ${etiqueta(dictaminada)})` : ''}
+      </option>
       {imagenesDisponibles.map((img) => (
         <option key={img.version} value={img.version}>
-          {ETIQUETAS[img.version]}{dictamen?.version_seleccionada === img.version ? ' ✓' : ''}
+          {etiqueta(img)}{dictamen?.version_seleccionada === img.version ? ' ✓' : ''}
         </option>
       ))}
     </select>

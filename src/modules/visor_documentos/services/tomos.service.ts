@@ -35,6 +35,20 @@ export async function listarLibros(
       db.raw('(SELECT min(f.numero_foja) FROM visor_fojas f WHERE f.tomo_id = t.id) as foja_inicial'),
       db.raw('(SELECT max(f.numero_foja) FROM visor_fojas f WHERE f.tomo_id = t.id) as foja_final'),
       db.raw('(SELECT count(*)::int FROM visor_inscripciones i WHERE i.tomo_id = t.id) as total_inscripciones'),
+      // Qué digitalizaciones aportaron documentos a este tomo, y cuántos cada
+      // una. Va aquí, en el listado, porque es justo lo que el usuario necesita
+      // ANTES de abrir: un tomo puede tener documentos de varias campañas y
+      // ninguna contiene a la otra.
+      db.raw(`(
+        SELECT coalesce(json_agg(x ORDER BY x.orden), '[]'::json) FROM (
+          SELECT c.clave, c.nombre, c.anio, c.orden, count(*)::int AS documentos
+            FROM visor_fojas f
+            JOIN visor_imagenes_foja i ON i.foja_id = f.id
+            JOIN visor_campanias     c ON c.clave   = i.version
+           WHERE f.tomo_id = t.id
+           GROUP BY c.clave, c.nombre, c.anio, c.orden
+        ) x
+      ) as campanias`),
     )
     .orderBy(['s.numero', 't.indice_orden']);
 
