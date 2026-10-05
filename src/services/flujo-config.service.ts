@@ -21,6 +21,25 @@ export const COMPATIBILITY_RULES = {
       rolSistema:  'OPERATIVO' as const,
       descripcion: 'Usuario operativo',
     },
+    /**
+     * Quién más puede subir tickets, además de las delegaciones.
+     *
+     * La Dirección General entra al módulo como supervisión de solo lectura, y
+     * para casi todos ahí eso es lo correcto: ven todo y no intervienen. Pero
+     * también llegan solicitudes directamente a la Dirección, y quien las
+     * atiende necesitaba poder capturarlas.
+     *
+     * No se resuelve cambiándole el rol a «creador»: ese rol recorta el listado
+     * a la propia unidad, así que habría ganado el alta a cambio de perder la
+     * vista de todos los trámites. Se designa aquí, como REVISOR y FINALIZADOR,
+     * para que el área decida a quién le toca y lo cambie sin un despliegue.
+     */
+    CAPTURISTA: {
+      nombreVisible: 'Captura de tickets',
+      rolSistema:  ['SECRETARIA', 'OPERATIVO'] as const,
+      unidadTipo:  'DIRECCION_GENERAL' as const,
+      descripcion: 'Captura tickets desde la Dirección General, conservando la vista de supervisión',
+    },
   },
   supervision_eventos: {
     DIRECTORA_GENERAL: {
@@ -110,7 +129,14 @@ export function isCompatible(
 ): boolean {
   const rules = (COMPATIBILITY_RULES as any)[moduloClave]?.[rolFlujo];
   if (!rules) return false;
-  if (usuario.rol !== rules.rolSistema) return false;
+  // `rolSistema` admite un rol o una lista: hay facultades que no corresponden a
+  // un puesto único —capturar tickets en la Dirección General la puede tener su
+  // secretaria o alguien de su personal operativo— y amarrarlas a un solo rol
+  // obligaría a un despliegue para designar a la siguiente persona.
+  const rolesAceptados: string[] = Array.isArray(rules.rolSistema)
+    ? rules.rolSistema
+    : [rules.rolSistema];
+  if (!rolesAceptados.includes(usuario.rol)) return false;
   if (rules.unidadTipo && usuario.unidad_tipo !== rules.unidadTipo) return false;
   return true;
 }
@@ -137,6 +163,11 @@ const ROLES_POR_UNIDAD: Record<string, string[]> = {
 /** Roles GLOBALES (un solo actor, sin unidad). */
 const ROLES_GLOBALES: Record<string, string[]> = {
   oficialia_partes: ['SECRETARIA'],
+  // Capturar tickets no se reparte por área: es una sola persona para todo el
+  // módulo. Declararlo aquí además impide que llegue con unidad, que crearía un
+  // renglón que la búsqueda de reemplazo —hecha contra unidad nula— no volvería
+  // a encontrar, duplicando al actor en vez de sustituirlo.
+  tramites_seguimiento: ['CAPTURISTA'],
 };
 
 /**

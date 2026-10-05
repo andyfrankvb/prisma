@@ -76,6 +76,30 @@ async function createAuditLog(
   });
 }
 
+/**
+ * ¿Está esta persona designada para capturar tickets?
+ *
+ * Va aparte de `getUserTramiteRole` a propósito. Ese rol gobierna dos cosas a la
+ * vez —qué ve y qué puede hacer—, y aquí hacía falta separarlas: en la Dirección
+ * General se reciben solicitudes que alguien tiene que capturar, pero volverla
+ * «creador» le recortaría el listado a su propia unidad y perdería la vista de
+ * supervisión. Así suma el alta sin quitarle nada.
+ *
+ * Se consulta la tabla en lugar de usar `getActorFlujo` porque ese helper lanza
+ * error cuando nadie está designado, y aquí no estarlo es lo normal: significa
+ * simplemente que solo las delegaciones capturan.
+ */
+async function esCapturistaDesignado(user: any): Promise<boolean> {
+  const fila = await db('configuracion_flujos')
+    .where({
+      modulo_clave: 'tramites_seguimiento',
+      rol_flujo:    'CAPTURISTA',
+      usuario_id:   user.id,
+    })
+    .first();
+  return !!fila;
+}
+
 /** Determina si el usuario puede ver/interactuar con trámites */
 async function getUserTramiteRole(user: any): Promise<
   'creador' | 'revisor' | 'finalizador' | 'supervisora' | 'observador' | null
@@ -163,10 +187,15 @@ export async function crearTramite(
       throw new AppError('Debe confirmar que el proyecto de resolución fue remitido por correo (checklist_proyecto)', 422);
     }
 
-    // Verificar que el usuario es creador (delegado u operativo de delegación)
+    // Capturan las delegaciones y, además, quien esté designado como CAPTURISTA
+    // en Configuración de Flujos —hoy para atender lo que llega directo a la
+    // Dirección General—.
     const tramiteRole = await getUserTramiteRole(user);
-    if (tramiteRole !== 'creador') {
-      throw new AppError('Solo los delegados y su equipo pueden crear trámites', 403);
+    if (tramiteRole !== 'creador' && !(await esCapturistaDesignado(user))) {
+      throw new AppError(
+        'Solo los delegados, su equipo o quien esté designado para capturar pueden crear trámites',
+        403,
+      );
     }
 
     // Generar folio: número natural secuencial global

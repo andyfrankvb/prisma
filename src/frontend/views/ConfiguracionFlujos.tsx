@@ -328,6 +328,17 @@ export const ConfiguracionFlujos: React.FC = () => {
              * oficina» pide una oficina que aquí no existe.
              */
             const sinArea = !!rol.admite_varios && !rol.por_unidad;
+            /**
+             * Un rol de actor ÚNICO y sin área no tenía cómo configurarse la
+             * primera vez: el botón de agregar solo salía para los roles por
+             * unidad o los que admiten varios, así que uno recién declarado se
+             * quedaba en «Sin configurar» para siempre. La pantalla sabía
+             * reemplazar a su actor, pero no nombrar al primero —Revisor y
+             * Finalizador solo se ven configurables porque ya traían renglón—.
+             */
+            const primerActor = !rol.por_unidad
+              && !rol.admite_varios
+              && rol.configuraciones.length === 0;
 
             /**
              * Áreas que no tienen a nadie en este rol.
@@ -354,12 +365,12 @@ export const ConfiguracionFlujos: React.FC = () => {
                     </span>
                     <span style={{ marginLeft: '8px', fontSize: '0.72rem', color: theme.colors.textSecondary }}>{rol.regla_compatibilidad?.descripcion}</span>
                   </div>
-                  {(esMultiple || sinArea) && (
+                  {(esMultiple || sinArea || primerActor) && (
                     <button
-                      onClick={() => abrirAgregar(modulo.modulo_clave, rol.rol_flujo, sinArea)}
+                      onClick={() => abrirAgregar(modulo.modulo_clave, rol.rol_flujo, sinArea || primerActor)}
                       style={{ padding: '5px 12px', background: theme.colors.primary, color: '#fff', border: 'none', borderRadius: theme.radius.sm, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
                     >
-                      {sinArea ? '+ Agregar persona' : '+ Agregar por oficina'}
+                      {sinArea || primerActor ? '+ Agregar persona' : '+ Agregar por oficina'}
                     </button>
                   )}
                 </div>

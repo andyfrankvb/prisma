@@ -127,8 +127,30 @@ type TramiteRol = 'creador' | 'revisor' | 'finalizador' | 'supervisora' | 'obser
 
 // ── Detectar rol del usuario en el módulo ─────────────────────
 
-async function detectarRol(user: any): Promise<TramiteRol | null> {
-  if (!user) return null;
+/**
+ * Qué es el usuario aquí, y si además puede capturar.
+ *
+ * Son dos respuestas y no una. El rol gobierna qué ve; capturar es una facultad
+ * que se designa por separado, porque en la Dirección General alguien tiene que
+ * poder subir lo que llega directo sin dejar de ver todos los trámites. Si eso
+ * se resolviera con el rol, ganaría el alta a cambio de la vista.
+ */
+async function detectarRol(user: any): Promise<{ rol: TramiteRol | null; puedeCapturar: boolean }> {
+  if (!user) return { rol: null, puedeCapturar: false };
+
+  // Los actores designados se resuelven igual que en el backend
+  // (`configuracion_flujos`), NO por unidad hardcodeada — así la pantalla
+  // ofrece exactamente lo que el servidor va a aceptar.
+  let flujos: { modulo_clave: string; rol_flujo: string }[] = [];
+  try {
+    const flujoRes = await apiFetch<{ data: { modulo_clave: string; rol_flujo: string }[] }>(
+      `/usuarios/mis-roles-flujo`,
+    );
+    flujos = (flujoRes.data ?? []).filter((r) => r.modulo_clave === 'tramites_seguimiento');
+  } catch { /* sin flujos designados */ }
+
+  const puedeCapturar = flujos.some((r) => r.rol_flujo === 'CAPTURISTA');
+
   try {
     const res = await apiFetch<{ data: { unidad_tipo: string } }>(`/usuarios/${user.id}`);
     const tipo = res.data?.unidad_tipo;
@@ -137,20 +159,16 @@ async function detectarRol(user: any): Promise<TramiteRol | null> {
     //   - DIRECCION_GENERAL → supervisora (ve todo)
     //   - DELEGACION + DIRECTOR (jefe/jefa) → creador (sube tickets)
     //   - DELEGACION + otro miembro         → observador (solo ve su delegación)
-    if (tipo === 'DIRECCION_GENERAL') return 'supervisora';
-    if (tipo === 'DELEGACION')        return user.rol === 'DIRECTOR' ? 'creador' : 'observador';
+    if (tipo === 'DIRECCION_GENERAL') return { rol: 'supervisora', puedeCapturar };
+    if (tipo === 'DELEGACION') {
+      return { rol: user.rol === 'DIRECTOR' ? 'creador' : 'observador', puedeCapturar };
+    }
 
-    // Revisor y Finalizador son actores ÚNICOS configurados en flujos.
-    // Se resuelven igual que el backend (configuracion_flujos), NO por
-    // unidad hardcodeada — así coincide con quién puede actuar de verdad.
-    const flujoRes = await apiFetch<{ data: { modulo_clave: string; rol_flujo: string }[] }>(
-      `/usuarios/mis-roles-flujo`,
-    );
-    const flujos = (flujoRes.data ?? []).filter((r) => r.modulo_clave === 'tramites_seguimiento');
-    if (flujos.some((r) => r.rol_flujo === 'REVISOR'))     return 'revisor';
-    if (flujos.some((r) => r.rol_flujo === 'FINALIZADOR')) return 'finalizador';
+    if (flujos.some((r) => r.rol_flujo === 'REVISOR'))     return { rol: 'revisor', puedeCapturar };
+    if (flujos.some((r) => r.rol_flujo === 'FINALIZADOR')) return { rol: 'finalizador', puedeCapturar };
   } catch { /* fallback */ }
-  return null;
+
+  return { rol: null, puedeCapturar };
 }
 
 // ── Agrupación bitácora ───────────────────────────────────────
@@ -200,6 +218,8 @@ export const Dashboard_Tramites: React.FC = () => {
   const isMobile = useIsMobile();
   const padX = isMobile ? '12px' : '32px';
   const [rol,      setRol]      = useState<TramiteRol | null>(null);
+  /** Designado en Configuración de Flujos para capturar, sea cual sea su rol. */
+  const [puedeCapturar, setPuedeCapturar] = useState(false);
   const [tramites, setTramites] = useState<Tramite[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
@@ -286,7 +306,10 @@ export const Dashboard_Tramites: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
-    detectarRol(user).then(setRol);
+    detectarRol(user).then(({ rol: r, puedeCapturar }) => {
+      setRol(r);
+      setPuedeCapturar(puedeCapturar);
+    });
   }, [user]);
 
   const fetchTramites = useCallback(async () => {
@@ -540,7 +563,7 @@ export const Dashboard_Tramites: React.FC = () => {
           <button onClick={fetchTramites} disabled={loading} style={{ ...btnSecondary, padding: '8px 14px', fontSize: '0.8rem' }}>
             ↻ Actualizar
           </button>
-          {rol === 'creador' && (
+          {(rol === 'creador' || puedeCapturar) && (
             <button onClick={() => { setShowNuevo(true); setErrorNuevo(null); }} style={btnPrimary}>
               + Nuevo Trámite
             </button>
