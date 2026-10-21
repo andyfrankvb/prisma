@@ -34,6 +34,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { db }       from '../../db';
 import { AppError } from '../../utils/AppError';
+import { logger }   from '../../utils/logger';
 import { ResumenSatq, ConceptoResumen, MunicipioResumen, DelegacionResumen, ConciliacionResumen, ComparativoAnioAnterior, DesgloseCategoria, ComparativoAnual, DiagnosticoDia, DiagnosticoConcepto, DiagnosticoConciliacion, EstimacionMes, ProyeccionAnual, EscenarioAnual } from './satq.types';
 
 // ── Guard fase 1 (resumen ejecutivo): mismo criterio que el tablero de Dirección ──
@@ -573,8 +574,24 @@ export async function getExportar(
     ws.commit();
     await wb.commit();
   } catch (err) {
-    // Si ya empezó a escribirse el archivo no se puede responder JSON.
-    if (res.headersSent) { res.destroy(err as Error); return; }
+    /**
+     * Si ya empezó a escribirse el archivo no se puede responder JSON: hay que
+     * cortar la conexión. Pero cortarla a secas deja al navegador con un 502
+     * —nginx ve un upstream que colgó a media respuesta— y al log sin rastro de
+     * la causa: solo aparece «request aborted», que no dice nada.
+     *
+     * Por eso el error se registra ANTES de destruir la respuesta. Sin esta
+     * línea, que faltara `pg-query-stream` se veía en producción como «no se
+     * pudo exportar» y nada más, y no había por dónde empezar a buscar.
+     */
+    if (res.headersSent) {
+      logger.error(
+        { err, filtros: req.query },
+        'La exportación de SATQ falló a media escritura; se corta la descarga',
+      );
+      res.destroy(err as Error);
+      return;
+    }
     next(err);
   }
 }
