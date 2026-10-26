@@ -37,6 +37,7 @@ import maquinasRouter        from './modules/maquinas/maquinas.routes';
 import consultasRouter       from './modules/consultas/consultas.routes';
 import ticketsRouter         from './modules/tickets/tickets.routes';
 import visorDocumentosRouter from './modules/visor_documentos/visor.routes';
+import { crearModuloAcervo } from './modules/acervo/acervo.module';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { runConsultasSync } from './integraciones/consultas.sync';
@@ -202,6 +203,7 @@ app.use('/api/v1/carga-datos',    cargaDatosRouter);
 app.use('/api/v1/maquinas',       maquinasRouter);
 app.use('/api/v1/tickets',        ticketsRouter);
 app.use('/api/v1/visor-documentos', visorDocumentosRouter);
+app.use('/api/v1/acervo', crearModuloAcervo());
 
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {

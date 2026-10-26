@@ -1,0 +1,159 @@
+{
+  "aprobacion": "QA_APROBADO_POR_EL_USUARIO",
+  "captura_utc": "2026-10-26T18:51:27.6844893Z",
+  "commit_proyecto_qa": "c119056c63de2c6ad56fa1d63b4a2a5f8543c115",
+  "base_integracion": "ec1e5e1d3344c5b88f4d9d046651d7cbdc6361ec",
+  "archivos": [
+    {
+      "ruta": "src/modules/acervo/acervo.connection.ts",
+      "sha256_qa": "487FCA530CBCE59F7E3E4551A9297C8B485B940ABD3174D9DCF39C283328ED99",
+      "contenido_qa_conservado": false
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.controller.ts",
+      "sha256_qa": "4130AFB36FC7E61C6A7483D8A7ECFA4A04C3E84E857BFF546B060FBA0293FC31",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.module.ts",
+      "sha256_qa": "EFB566E953476333156D534D9552738AE16E11E5AFD524E88030A853322D6655",
+      "contenido_qa_conservado": false
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.origin.ts",
+      "sha256_qa": "0DAF083ED31641896F5322AAB5AA8B55C85E0C9DD0DA9405C25E19FC5345A971",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.repository.ts",
+      "sha256_qa": "D6155820A9FD7B2FAF6535743BE3FFDD655B213860B6EB58648852EF5F74076F",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.routes.ts",
+      "sha256_qa": "712AD2F6D60AC3D5A1B5E102A8854912FBB1E805AAE99273BCB25B22AC1D27C7",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.cancelacion.ts",
+      "sha256_qa": "E89B87F2EB52953AF0477B2C874DDF89ED5BB57A53BEFEBD978140585F32F9D0",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.orden.ts",
+      "sha256_qa": "A096381A4690134658B525939E370C3EE311A5721D16738CD2FCD128988ACD89",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.repository.ts",
+      "sha256_qa": "23EF6994020D2A1402506C267171C73EA877B27BA64784F40034156C25D8DACE",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.routes.ts",
+      "sha256_qa": "F485559112918B451CA638BF86FC6E5E73B0BF5C9DD248BEACF38B97E3E8F23A",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.types.ts",
+      "sha256_qa": "6C3540DDFD1324B255C01BBA19C768B70E2022A89975136AB5410C1EDE5D50FD",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.search.validation.ts",
+      "sha256_qa": "48B7D1B4ACB58B3892B729FC6A5FB9240D6C765F1FEAAC8BE8A871CCB01BAD4B",
+      "contenido_qa_conservado": false
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.stage.ts",
+      "sha256_qa": "341D5D3B4D798E1BE35481E67B957BA18FD8AC846A3AE8B62D630C1BFFBA36C7",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/modules/acervo/acervo.types.ts",
+      "sha256_qa": "CAE30EEF195E28224D161530FE72AE83A275A8A2753FAB08635EEF7115C208B3",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/acervo.css",
+      "sha256_qa": "56EA4F1DF27061B9C2FCAE0F324BCF9E679FD1C0FC91D933C7D7C3A232D01ADD",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/campos.ts",
+      "sha256_qa": "360B5EEC8D89A8C5E358113F5A572E45AC1FEB66069F317C0C8F79617939FCBC",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/CamposAcervo.tsx",
+      "sha256_qa": "2E8197AFB0F97A298C4ED9F4592049564F31367B7984BE31D2F6EBD0C0A6A523",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/CargaBusquedaAcervo.tsx",
+      "sha256_qa": "FC750089EB93578284147BFC41686F0976AAD051FE4C37ACBD6271CD43844934",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/controlBusquedaAcervo.ts",
+      "sha256_qa": "FF2FBE06686A6891E533DCD705193914317E4AAA52383989960B355333AEEA4F",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/DetalleAcervo.tsx",
+      "sha256_qa": "ACCE3D597445A5BC09BB7F7EAA6CE7AEC57A3F9AA1AAB6233DCBCE868872D221",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/IconoOrdenAcervo.tsx",
+      "sha256_qa": "4D683A7105D6C962AA195737575AF68FFB3C0B6BC7A0CBEAFB88DEC3FB59753D",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/ResultadosAcervo.tsx",
+      "sha256_qa": "0FBCA80552C3ADA68DB9D565197F4F89B7A3393D4BF70CCA98DCF5F62CFC74C4",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/TipoCoincidenciaAcervo.tsx",
+      "sha256_qa": "6A9327DAA6F88CA1FDBF434D34FAE014B24543CE80C68B2038E8B8F0985835DD",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/types.ts",
+      "sha256_qa": "9593E52F57BEBDE6CA801BF89BECF355A6D8433D2B9F41901FC2BEFEB4351BE4",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/UbicacionAcervo.tsx",
+      "sha256_qa": "2DF89493F4CE956C9074E9872345C40043AEEB2AFD34DC4713C493B8FEBDC90C",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/useBusquedaAcervo.ts",
+      "sha256_qa": "7459789EE092136F1C7166D980478AB36A204D21488D8BB281289078D7970ACD",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/modules/acervo/useDetalleAcervo.ts",
+      "sha256_qa": "286739613EFBB2EE6B5616BD8DA55794663235C28F2FBF12507C44AC84D1D449",
+      "contenido_qa_conservado": true
+    },
+    {
+      "ruta": "src/frontend/views/BusquedaAcervo.tsx",
+      "sha256_qa": "5971A0339D91A4FA611500A541CFD566C9D5061BD293E25E11C9E0A783CEB536",
+      "contenido_qa_conservado": false
+    },
+    {
+      "ruta": "src/frontend/services/acervoApi.ts",
+      "sha256_qa": "D620C07FC34D6AFDF079A132849109BD0025F439A391E6E2F814CA2428E82D4E",
+      "contenido_qa_conservado": false
+    }
+  ],
+  "ajustes_integracion": [
+    "Acceso por sesión y módulo; inicialización diferida del pool",
+    "Habilitación de GISNET en producción manteniendo el aislamiento de conexiones",
+    "Retiro de los accesos provisionales por localhost/ngrok y modo DEV",
+    "Tipado explícito del filtro ya validado, compatible con la compilación de PRISMA"
+  ]
+}

@@ -1,0 +1,8 @@
+# Añadir estas variables al entorno existente de app_api.
+# No reemplazar DATABASE_URL ni las variables de otros módulos.
+ACERVO_ORIGEN=gisnet
+ACERVO_DATABASE_URL=postgresql://USUARIO:CLAVE@SERVIDOR:5432/consultas_gisnet
+ACERVO_ESQUEMA_CHETUMAL=consulta_chetumal
+ACERVO_ESQUEMA_CANCUN=consulta_cancun
+ACERVO_ESQUEMA_PLAYA=consulta_playa
+ACERVO_ESQUEMA_COZUMEL=consulta_cozumel

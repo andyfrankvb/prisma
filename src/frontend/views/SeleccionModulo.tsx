@@ -36,6 +36,7 @@ function getRutaModulo(
   const esDG = unidad_tipo === 'DIRECCION_GENERAL';
 
   switch (clave) {
+    case 'busqueda_acervo': return '/busqueda-acervo';
     case 'oficialia_partes':
       // Roles configurados en flujos tienen prioridad sobre el rol de sistema.
       // ENCARGADO se evalúa ANTES que JURIDICO: el encargado gestiona el flujo
@@ -106,6 +107,7 @@ function getRutaModulo(
 // dorado 125C y su variante clara, y gris carbón Black 7C. Se distinguen entre
 // sí sin salirse de la identidad institucional.
 const MODULO_CFG: Record<string, { icon: NombreIcono; color: string; desc: string }> = {
+  busqueda_acervo: { icon: 'buscar', color: theme.colors.primary, desc: 'Consulta de folios, titulares y antecedentes registrales' },
   oficialia_partes:     { icon: 'descargar',  color: theme.colors.primary,     desc: 'Recepción y seguimiento de oficios oficiales' },
   supervision_eventos:  { icon: 'calendario', color: theme.colors.charcoal,    desc: 'Gestión de eventos operativos y tareas por área' },
   tramites_seguimiento: { icon: 'documento',  color: theme.colors.gold,        desc: 'Seguimiento de resoluciones entre delegaciones y Dirección Jurídica' },
@@ -138,6 +140,7 @@ const CATEGORIA_CFG: Record<CategoriaClave, { titulo: string; icon: NombreIcono;
 };
 
 const CATEGORIA_POR_MODULO: Record<string, CategoriaClave> = {
+  busqueda_acervo: 'trabajo_diario',
   oficialia_partes:        'trabajo_diario',
   supervision_eventos:     'trabajo_diario',
   tramites_seguimiento:    'trabajo_diario',
