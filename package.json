@@ -20,7 +20,8 @@
     "db:import:visor-visar-testdata": "node db/import-visor-visar-testdata.mjs",
     "db:migrate:consultas": "node db/migrate-consultas-sid.mjs",
     "db:migrate:tickets": "node db/migrate-tickets-sid.mjs",
-    "db:migrate:folios": "node db/migrate-folios-sid.mjs"
+    "db:migrate:folios": "node db/migrate-folios-sid.mjs",
+    "db:verificar:sid": "node db/verificar-migracion-sid.mjs"
   },
   "dependencies": {
     "bcrypt": "5.1.1",

@@ -49,3 +49,33 @@ si no hay nada pendiente, no hace nada.
   una versión después quitas lo viejo. Así el código viejo y nuevo conviven durante el deploy.
 - **Respaldo antes de migrar en producción** (`pg_dump`). Es tu red de seguridad.
 - **Prueba en una copia** antes de estrenar una migración en producción.
+
+## Verificar la migración de SID, módulo por módulo
+
+```bash
+DATABASE_URL=postgres://.../prisma \
+SID_DATABASE_URL=postgres://.../sid \
+npm run db:verificar:sid
+```
+
+Solo lee; no escribe en ninguna de las dos bases. Sale con código distinto de cero
+cuando encuentra una discrepancia, así que sirve igual a mano o en una tubería.
+
+| Modo | Para qué |
+|---|---|
+| *(sin argumentos)* | Corre todos los controles declarados |
+| `--modulo=tickets` | Un solo módulo |
+| `--inventario` | Lista las tablas de SID y marca cuáles ya tienen migrador |
+| `--exactos` | En el inventario, cuenta de verdad en vez de estimar |
+
+El catálogo del acervo del Visor suele venir como extracto aparte; si está en otra
+base, apúntala con `SID_CATALOGO_DATABASE_URL`.
+
+**Comparar conteos no alcanza.** Cada migrador transforma a propósito (identidades
+que no se pueden resolver, categorías que se preservan sin mapear, folios que entran
+como historial de solo lectura), así que un "faltan N" sin contexto confunde una
+pérdida real con una decisión de diseño. Por eso cada control declara su tolerancia
+y el motivo: lo que no está declarado es exactamente lo que hay que revisar.
+
+Al agregar un módulo nuevo, agrégale sus controles en `MODULOS` dentro de
+`db/verificar-migracion-sid.mjs` en la misma corrida en que se escribe el migrador.
