@@ -34,6 +34,7 @@ import { Consultas }              from './views/Consultas';
 import { VigilanciaConsultas }    from './views/VigilanciaConsultas';
 import { Tickets }                from './views/Tickets';
 import { VisorDocumentos }        from './views/VisorDocumentos';
+import { BusquedaAcervo }         from './views/BusquedaAcervo';
 import { AppShell }           from './components/AppShell';
 
 import { theme } from './theme';
@@ -84,6 +85,10 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+
+          <Route path="/busqueda-acervo" element={
+            <ProtectedRoute><AppShell><BusquedaAcervo /></AppShell></ProtectedRoute>
+          } />
 
           <Route
             path="/seleccionar-modulo"
