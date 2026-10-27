@@ -22,7 +22,7 @@ export const anchoColumnaAcervo = (porcentaje: number) =>
 
 export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
   { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'F.R.E.', ancho: 10, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'F.R.E.', ordenarPor: 'fre', ancho: 10, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
   { etiqueta: 'Sección', ancho: 8, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
   { etiqueta: 'Tomo', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
   { etiqueta: 'Volumen', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
@@ -35,7 +35,7 @@ export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
 
 export const COLUMNAS_INMUEBLE: ColumnaAcervo<InmuebleResultado>[] = [
   { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'F.R.E.', ancho: 9, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'F.R.E.', ordenarPor: 'fre', ancho: 9, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
   { etiqueta: 'Propietario', ancho: 20, valor: (fila) => fila.propietarios.join(' · ') || '—' },
   { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 13, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
   { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 11, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },

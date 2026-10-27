@@ -17,6 +17,13 @@ describe('filtros de Acervo', () => {
       .toBe('Juana Pérez Gómez');
   });
 
+  it.each(['asc', 'desc'])('acepta ordenar numéricamente por F.R.E. en ambas búsquedas (%s)', orden_direccion => {
+    expect(leerInmueble({ delegacion_id: '1', folio: '1', orden_por: 'fre', orden_direccion }))
+      .toMatchObject({ orden_por: 'fre', orden_direccion });
+    expect(leerAntecedente({ delegacion_id: '1', seccion: '1', orden_por: 'fre', orden_direccion }))
+      .toMatchObject({ orden_por: 'fre', orden_direccion });
+  });
+
   it.each([
     {}, { delegacion_id: '0', tomo: 'X' }, { delegacion_id: '5', tomo: 'X' },
     { delegacion_id: '1' }, { delegacion_id: '1', seccion: '10' },

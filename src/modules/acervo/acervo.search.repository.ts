@@ -65,6 +65,7 @@ function ordenFoliosSql(alias: string): string {
 // Solo estas columnas internas pueden entrar en ORDER BY. numeric conserva
 // precisión y ceros visibles; 9, 9A, 10 se ordenan por número y después letra.
 function ordenAntecedentesSql(alias: string, orden: AcervoOrden): string {
+  if (orden.campo === 'fre') return `${ordenInmueblesSql(alias, orden)}, ${alias}.antecedente_id::bigint`;
   const columnas: Partial<Record<AcervoOrden['campo'], string>> = {
     folio: 'folio', inscripcion: 'registro', inscripcion_final: 'registro_final',
     foja_inicial: 'foja_inicial', foja_final: 'foja_final',
@@ -274,6 +275,7 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
     const coincidentes = reglas.map((regla, index) => `CASE WHEN e.c${index} THEN '${regla.campo}'::text END`).join(', ');
     const diferentes = reglas.map((regla, index) => `CASE WHEN NOT e.c${index} THEN '${regla.campo}'::text END`).join(', ');
     const orden: AcervoOrden = { campo: filtros.orden_por ?? 'folio', direccion: filtros.orden_direccion ?? 'asc' };
+    const ordenarFre = orden.campo === 'fre';
     const ordenPagina = unidad === 'antecedentes' ? ordenAntecedentesSql('e', orden) : ordenInmueblesSql('e', orden);
     const ordenExacto = unidad === 'antecedentes' ? ordenAntecedentesSql('r', orden) : ordenInmueblesSql('r', orden);
     const ordenSugerencias = `e.puntaje DESC, ${ordenFoliosSql('e')}${unidad === 'antecedentes' ? ', e.antecedente_id::bigint' : ''}`;
@@ -297,8 +299,8 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
         ? "coalesce(t.propietarios, '[]'::jsonb) AS propietarios" : 'e.' + c).join(', ')}
       FROM exactos e LEFT JOIN titulares_para_ordenar t ON t.folio_id = e.folio_id::bigint
     ), ` : '';
-    const paginaCampos = campos.map(c => this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios && c === 'propietarios'
-      ? propietariosSql(this.origen, fuentes, 'e.folio_id::bigint') + ' AS propietarios' : c);
+    const paginaCampos = [...campos.map(c => this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios && c === 'propietarios'
+      ? propietariosSql(this.origen, fuentes, 'e.folio_id::bigint') + ' AS propietarios' : c), ...(ordenarFre ? ['fre_orden'] : [])];
     const propietariosSugeridos = this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios
       ? ` || jsonb_build_object('propietarios', ${propietariosSql(this.origen, fuentes, 'e.folio_id::bigint')})` : '';
     const titularesMostrados = agruparTitulares ? `, folios_mostrados AS MATERIALIZED (
@@ -341,7 +343,24 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
       : `right(q.nu_folio::bigint::text, char_length(p.normal${indiceFolio})) = p.normal${indiceFolio}`, true) : '';
     // Completa las dos numeraciones únicamente para la página y las sugerencias,
     // dentro de la misma sentencia y del mismo control de cancelación manual.
-    const rppMostrados = fuentes.rpp ? `, numeros_visibles_rpp AS MATERIALIZED (
+    // Solo al ordenar por F.R.E. se calcula el cruce para todos los folios que
+    // cumplen los filtros. Así el orden es global y estable entre páginas.
+    const freParaOrdenar = !ordenarFre ? '' : fuentes.rpp ? `numeros_para_ordenar_fre AS MATERIALIZED (
+      SELECT DISTINCT folio_id::bigint / 100 AS numero_folio FROM exactos
+    ), datos_fre_para_ordenar AS MATERIALIZED (
+      ${fuentes.rpp.resumenSql('q.nu_folio IN (SELECT numero_folio FROM numeros_para_ordenar_fre)')}
+    ), exactos_fre_ordenables AS NOT MATERIALIZED (
+      SELECT e.*, (rf.folios_rpp->>0)::numeric AS fre_orden FROM exactos e
+      LEFT JOIN datos_fre_para_ordenar rf ON rf.numero_folio = e.folio_id::bigint / 100
+    ), ` : `exactos_fre_ordenables AS NOT MATERIALIZED (
+      SELECT e.*, NULL::numeric AS fre_orden FROM exactos e
+    ), `;
+    const rppMostrados = fuentes.rpp ? ordenarFre ? `, datos_folios_rpp AS MATERIALIZED (
+      SELECT * FROM datos_fre_para_ordenar
+      UNION ALL SELECT * FROM (
+        ${fuentes.rpp.resumenSql("q.nu_folio IN (SELECT (resultado->>'folio_id')::bigint / 100 FROM sugerencias)")}
+      ) sugeridos_fre
+    )` : `, numeros_visibles_rpp AS MATERIALIZED (
       SELECT folio_id::bigint / 100 AS numero_folio FROM pagina
       UNION SELECT (resultado->>'folio_id')::bigint / 100 FROM sugerencias
     ), datos_folios_rpp AS MATERIALIZED (
@@ -375,8 +394,8 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
         array_remove(ARRAY[${diferentes}], NULL) AS campos_diferentes
       FROM afinidades e
       WHERE (${alMenosSimilar})
-    ), ${titularesParaOrdenar}pagina AS (
-      SELECT ${paginaCampos.join(', ')} FROM ${ordenarPropietarios && agruparTitulares ? 'exactos_ordenables' : 'exactos'} e
+    ), ${titularesParaOrdenar}${freParaOrdenar}pagina AS (
+      SELECT ${paginaCampos.join(', ')} FROM ${ordenarFre ? 'exactos_fre_ordenables' : ordenarPropietarios && agruparTitulares ? 'exactos_ordenables' : 'exactos'} e
       ORDER BY ${ordenPagina}
       LIMIT ? OFFSET ?
     ), sugerencias AS (
@@ -392,7 +411,7 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
       ${buscarAmbosFolios ? '(SELECT count(*)::integer FROM rpp_parejas WHERE NOT verificada)' : '0'} AS rpp_ambiguos,
       (SELECT count(*)::integer FROM exactos) AS total_resultados,
       (SELECT count(DISTINCT folio_id)::integer FROM exactos) AS total_folios,
-      coalesce((SELECT jsonb_agg(to_jsonb(r)${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''}${datosRpp}
+      coalesce((SELECT jsonb_agg((to_jsonb(r) - 'fre_orden')${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''}${datosRpp}
         ORDER BY ${ordenExacto}) FROM pagina r
         ${agruparTitulares ? 'LEFT JOIN titulares_mostrados tm ON tm.folio_id = r.folio_id::bigint' : ''}
         ${fuentes.rpp ? 'LEFT JOIN datos_folios_rpp rf ON rf.numero_folio = r.folio_id::bigint / 100' : ''}), '[]'::jsonb) AS resultados,

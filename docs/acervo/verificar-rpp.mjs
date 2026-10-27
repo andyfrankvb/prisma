@@ -114,12 +114,57 @@ export async function verificarRpp(ejecutar) {
     assert.deepEqual((await repo.detalle('50925401', 1)).inmueble.folios_rpp, ['207301']);
     aprobadas.push('Un antecedente incompleto no crea una correspondencia');
 
+    // Un conjunto aislado comprueba el orden global, precisión y valores ausentes.
+    const filasFre = [[810001, '100'], [810002, '2'], [810003, '10'],
+      [810004, '9007199254740993'], [810005, '9007199254740992'],
+      [810006, null], [810007, null], [810008, '42'], [810009, '42']];
+    for (const [gisnet, fre] of filasFre) {
+      const pre = gisnet - 800000;
+      await ejecutar(`INSERT INTO ${namespace}.inmobiliario (nu_folio, nu_ofic, localidad) VALUES ($1, 1, 'ORDEN FRE')`, [gisnet]);
+      await ejecutar(`INSERT INTO ${namespace}.mesa_control VALUES
+        ($1, $1, 1, '01', 'SORTFRE', '01_01', '1', NULL, 1, 1, 'BI1', 1, '2000-01-01')`, [gisnet]);
+      await ejecutar(`INSERT INTO ${namespace}.lista_tomos_gisnet VALUES
+        ($1, 1, 'BI1', 1, 'SORTFRE', '01', '01_01', $2, 1, 1, '2000-01-01', 0)`, [gisnet, pre]);
+      if (fre) await ejecutar(`INSERT INTO ${namespace}.lista_tomos_rpp VALUES
+        ($1, 1, 'BI1', 1, 'SORTFRE', '01', '01_01', $2, 1, 1, '2000-01-01', 0)`, [fre, pre]);
+    }
+    await ejecutar(`INSERT INTO ${namespace}.lista_tomos_gisnet VALUES
+      (810002, 1, 'BI17', 2, 'SORTFRE', '01', '01_01', 20002, 1, 1, '2000-01-01', 0);
+      INSERT INTO ${namespace}.lista_tomos_rpp VALUES
+      (20, 1, 'BI17', 2, 'SORTFRE', '01', '01_01', 20002, 1, 1, '2000-01-01', 0),
+      (21, 1, 'BI1', 1, 'SORTFRE', '01', '01_01', 10007, 1, 1, '2000-01-01', 0),
+      (22, 1, 'BI1', 1, 'SORTFRE', '01', '01_01', 10007, 1, 1, '2000-01-01', 0);`);
+    const esperadosFre = {
+      asc: ['810002', '810003', '810008', '810009', '810001', '810005', '810004', '810006', '810007'],
+      desc: ['810004', '810005', '810001', '810008', '810009', '810003', '810002', '810006', '810007'],
+    };
+    for (const orden_direccion of ['asc', 'desc']) {
+      for (const tipo of ['inmuebles', 'antecedentes']) {
+        const consultas = tipo === 'inmuebles' ? filtros({ localidad: 'ORDEN FRE' })
+          : { delegacion_id: 1, pagina: 1, tamano_pagina: 10, seccion: 1, tomo: 'SORTFRE' };
+        const opciones = { ...consultas, orden_por: 'fre', orden_direccion, tamano_pagina: 2 };
+        const reunidos = [];
+        for (let pagina = 1; pagina <= 5; pagina++) {
+          const resultado = await repo[tipo]({ ...opciones, pagina });
+          assert.equal(resultado.total_resultados, 9);
+          assert.equal(resultado.orden.campo, 'fre');
+          for (const fila of resultado.resultados) {
+            assert.equal(Object.hasOwn(fila, 'fre_orden'), false);
+            reunidos.push(fila.folio);
+          }
+        }
+        assert.deepEqual(reunidos, esperadosFre[orden_direccion]);
+      }
+    }
+    aprobadas.push('F.R.E. ordena numéricamente en ambos sentidos y ambas tablas, con paginación global, empates estables, varios F.R.E., enteros grandes y ausentes/ambiguos al final');
+
     await ejecutar(`DROP TABLE ${namespace}.lista_tomos_rpp;`);
     const sinFuente = nuevo();
     assert.equal((await sinFuente.delegaciones())[0].rpp_disponible, false);
     assert.equal((await sinFuente.inmuebles(filtros({ folio: '509254' }))).total_resultados, 1);
     assert.equal((await sinFuente.detalle('50925401', 1)).inmueble.rpp_estado, 'no_disponible');
     assert.equal((await sinFuente.inmuebles(filtros({ folio: '107301' }))).total_resultados, 0);
+    assert.equal((await sinFuente.inmuebles(filtros({ folio: '509254', orden_por: 'fre', orden_direccion: 'desc' }))).resultados[0].folio, '509254');
     aprobadas.push('Sin fuente RPP compatible, el campo Folio sigue buscando en GISNET');
     return { pruebas: aprobadas.length, aprobadas };
   } finally {

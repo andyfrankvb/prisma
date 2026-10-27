@@ -23,11 +23,11 @@ export interface AcervoPaginacion {
 }
 
 export const CAMPOS_ORDEN_ANTECEDENTE = [
-  'folio', 'inscripcion', 'inscripcion_final', 'foja_inicial', 'foja_final',
+  'folio', 'fre', 'inscripcion', 'inscripcion_final', 'foja_inicial', 'foja_final',
 ] as const;
 export type CampoOrdenAntecedente = typeof CAMPOS_ORDEN_ANTECEDENTE[number];
 export const CAMPOS_ORDEN_INMUEBLE = [
-  'folio', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
+  'folio', 'fre', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
   'lote', 'manzana', 'localidad',
 ] as const;
 export type CampoOrdenInmueble = typeof CAMPOS_ORDEN_INMUEBLE[number];
