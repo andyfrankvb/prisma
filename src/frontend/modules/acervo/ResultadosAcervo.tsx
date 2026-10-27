@@ -21,7 +21,7 @@ export const anchoColumnaAcervo = (porcentaje: number) =>
   `calc(${porcentaje}% - ${ANCHO_FOLIO_ACERVO * porcentaje / 100}px)`;
 
 export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
-  { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
+  { etiqueta: 'Folio GISNET', ordenarPor: 'folio', valor: (fila) => fila.folio },
   { etiqueta: 'Sección', ancho: 9, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
   { etiqueta: 'Tomo', ancho: 11, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
   { etiqueta: 'Volumen', ancho: 12, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
@@ -33,7 +33,7 @@ export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
 ];
 
 export const COLUMNAS_INMUEBLE: ColumnaAcervo<InmuebleResultado>[] = [
-  { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
+  { etiqueta: 'Folio GISNET', ordenarPor: 'folio', valor: (fila) => fila.folio },
   { etiqueta: 'Propietario', ancho: 21, valor: (fila) => fila.propietarios.join(' · ') || '—' },
   { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 14, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
   { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 12, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },
@@ -145,6 +145,7 @@ export function ResultadosAcervo<T extends FilaAcervo>({
         </div>
         <span role={cargando ? 'status' : undefined} className="acervo-estado-resultados acervo-rounded-full acervo-bg-fondo acervo-px-3 acervo-py-1.5 acervo-text-[11px] acervo-text-carbon">{cargando ? 'Actualizando…' : resultado.delegacion.nombre}</span>
       </div>
+      {resultado.advertencia_rpp && resultado.total_resultados > 0 && <p role="status" className="acervo-m-0 acervo-px-5 acervo-pb-3 acervo-text-xs acervo-text-guinda">{resultado.advertencia_rpp}</p>}
       {resultado.total_resultados === 0
         ? <div className="acervo-border-0 acervo-border-t acervo-border-solid acervo-border-borde acervo-px-5 acervo-py-5">
             <p className="acervo-m-0 acervo-text-xs acervo-font-bold acervo-text-guinda">{resultado.mensaje ?? 'NO SE ENCONTRARON DATOS'}</p>

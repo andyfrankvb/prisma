@@ -1,5 +1,5 @@
 export const CAMPOS_INMUEBLE = [
-  'folio', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
+  'folio', 'folio_rpp', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
   'lote', 'manzana', 'colindancias', 'localidad', 'no_exterior', 'no_interior',
   'super_manzana', 'fraccionamiento', 'condominio', 'predio_conocido',
 ] as const;
@@ -9,6 +9,7 @@ export interface AcervoDelegacion {
   nombre: string;
   oficina: number;
   disponible?: boolean;
+  rpp_disponible?: boolean;
 }
 
 export type TipoCoincidenciaAcervo = 'precisa' | 'aproximada';
@@ -51,6 +52,7 @@ export interface InmuebleFiltros extends AcervoPaginacion {
   orden_por?: CampoOrdenInmueble;
   orden_direccion?: DireccionOrden;
   folio?: string;
+  folio_rpp?: string;
   propietario?: string;
   clave_catastral?: string;
   superficie_total?: string;
@@ -82,9 +84,16 @@ export interface AntecedenteResultado {
   acto: string | null;
 }
 
-export interface InmuebleResultado {
+export type EstadoVinculoRpp = 'vinculado' | 'sin_coincidencia' | 'ambiguo' | 'parcial' | 'no_disponible';
+export interface DatosFoliosRpp {
+  folios_rpp: string[];
+  rpp_estado: EstadoVinculoRpp;
+}
+
+export interface InmuebleResultado extends Partial<DatosFoliosRpp> {
   folio_id: string;
   folio: string;
+  folio_gisnet?: string;
   propietarios: string[];
   clave_catastral: string | null;
   superficie_total: string | null;
@@ -121,6 +130,7 @@ export interface AcervoBusqueda<T> {
   paginas_totales: number;
   orden?: AcervoOrden;
   mensaje: string | null;
+  advertencia_rpp?: string | null;
   resultados: T[];
   total_aproximados: number;
   limite_aproximados: number;

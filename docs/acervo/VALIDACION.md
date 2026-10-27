@@ -1,4 +1,4 @@
-# Verificación de la rama
+# Verificación de la integración inicial de Acervo (26/10/2026)
 
 Base: `ec1e5e1d3344c5b88f4d9d046651d7cbdc6361ec` de `origin/main`.
 Fuente: captura QA aprobada `acervo-qa-aprobado-20261026-135125-f1e1ea.zip`.

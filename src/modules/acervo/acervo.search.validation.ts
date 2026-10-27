@@ -101,8 +101,11 @@ export function leerInmueble(query: Query): InmuebleFiltros {
   const filtros: InmuebleFiltros = { delegacion_id: leerDelegacion(query), ...paginacion(query),
     orden_por: campo as InmuebleFiltros['orden_por'], orden_direccion: direccion };
   for (const campo of CAMPOS_INMUEBLE) {
-    const value = texto(query, campo, campo === 'colindancias' ? 1000 : 200);
+    const value = texto(query, campo, campo === 'colindancias' ? 1000 : campo === 'folio_rpp' ? 20 : 200);
     if (value === undefined) continue;
+    if (campo === 'folio_rpp' && !/^[0-9]+$/.test(value)) {
+      throw new AppError('Folio RPP debe contener únicamente números.', 400);
+    }
     if (campo === 'superficie_total') {
       filtros[campo] = /^\d+([.,]\d+)?$/.test(value) ? value.replace(',', '.') : value;
     } else {

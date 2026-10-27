@@ -5,7 +5,7 @@ import {
   ANCHO_FOLIO_ACERVO,
   CLASE_CABECERA, CLASE_CELDA, CLASE_CELDA_FOLIO, CLASE_CELDA_NUMERICA,
 } from './ResultadosAcervo';
-import { mostrarDato, mostrarFecha, mostrarSuperficie } from './campos';
+import { mostrarDato, mostrarFecha, mostrarSuperficie, mostrarFoliosRpp } from './campos';
 import type { AcervoFolioDetalle, FilaAcervo } from './types';
 
 interface Props {
@@ -65,7 +65,8 @@ function VentanaDetalleAcervo({ seleccion, aproximado, detalle, cargando, error,
   };
   const inmueble = detalle?.inmueble;
   const datos = inmueble ? [
-    ['Folio', inmueble.folio],
+    ['Folio GISNET', inmueble.folio_gisnet ?? inmueble.folio],
+    [(inmueble.folios_rpp?.length ?? 0) > 1 ? 'Folios RPP' : 'Folio RPP', mostrarFoliosRpp(inmueble)],
     ['Propietario', inmueble.propietarios.join(' · ')],
     ['Clave catastral', mostrarDato(inmueble.clave_catastral)],
     ['Superficie total', mostrarSuperficie(inmueble.superficie_total, inmueble.unidad_superficie)],
@@ -91,7 +92,7 @@ function VentanaDetalleAcervo({ seleccion, aproximado, detalle, cargando, error,
         <div>
           <div className="acervo-flex acervo-items-center acervo-gap-2">
             <Icono nombre="documento" size={19} color="#AB0A3D" />
-            <h2 id="acervo-detalle-titulo">Folio {seleccion.folio}</h2>
+            <h2 id="acervo-detalle-titulo">Folio GISNET {seleccion.folio}</h2>
             {aproximado && <span className="acervo-rounded-full acervo-bg-dorado-suave acervo-px-2 acervo-py-1 acervo-text-[10px] acervo-font-bold acervo-text-dorado-oscuro">Sugerencia</span>}
           </div>
           {detalle && <p>{detalle.delegacion.nombre}</p>}

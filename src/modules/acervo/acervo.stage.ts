@@ -1,5 +1,6 @@
 import { Knex } from 'knex';
 import { AppError } from '../../utils/AppError';
+import { AcervoFoliosRpp, COLUMNAS_LISTA_RPP } from './acervo.rpp';
 import type { AcervoOrigen } from './acervo.origin';
 import type { AcervoDelegacion } from './acervo.search.types';
 
@@ -13,12 +14,13 @@ export interface FuentesAcervo {
   delegaciones: string;
   vinculos: string;
   trigramas: boolean;
+  rpp?: AcervoFoliosRpp;
   titularesDelFolio?: (folioId: string) => string;
   foliosPorPropietario?: (coincideNombre: (nombre: string) => string) => string;
   titularesDeFolios?: (folios: string) => string;
 }
-interface PerfilStage extends AcervoDelegacion { esquema: string; estatusTitular: boolean; motivo?: string; }
-interface ColumnasRow { table_schema: string; table_name: string; column_name: string; }
+interface PerfilStage extends AcervoDelegacion { esquema: string; estatusTitular: boolean; motivo?: string; rpp_disponible: boolean; }
+interface ColumnasRow { table_schema: string; table_name: string; column_name: string; data_type: string; }
 interface SqlResult<T> { rows: T[]; }
 const DELEGACIONES = [
   { id: 1, nombre: 'Chetumal', oficina: 1 }, { id: 2, nombre: 'Cancún', oficina: 2 },
@@ -67,9 +69,10 @@ export class AcervoStage {
   private async comprobar(): Promise<PerfilStage[]> {
     const esquemas = DELEGACIONES.map(d => this.origen.esquemas?.[d.id] ?? '');
     esquemas.forEach(identificadorStage);
-    const columnas = await this.connection.raw<SqlResult<ColumnasRow>>(`SELECT table_schema, table_name, column_name
+    const tablas = [...Object.keys(NECESARIAS), 'lista_tomos_gisnet', 'lista_tomos_rpp'];
+    const columnas = await this.connection.raw<SqlResult<ColumnasRow>>(`SELECT table_schema, table_name, column_name, data_type
       FROM information_schema.columns WHERE table_schema IN (${esquemas.map(() => '?').join(',')})
-      AND table_name IN (${Object.keys(NECESARIAS).map(() => '?').join(',')})`, [...esquemas, ...Object.keys(NECESARIAS)]);
+      AND table_name IN (${tablas.map(() => '?').join(',')})`, [...esquemas, ...tablas]);
     const extension = await this.connection.raw<SqlResult<{ disponible: boolean }>>(`SELECT
       to_regprocedure('public.similarity(text,text)') IS NOT NULL
       AND to_regprocedure('public.word_similarity(text,text)') IS NOT NULL AS disponible`);
@@ -87,7 +90,15 @@ export class AcervoStage {
         const esperado = d.id === 2 ? 'CANCUN' : d.id === 3 ? 'PLAYA' : d.nombre.toUpperCase();
         if (oficina.rows.length !== 1 || !nombre.includes(esperado)) motivo = 'El catálogo oficinas no confirma la delegación ' + d.oficina + '.';
       }
-      perfiles.push({ ...d, esquema, estatusTitular: campos.has('prop_inmob.status'), disponible: !motivo, ...(motivo ? { motivo } : {}) });
+      const tipos = new Map(columnas.rows.filter(c => c.table_schema === esquema).map(c => [c.table_name + '.' + c.column_name, c.data_type]));
+      const numericos = new Set(['numeric', 'smallint', 'integer', 'bigint']);
+      const columnasNumericas = ['nu_folio', 'nu_ofic', 'nu_consec', 'nu_prelac', 'foja_inicial', 'foja_final'];
+      const rpp_disponible = ['lista_tomos_gisnet', 'lista_tomos_rpp'].every(t =>
+        COLUMNAS_LISTA_RPP.every(c => campos.has(t + '.' + c))
+        && columnasNumericas.every(c => numericos.has(tipos.get(t + '.' + c) ?? '')))
+        && ['date', 'timestamp without time zone', 'timestamp with time zone'].includes(tipos.get('lista_tomos_gisnet.fe_prelac') ?? '')
+        && tipos.get('lista_tomos_gisnet.fe_prelac') === tipos.get('lista_tomos_rpp.fe_prelac');
+      perfiles.push({ ...d, esquema, estatusTitular: campos.has('prop_inmob.status'), rpp_disponible, disponible: !motivo, ...(motivo ? { motivo } : {}) });
     }
     return perfiles;
   }
@@ -175,7 +186,8 @@ export class AcervoStage {
       FROM ${s}.prop_inmob r JOIN ${folios} seleccion ON seleccion.numero_folio = r.nu_folio
       JOIN ${s}.propietarios p ON p.id_prop = r.id_prop
       WHERE r.nu_ofic = ${oficina})`;
-    return { titularesDelFolio, foliosPorPropietario, titularesDeFolios, prefijo, prefijoBusqueda, folios: 'acervo_folios', titulares: 'acervo_titulares', antecedentes: 'acervo_antecedentes',
+    return { rpp: perfil.rpp_disponible ? new AcervoFoliosRpp(this.connection, perfil.esquema, oficina) : undefined,
+      titularesDelFolio, foliosPorPropietario, titularesDeFolios, prefijo, prefijoBusqueda, folios: 'acervo_folios', titulares: 'acervo_titulares', antecedentes: 'acervo_antecedentes',
       actos: 'acervo_actos', delegaciones: 'acervo_delegaciones', vinculos: 'acervo_vinculos', trigramas: this.trigramas };
   }
 }

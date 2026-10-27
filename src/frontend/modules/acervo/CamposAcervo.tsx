@@ -22,7 +22,7 @@ export function CamposAcervo<K extends string>({ prefijo, campos, valores, onCam
         <label htmlFor={id} className="acervo-block acervo-mb-1.5 acervo-text-xs acervo-font-bold acervo-text-carbon">{campo.etiqueta}</label>
         <input id={id} name={campo.nombre} type="text" value={valores[campo.nombre]}
           maxLength={campo.maximo ?? 200}
-          inputMode={campo.modo ?? 'text'} autoComplete="off" autoCapitalize="characters" disabled={deshabilitado}
+          inputMode={campo.modo ?? 'text'} autoComplete="off" autoCapitalize="characters" disabled={deshabilitado || campo.deshabilitado} placeholder={campo.placeholder}
           className={CLASE_INPUT}
           onChange={(evento) => {
             const input = evento.currentTarget;

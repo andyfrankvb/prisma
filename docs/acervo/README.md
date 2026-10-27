@@ -4,6 +4,11 @@ Consulta de inmuebles y antecedentes de las cuatro delegaciones, con el diseño
 y las búsquedas aprobados por QA. API: `/api/v1/acervo`. Pantalla:
 `/busqueda-acervo`.
 
+La identificación permite consultar por **Folio GISNET**, **Folio RPP** o ambos.
+El detalle presenta el número GISNET y los folios RPP vinculados por un
+antecedente completo y único en cada fuente. La ampliación y sus pruebas se
+describen en [37_folios_rpp.md](37_folios_rpp.md).
+
 ## Integración
 
 - La API usa `authenticate` y `requireModulo('busqueda_acervo', ...)` de PRISMA.

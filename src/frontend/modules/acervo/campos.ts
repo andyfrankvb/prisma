@@ -9,6 +9,8 @@ export interface CampoFormulario<K extends string> {
   etiqueta: string;
   maximo?: number;
   modo?: 'text' | 'numeric' | 'decimal';
+  deshabilitado?: boolean;
+  placeholder?: string;
 }
 
 export const CAMPOS_ANTECEDENTE: CampoFormulario<CampoAntecedente>[] = [
@@ -20,7 +22,8 @@ export const CAMPOS_ANTECEDENTE: CampoFormulario<CampoAntecedente>[] = [
 ];
 
 export const CAMPOS_IDENTIFICACION: CampoFormulario<CampoInmueble>[] = [
-  { nombre: 'folio', etiqueta: 'Folio' },
+  { nombre: 'folio', etiqueta: 'Folio GISNET' },
+  { nombre: 'folio_rpp', etiqueta: 'Folio RPP', modo: 'numeric', maximo: 20 },
   { nombre: 'propietario', etiqueta: 'Propietario' },
   { nombre: 'clave_catastral', etiqueta: 'Clave catastral' },
   { nombre: 'superficie_total', etiqueta: 'Superficie total' },
@@ -51,7 +54,7 @@ export const ANTECEDENTE_VACIO: FormularioAntecedente = {
 };
 
 export const INMUEBLE_VACIO: FormularioInmueble = {
-  folio: '', propietario: '', clave_catastral: '', superficie_total: '', calle: '',
+  folio: '', folio_rpp: '', propietario: '', clave_catastral: '', superficie_total: '', calle: '',
   colonia: '', lote: '', manzana: '', colindancias: '', localidad: '', no_exterior: '',
   no_interior: '', super_manzana: '', fraccionamiento: '', condominio: '', predio_conocido: '',
 };
@@ -107,6 +110,9 @@ export function filtrosInmueble(delegacion: number, valores: FormularioInmueble,
     const valor = valores[nombre].trim();
     if (valor) filtros[nombre] = valor;
   }
+  if (filtros.folio_rpp && !/^[0-9]{1,20}$/.test(filtros.folio_rpp)) {
+    throw new Error('Folio RPP debe contener únicamente números, hasta 20 dígitos.');
+  }
   if (filtros.superficie_total && /^\d+([.,]\d+)?$/.test(filtros.superficie_total)) {
     filtros.superficie_total = filtros.superficie_total.replace(',', '.');
   }
@@ -128,4 +134,11 @@ export function mostrarFecha(valor: string | null): string {
   if (!valor) return '—';
   const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
   return partes ? partes[3] + '/' + partes[2] + '/' + partes[1] : valor;
+}
+
+export function mostrarFoliosRpp(inmueble: { folios_rpp?: string[]; rpp_estado?: string }): string {
+  const folios = inmueble.folios_rpp ?? [];
+  if (inmueble.rpp_estado === 'no_disponible' || inmueble.rpp_estado === undefined) return 'No disponible';
+  if (folios.length && (inmueble.rpp_estado === 'vinculado' || inmueble.rpp_estado === 'parcial')) return folios.join(' · ') + (inmueble.rpp_estado === 'parcial' ? ' · Hay otras coincidencias por verificar' : '');
+  return inmueble.rpp_estado === 'ambiguo' ? 'Coincidencias por verificar' : 'Sin correspondencia identificada';
 }
