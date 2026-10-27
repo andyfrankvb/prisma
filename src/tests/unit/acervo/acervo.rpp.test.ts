@@ -1,22 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { leerInmueble } from '../../../modules/acervo/acervo.search.validation';
 import { AcervoFoliosRpp } from '../../../modules/acervo/acervo.rpp';
-import { filtrosInmueble, INMUEBLE_VACIO, mostrarFoliosRpp } from '../../../frontend/modules/acervo/campos';
+import { CAMPOS_IDENTIFICACION, filtrosInmueble, INMUEBLE_VACIO, mostrarFoliosRpp } from '../../../frontend/modules/acervo/campos';
 
 describe('folios GISNET y RPP', () => {
-  it('acepta buscar solo por RPP y combinar ambos tipos', () => {
-    expect(leerInmueble({ delegacion_id: '1', folio_rpp: '107301' })).toMatchObject({ folio_rpp: '107301' });
-    expect(leerInmueble({ delegacion_id: '1', folio: '509254', folio_rpp: '107301' })).toMatchObject({ folio: '509254', folio_rpp: '107301' });
+  it('recibe cualquiera de las numeraciones mediante el mismo filtro Folio', () => {
+    expect(leerInmueble({ delegacion_id: '1', folio: '107301' })).toMatchObject({ folio: '107301' });
+    expect(leerInmueble({ delegacion_id: '1', folio: '509254' })).toMatchObject({ folio: '509254' });
   });
   it.each(['107301 OR 1=1', '107301%', 'ABC', '123456789012345678901'])('rechaza RPP no numérico o excesivo: %s', folio_rpp => {
     expect(() => leerInmueble({ delegacion_id: '1', folio_rpp })).toThrow();
   });
-  it('el formulario envía los dos filtros sin confundirlos y conserva sus terminaciones', () => {
-    expect(filtrosInmueble(1, { ...INMUEBLE_VACIO, folio: '9254', folio_rpp: '301' }, 1))
-      .toMatchObject({ folio: '9254', folio_rpp: '301' });
+  it('el formulario conserva la terminación en un único campo Folio', () => {
+    const filtros = filtrosInmueble(1, { ...INMUEBLE_VACIO, folio: '301' }, 1);
+    expect(filtros).toMatchObject({ folio: '301' });
+    expect(filtros).not.toHaveProperty('folio_rpp');
+    expect(CAMPOS_IDENTIFICACION.map(c => c.nombre)).toEqual(['folio', 'propietario', 'clave_catastral', 'superficie_total']);
   });
-  it('valida RPP antes de enviar el formulario', () => {
-    expect(() => filtrosInmueble(1, { ...INMUEBLE_VACIO, folio_rpp: 'ABC' }, 1)).toThrow('Folio RPP');
+  it('el único campo de folio se denomina Folio', () => {
+    expect(CAMPOS_IDENTIFICACION[0].etiqueta).toBe('Folio');
   });
   it('muestra todos los RPP vinculados y diferencia disponibilidad de ausencia', () => {
     expect(mostrarFoliosRpp({ rpp_estado: 'vinculado', folios_rpp: ['107301', '207301'] })).toBe('107301 · 207301');

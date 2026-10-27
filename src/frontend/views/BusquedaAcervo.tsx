@@ -75,7 +75,6 @@ export const BusquedaAcervo: React.FC<Props> = ({ cliente = acervoApi }) => {
     detalleInmueble.cerrar();
     antecedentes.invalidar();
     inmuebles.invalidar();
-    if (!delegaciones.find(d => String(d.id) === valor)?.rpp_disponible) inmuebles.cambiar('folio_rpp', '');
     setDelegacionId(valor);
   };
 
@@ -194,8 +193,7 @@ export const BusquedaAcervo: React.FC<Props> = ({ cliente = acervoApi }) => {
             <TipoCoincidenciaAcervo prefijo="acervo-inm" valor={inmuebles.precision} deshabilitado={sinDelegacion}
               onCambiar={(valor) => { cerrarDetalle(); inmuebles.cambiarPrecision(valor); }} />
           </div>
-          <CamposAcervo prefijo="acervo-inm" columnas={5} campos={CAMPOS_IDENTIFICACION.map(campo => campo.nombre === 'folio_rpp'
-              ? { ...campo, deshabilitado: delegacion?.rpp_disponible !== true, placeholder: delegacion && !delegacion.rpp_disponible ? 'No disponible' : undefined } : campo)}
+          <CamposAcervo prefijo="acervo-inm" campos={CAMPOS_IDENTIFICACION}
             valores={inmuebles.formulario} deshabilitado={sinDelegacion}
             onCambiar={(campo, valor) => { cerrarDetalle(); inmuebles.cambiar(campo, valor); }} />
           <UbicacionAcervo valores={inmuebles.formulario} deshabilitado={sinDelegacion}

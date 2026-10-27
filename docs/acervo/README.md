@@ -4,10 +4,10 @@ Consulta de inmuebles y antecedentes de las cuatro delegaciones, con el diseño
 y las búsquedas aprobados por QA. API: `/api/v1/acervo`. Pantalla:
 `/busqueda-acervo`.
 
-La identificación permite consultar por **Folio GISNET**, **Folio RPP** o ambos.
-El detalle presenta el número GISNET y los folios RPP vinculados por un
-antecedente completo y único en cada fuente. La ampliación y sus pruebas se
-describen en [37_folios_rpp.md](37_folios_rpp.md).
+La identificación permite consultar ambas numeraciones desde el único campo **Folio**.
+Los resultados y el detalle presentan **Folio** y **F.R.E.**, enlazados por un
+antecedente completo y único en cada fuente. El comportamiento vigente y sus
+pruebas se describen en [38_folio_unificado.md](38_folio_unificado.md).
 
 ## Integración
 

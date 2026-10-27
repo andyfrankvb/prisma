@@ -98,4 +98,17 @@ export class AcervoFoliosRpp {
     return { folios_rpp: folios, rpp_estado: row?.ambiguos
       ? (folios.length ? 'parcial' : 'ambiguo') : (folios.length ? 'vinculado' : 'sin_coincidencia') };
   }
+
+  /** Un solo cruce para todos los folios de la página; no consulta uno por fila. */
+  resumenSql(condicionSemilla: string): string {
+    return `WITH ${this.ctes('gisnet', condicionSemilla)}resumen AS (
+      SELECT p.folio_gisnet AS numero_folio,
+        coalesce((SELECT jsonb_agg(c.folio_rpp::text ORDER BY c.folio_rpp)
+          FROM rpp_confirmados c WHERE c.folio_gisnet = p.folio_gisnet), '[]'::jsonb) AS folios_rpp,
+        CASE WHEN bool_or(NOT p.verificada)
+          THEN CASE WHEN bool_or(p.verificada) THEN 'parcial' ELSE 'ambiguo' END
+          ELSE 'vinculado' END AS rpp_estado
+      FROM rpp_parejas p GROUP BY p.folio_gisnet
+    ) SELECT * FROM resumen`;
+  }
 }

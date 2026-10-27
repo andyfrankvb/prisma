@@ -1,7 +1,7 @@
 import type { ControlConsultaAcervo } from './acervo.search.cancelacion';
 
 export const CAMPOS_INMUEBLE = [
-  'folio', 'folio_rpp', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
+  'folio', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
   'lote', 'manzana', 'colindancias', 'localidad', 'no_exterior', 'no_interior',
   'super_manzana', 'fraccionamiento', 'condominio', 'predio_conocido',
 ] as const;
@@ -54,7 +54,6 @@ export interface InmuebleFiltros extends AcervoPaginacion {
   orden_por?: CampoOrdenInmueble;
   orden_direccion?: DireccionOrden;
   folio?: string;
-  folio_rpp?: string;
   propietario?: string;
   clave_catastral?: string;
   superficie_total?: string;
@@ -72,7 +71,7 @@ export interface InmuebleFiltros extends AcervoPaginacion {
   predio_conocido?: string;
 }
 
-export interface AntecedenteResultado {
+export interface AntecedenteResultado extends Partial<DatosFoliosRpp> {
   antecedente_id: string;
   folio_id: string;
   folio: string;

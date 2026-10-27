@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icono } from '../../components/Icono';
 import { CLASE_SECUNDARIO } from './CamposAcervo';
-import { mostrarDato, mostrarSuperficie } from './campos';
+import { mostrarDato, mostrarSuperficie, mostrarFoliosRpp } from './campos';
 import { IconoOrdenAcervo } from './IconoOrdenAcervo';
 import type {
   AcervoBusqueda, AcervoOrden, CampoOrdenAcervo, AntecedenteResultado, FilaAcervo, InmuebleResultado,
@@ -21,26 +21,28 @@ export const anchoColumnaAcervo = (porcentaje: number) =>
   `calc(${porcentaje}% - ${ANCHO_FOLIO_ACERVO * porcentaje / 100}px)`;
 
 export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
-  { etiqueta: 'Folio GISNET', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'Sección', ancho: 9, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
-  { etiqueta: 'Tomo', ancho: 11, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
-  { etiqueta: 'Volumen', ancho: 12, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
-  { etiqueta: 'Inscripción', ancho: 14, numerica: true, ordenarPor: 'inscripcion', valor: (fila) => mostrarDato(fila.registro) },
-  { etiqueta: 'Inscripción final', ancho: 17, numerica: true, ordenarPor: 'inscripcion_final', valor: (fila) => mostrarDato(fila.registro_final) },
-  { etiqueta: 'Foja inicial', ancho: 13, numerica: true, ordenarPor: 'foja_inicial', valor: (fila) => mostrarDato(fila.foja_inicial) },
-  { etiqueta: 'Foja final', ancho: 13, numerica: true, ordenarPor: 'foja_final', valor: (fila) => mostrarDato(fila.foja_final) },
-  { etiqueta: 'Acto', ancho: 11, numerica: true, valor: (fila) => mostrarDato(fila.acto) },
+  { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
+  { etiqueta: 'F.R.E.', ancho: 10, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'Sección', ancho: 8, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
+  { etiqueta: 'Tomo', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
+  { etiqueta: 'Volumen', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
+  { etiqueta: 'Inscripción', ancho: 13, numerica: true, ordenarPor: 'inscripcion', valor: (fila) => mostrarDato(fila.registro) },
+  { etiqueta: 'Inscripción final', ancho: 16, numerica: true, ordenarPor: 'inscripcion_final', valor: (fila) => mostrarDato(fila.registro_final) },
+  { etiqueta: 'Foja inicial', ancho: 12, numerica: true, ordenarPor: 'foja_inicial', valor: (fila) => mostrarDato(fila.foja_inicial) },
+  { etiqueta: 'Foja final', ancho: 12, numerica: true, ordenarPor: 'foja_final', valor: (fila) => mostrarDato(fila.foja_final) },
+  { etiqueta: 'Acto', ancho: 9, numerica: true, valor: (fila) => mostrarDato(fila.acto) },
 ];
 
 export const COLUMNAS_INMUEBLE: ColumnaAcervo<InmuebleResultado>[] = [
-  { etiqueta: 'Folio GISNET', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'Propietario', ancho: 21, valor: (fila) => fila.propietarios.join(' · ') || '—' },
-  { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 14, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
-  { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 12, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },
-  { etiqueta: 'Calle', ancho: 16, valor: (fila) => mostrarDato(fila.calle) },
-  { etiqueta: 'Colonia', ancho: 12, valor: (fila) => mostrarDato(fila.colonia) },
-  { etiqueta: 'Lote', ordenarPor: 'lote', ancho: 6, numerica: true, valor: (fila) => mostrarDato(fila.lote) },
-  { etiqueta: 'Manzana', ordenarPor: 'manzana', ancho: 7, numerica: true, valor: (fila) => mostrarDato(fila.manzana) },
+  { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
+  { etiqueta: 'F.R.E.', ancho: 9, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'Propietario', ancho: 20, valor: (fila) => fila.propietarios.join(' · ') || '—' },
+  { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 13, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
+  { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 11, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },
+  { etiqueta: 'Calle', ancho: 14, valor: (fila) => mostrarDato(fila.calle) },
+  { etiqueta: 'Colonia', ancho: 10, valor: (fila) => mostrarDato(fila.colonia) },
+  { etiqueta: 'Lote', ordenarPor: 'lote', ancho: 5, numerica: true, valor: (fila) => mostrarDato(fila.lote) },
+  { etiqueta: 'Manzana', ordenarPor: 'manzana', ancho: 6, numerica: true, valor: (fila) => mostrarDato(fila.manzana) },
   { etiqueta: 'Localidad', ancho: 12, valor: (fila) => mostrarDato(fila.localidad) },
 ];
 

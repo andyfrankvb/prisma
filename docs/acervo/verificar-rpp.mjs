@@ -25,9 +25,10 @@ export async function verificarRpp(ejecutar) {
     await ejecutar(fixture);
     const repo = nuevo();
     assert.equal((await repo.delegaciones())[0].rpp_disponible, true);
-    const porRpp = await repo.inmuebles(filtros({ folio_rpp: '107301' }));
+    const porRpp = await repo.inmuebles(filtros({ folio: '107301' }));
     assert.deepEqual(porRpp.resultados.map(r => r.folio), ['509254']);
-    assert.deepEqual((await repo.inmuebles(filtros({ folio_rpp: '301' }))).resultados.map(r => r.folio), ['509254']);
+    assert.deepEqual(porRpp.resultados[0].folios_rpp, ['107301']);
+    assert.deepEqual((await repo.inmuebles(filtros({ folio: '301' }))).resultados.map(r => r.folio), ['509254']);
     const porGisnet = await repo.inmuebles(filtros({ folio: '9254' }));
     assert.deepEqual(porGisnet.resultados.map(r => r.folio), ['509254']);
     const detalle = await repo.detalle('50925401', 1);
@@ -37,9 +38,33 @@ export async function verificarRpp(ejecutar) {
     assert.equal(detalle.actos.length, 2);
     aprobadas.push('Caso 509254/107301; búsqueda por ambos folios y sus terminaciones; datos y actos preservados');
 
+    const antecedente = await repo.antecedentes({ delegacion_id: 1, pagina: 1, tamano_pagina: 10, seccion: 1, tomo: 'XLIV' });
+    assert.deepEqual(antecedente.resultados[0].folios_rpp, ['107301']);
+    assert.deepEqual((await repo.inmuebles(filtros({ propietario: 'PERSONA DE PRUEBA' }))).resultados[0].folios_rpp, ['107301']);
+    aprobadas.push('Resultados por antecedente y propietario incluyen Folio y F.R.E. sin filtrar por folio');
+
+    await ejecutar(`INSERT INTO ${namespace}.inmobiliario (nu_folio, nu_ofic) VALUES (107301, 1);`);
+    const colision = await repo.inmuebles(filtros({ folio: '107301' }));
+    assert.equal(colision.total_resultados, 2);
+    assert.deepEqual(colision.resultados.map(r => r.folio), ['107301', '509254']);
+    await ejecutar(`DELETE FROM ${namespace}.inmobiliario WHERE nu_folio = 107301;`);
+    aprobadas.push('Un número que es Folio de un inmueble y F.R.E. de otro devuelve ambos sin escoger arbitrariamente');
+
+    await ejecutar(`INSERT INTO ${namespace}.lista_tomos_rpp VALUES
+      (509254, 1, 'BI17', 2, 'XXXI', '02', '01_01', 345, 0, 0, '1987-03-13', 999);`);
+    const doble = await repo.inmuebles(filtros({ folio: '509254' }));
+    assert.equal(doble.total_resultados, 1);
+    assert.deepEqual(doble.resultados[0].folios_rpp, ['107301', '509254']);
+    await ejecutar(`DELETE FROM ${namespace}.lista_tomos_rpp WHERE nu_folio = 509254;`);
+    aprobadas.push('Si el mismo inmueble coincide por ambos identificadores se cuenta y presenta una sola vez');
+
+    assert.equal((await repo.inmuebles(filtros({ folio: '073', tipo_busqueda: 'precisa' }))).total_resultados, 0);
+    assert.equal((await repo.inmuebles(filtros({ folio: '073', tipo_busqueda: 'aproximada' }))).resultados[0].folio, '509254');
+    aprobadas.push('Búsqueda precisa por terminación y aproximada por contenido en cualquiera de las numeraciones');
+
     await ejecutar(`INSERT INTO ${namespace}.lista_tomos_gisnet SELECT * FROM ${namespace}.lista_tomos_gisnet;
       INSERT INTO ${namespace}.lista_tomos_rpp SELECT * FROM ${namespace}.lista_tomos_rpp;`);
-    assert.equal((await repo.inmuebles(filtros({ folio_rpp: '107301' }))).total_resultados, 1);
+    assert.equal((await repo.inmuebles(filtros({ folio: '107301' }))).total_resultados, 1);
     assert.deepEqual((await repo.detalle('50925401', 1)).inmueble.folios_rpp, ['107301']);
     aprobadas.push('Duplicados de la misma correspondencia no multiplican inmuebles ni folios RPP');
 
@@ -50,26 +75,27 @@ export async function verificarRpp(ejecutar) {
 
     await ejecutar(`INSERT INTO ${namespace}.lista_tomos_gisnet VALUES
       (700000, 1, 'BI1', 1, 'XLIV', '01', '01_01', 365, 366, 366, '1987-03-13', 2);`);
-    const ambiguo = await repo.inmuebles(filtros({ folio_rpp: '107301' }));
+    const ambiguo = await repo.inmuebles(filtros({ folio: '107301' }));
     assert.equal(ambiguo.total_resultados, 0); assert.match(ambiguo.mensaje, /ambiguas/);
     assert.deepEqual((await repo.detalle('50925401', 1)).inmueble.folios_rpp, []);
     assert.equal((await repo.detalle('50925401', 1)).inmueble.rpp_estado, 'ambiguo');
+    assert.equal((await repo.inmuebles(filtros({ folio: '509254' }))).total_resultados, 1);
     await ejecutar(`DELETE FROM ${namespace}.lista_tomos_gisnet WHERE nu_folio = 700000;`);
     aprobadas.push('Una misma clave para varios GISNET se rechaza en búsqueda y detalle');
 
     await ejecutar(`INSERT INTO ${namespace}.lista_tomos_rpp VALUES
       (207301, 1, 'BI1', 1, 'XLIV', '01', '01_01', 365, 366, 366, '1987-03-13', 3);`);
     assert.equal((await repo.detalle('50925401', 1)).inmueble.rpp_estado, 'ambiguo');
-    assert.equal((await repo.inmuebles(filtros({ folio_rpp: '207301' }))).total_resultados, 0);
+    assert.equal((await repo.inmuebles(filtros({ folio: '207301' }))).total_resultados, 0);
     await ejecutar(`DELETE FROM ${namespace}.lista_tomos_rpp WHERE nu_folio = 207301;`);
     aprobadas.push('Una misma clave para varios RPP tampoco se presenta como equivalencia confirmada');
 
     await ejecutar(`INSERT INTO ${namespace}.lista_tomos_rpp VALUES
       (207301, 1, 'BI17', 2, 'XXXI', '02', '01_01', 345, 0, 0, '1987-03-13', 4);`);
     assert.deepEqual((await repo.detalle('50925401', 1)).inmueble.folios_rpp, ['107301', '207301']);
-    assert.equal((await repo.inmuebles(filtros({ folio_rpp: '207301' }))).total_resultados, 1);
-    assert.equal((await repo.inmuebles(filtros({ folio: '12345', folio_rpp: '107301' }))).total_resultados, 0);
-    aprobadas.push('Varios RPP por antecedentes distintos se conservan; dos filtros se combinan con AND');
+    assert.equal((await repo.inmuebles(filtros({ folio: '207301' }))).total_resultados, 1);
+    assert.equal((await repo.inmuebles(filtros({ folio: '107301', superficie_total: '999' }))).total_resultados, 0);
+    aprobadas.push('Varios F.R.E. se muestran en los resultados; Folio y superficie se combinan con AND');
 
     for (const [gisnet, rpp, pre] of [[600001, 100001, 101], [600002, 100021, 102]]) {
       await ejecutar(`INSERT INTO ${namespace}.inmobiliario (nu_folio, nu_ofic) VALUES ($1, 1)`, [gisnet]);
@@ -78,13 +104,13 @@ export async function verificarRpp(ejecutar) {
       await ejecutar(`INSERT INTO ${namespace}.lista_tomos_rpp VALUES
         ($1, 1, 'BI1', 1, 'TEST', '01', '01_01', $2, 1, 1, '2000-01-01', 0)`, [rpp, pre]);
     }
-    const page = await repo.inmuebles(filtros({ folio_rpp: '1', tamano_pagina: 1, orden_por: 'folio', orden_direccion: 'desc' }));
+    const page = await repo.inmuebles(filtros({ folio: '1', tamano_pagina: 1, orden_por: 'folio', orden_direccion: 'desc' }));
     assert.equal(page.total_resultados, 3); assert.equal(page.resultados[0].folio, '600002');
-    assert.equal((await repo.inmuebles(filtros({ folio_rpp: '1', tamano_pagina: 1, pagina: 2, orden_por: 'folio', orden_direccion: 'desc' }))).resultados[0].folio, '600001');
+    assert.equal((await repo.inmuebles(filtros({ folio: '1', tamano_pagina: 1, pagina: 2, orden_por: 'folio', orden_direccion: 'desc' }))).resultados[0].folio, '600001');
     aprobadas.push('El orden y la paginación se aplican al conjunto GISNET obtenido por RPP');
 
     await ejecutar(`UPDATE ${namespace}.lista_tomos_rpp SET tomo = NULL WHERE nu_folio = 107301;`);
-    assert.equal((await repo.inmuebles(filtros({ folio_rpp: '107301' }))).total_resultados, 0);
+    assert.equal((await repo.inmuebles(filtros({ folio: '107301' }))).total_resultados, 0);
     assert.deepEqual((await repo.detalle('50925401', 1)).inmueble.folios_rpp, ['207301']);
     aprobadas.push('Un antecedente incompleto no crea una correspondencia');
 
@@ -93,8 +119,8 @@ export async function verificarRpp(ejecutar) {
     assert.equal((await sinFuente.delegaciones())[0].rpp_disponible, false);
     assert.equal((await sinFuente.inmuebles(filtros({ folio: '509254' }))).total_resultados, 1);
     assert.equal((await sinFuente.detalle('50925401', 1)).inmueble.rpp_estado, 'no_disponible');
-    await assert.rejects(() => sinFuente.inmuebles(filtros({ folio_rpp: '107301' })), /no está disponible/);
-    aprobadas.push('Sin fuente RPP compatible, GISNET continúa funcionando y RPP devuelve un mensaje específico');
+    assert.equal((await sinFuente.inmuebles(filtros({ folio: '107301' }))).total_resultados, 0);
+    aprobadas.push('Sin fuente RPP compatible, el campo Folio sigue buscando en GISNET');
     return { pruebas: aprobadas.length, aprobadas };
   } finally {
     await ejecutar(`DROP SCHEMA IF EXISTS ${namespace} CASCADE`);
