@@ -5,7 +5,7 @@ import {
   ANCHO_FOLIO_ACERVO,
   CLASE_CABECERA, CLASE_CELDA, CLASE_CELDA_FOLIO, CLASE_CELDA_NUMERICA,
 } from './ResultadosAcervo';
-import { mostrarDato, mostrarFecha, mostrarSuperficie } from './campos';
+import { mostrarDato, mostrarFecha, mostrarSuperficie, mostrarFoliosRpp } from './campos';
 import type { AcervoFolioDetalle, FilaAcervo } from './types';
 
 interface Props {
@@ -65,7 +65,8 @@ function VentanaDetalleAcervo({ seleccion, aproximado, detalle, cargando, error,
   };
   const inmueble = detalle?.inmueble;
   const datos = inmueble ? [
-    ['Folio', inmueble.folio],
+    ['Folio', inmueble.folio_gisnet ?? inmueble.folio],
+    ['F.R.E.', mostrarFoliosRpp(inmueble)],
     ['Propietario', inmueble.propietarios.join(' · ')],
     ['Clave catastral', mostrarDato(inmueble.clave_catastral)],
     ['Superficie total', mostrarSuperficie(inmueble.superficie_total, inmueble.unidad_superficie)],

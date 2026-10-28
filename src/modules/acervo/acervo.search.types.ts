@@ -11,6 +11,7 @@ export interface AcervoDelegacion {
   nombre: string;
   oficina: number;
   disponible?: boolean;
+  rpp_disponible?: boolean;
 }
 
 export type TipoCoincidenciaAcervo = 'precisa' | 'aproximada';
@@ -22,11 +23,11 @@ export interface AcervoPaginacion {
 }
 
 export const CAMPOS_ORDEN_ANTECEDENTE = [
-  'folio', 'inscripcion', 'inscripcion_final', 'foja_inicial', 'foja_final',
+  'folio', 'fre', 'inscripcion', 'inscripcion_final', 'foja_inicial', 'foja_final',
 ] as const;
 export type CampoOrdenAntecedente = typeof CAMPOS_ORDEN_ANTECEDENTE[number];
 export const CAMPOS_ORDEN_INMUEBLE = [
-  'folio', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
+  'folio', 'fre', 'propietario', 'clave_catastral', 'superficie_total', 'calle', 'colonia',
   'lote', 'manzana', 'localidad',
 ] as const;
 export type CampoOrdenInmueble = typeof CAMPOS_ORDEN_INMUEBLE[number];
@@ -70,7 +71,7 @@ export interface InmuebleFiltros extends AcervoPaginacion {
   predio_conocido?: string;
 }
 
-export interface AntecedenteResultado {
+export interface AntecedenteResultado extends Partial<DatosFoliosRpp> {
   antecedente_id: string;
   folio_id: string;
   folio: string;
@@ -84,9 +85,16 @@ export interface AntecedenteResultado {
   acto: string | null;
 }
 
-export interface InmuebleResultado {
+export type EstadoVinculoRpp = 'vinculado' | 'sin_coincidencia' | 'ambiguo' | 'parcial' | 'no_disponible';
+export interface DatosFoliosRpp {
+  folios_rpp: string[];
+  rpp_estado: EstadoVinculoRpp;
+}
+
+export interface InmuebleResultado extends Partial<DatosFoliosRpp> {
   folio_id: string;
   folio: string;
+  folio_gisnet?: string;
   propietarios: string[];
   clave_catastral: string | null;
   superficie_total: string | null;
@@ -123,6 +131,7 @@ export interface AcervoBusqueda<T> {
   paginas_totales: number;
   orden?: AcervoOrden;
   mensaje: string | null;
+  advertencia_rpp?: string | null;
   resultados: T[];
   total_aproximados: number;
   limite_aproximados: number;

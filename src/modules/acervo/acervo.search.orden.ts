@@ -14,6 +14,9 @@ export function ordenInmueblesSql(alias: string, orden: AcervoOrden): string {
   if (orden.campo === 'folio') return direccion === 'ASC' ? folio
     : `CASE WHEN ${alias}.folio ~ '^[0-9]+$' THEN ${alias}.folio::numeric END DESC NULLS LAST,
     ${alias}.folio DESC, ${alias}.folio_id::bigint`;
+  // fre_orden es el menor F.R.E. confirmado, calculado antes de LIMIT.
+  // Los ausentes o ambiguos quedan al final en ambos sentidos.
+  if (orden.campo === 'fre') return `${alias}.fre_orden ${direccion} NULLS LAST, ${folio}`;
   const columna = orden.campo === 'propietario'
     ? `(SELECT string_agg(t.nombre, ' · ' ORDER BY t.posicion)
         FROM jsonb_array_elements_text(coalesce(${alias}.propietarios, '[]'::jsonb))

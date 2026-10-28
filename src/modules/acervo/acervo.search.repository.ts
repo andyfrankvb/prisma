@@ -18,6 +18,7 @@ interface BusquedaRow<T> {
   resultados: T[];
   total_aproximados: number;
   aproximados: AcervoSugerencia<T>[];
+  rpp_ambiguos?: number;
 }
 interface Regla {
   campo: string;
@@ -33,7 +34,7 @@ const CAMPOS_ANTECEDENTE = [
   'registro', 'registro_final', 'foja_inicial', 'foja_final', 'acto',
 ];
 const CAMPOS_RESULTADO_INMUEBLE = [
-  'folio_id', 'folio', 'propietarios', 'clave_catastral', 'superficie_total',
+  'folio_id', 'folio', 'folio_gisnet', 'propietarios', 'clave_catastral', 'superficie_total',
   'calle', 'colonia', 'lote', 'manzana', 'colindancias', 'localidad',
   'no_exterior', 'no_interior', 'super_manzana', 'fraccionamiento',
   'condominio', 'predio_conocido',
@@ -64,6 +65,7 @@ function ordenFoliosSql(alias: string): string {
 // Solo estas columnas internas pueden entrar en ORDER BY. numeric conserva
 // precisión y ceros visibles; 9, 9A, 10 se ordenan por número y después letra.
 function ordenAntecedentesSql(alias: string, orden: AcervoOrden): string {
+  if (orden.campo === 'fre') return `${ordenInmueblesSql(alias, orden)}, ${alias}.antecedente_id::bigint`;
   const columnas: Partial<Record<AcervoOrden['campo'], string>> = {
     folio: 'folio', inscripcion: 'registro', inscripcion_final: 'registro_final',
     foja_inicial: 'foja_inicial', foja_final: 'foja_final',
@@ -96,7 +98,7 @@ function propietariosSql(origen: AcervoOrigen, fuentes: FuentesAcervo, id: strin
     FROM ${fuentes.titulares} t WHERE t.folio_id = ${id}), '[]'::jsonb)`;
 }
 function inmuebleSql(origen: AcervoOrigen, fuentes: FuentesAcervo, diferirTitulares = false): string {
-  return `f.id::text AS folio_id, f.folio,
+  return `f.id::text AS folio_id, f.folio, f.folio AS folio_gisnet,
     ${origen.modo === 'copia_local' ? 'f.propietarios'
       : diferirTitulares ? "'[]'::jsonb" : propietariosSql(origen, fuentes, 'f.id')} AS propietarios,
     f.clave_catastral, f.superficie_total::text AS superficie_total,
@@ -155,7 +157,7 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
   }
 
   async delegaciones(): Promise<AcervoDelegacion[]> {
-    if (this.stage) return (await this.stage.catalogo()).map(({ id, nombre, oficina, disponible }) => ({ id, nombre, oficina, disponible }));
+    if (this.stage) return (await this.stage.catalogo()).map(({ id, nombre, oficina, disponible, rpp_disponible }) => ({ id, nombre, oficina, disponible, rpp_disponible }));
     const result = await this.connection.raw<SqlResult<AcervoDelegacion>>(
       `SELECT id, nombre, oficina ${this.origen.modo === 'copia_local' ? ', disponible' : ''}
         FROM ${this.origen.esquema}.delegaciones ORDER BY id`,
@@ -179,6 +181,8 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
   ): Promise<AcervoBusqueda<T>> {
     this.comprobarDelegacion(filtros.delegacion_id);
     const fuentes = await this.fuentes(filtros.delegacion_id);
+    const indiceFolio = reglas.findIndex(r => r.campo === 'folio');
+    const buscarAmbosFolios = indiceFolio >= 0 && !!fuentes.rpp;
     const aproximada = filtros.tipo_busqueda === 'aproximada';
     const ordenarPropietarios = unidad === 'folios' && filtros.orden_por === 'propietario';
     if (!reglas.length) throw new Error('La consulta de Acervo requiere filtros.');
@@ -256,6 +260,11 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
           ? `public.word_similarity(${valorNormal}, ${campoNormal})::numeric`
           : `public.similarity(${campoNormal}, ${valorNormal})::numeric`;
       }
+      if (regla.campo === 'folio' && buscarAmbosFolios) {
+        // La alternativa RPP pertenece a este mismo filtro. Los demás datos
+        // capturados siguen combinándose con AND; cada inmueble se cuenta una vez.
+        exacto = `(${exacto} OR (b.folio_id::bigint / 100) IN (SELECT numero_folio FROM folios_por_rpp))`;
+      }
       exactos.push(`coalesce((${exacto}), FALSE) AS c${index}`);
       afinidades.push(`CASE WHEN coalesce((${exacto}), FALSE) THEN 1::numeric ELSE (${similitud}) END AS s${index}`);
     });
@@ -266,6 +275,7 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
     const coincidentes = reglas.map((regla, index) => `CASE WHEN e.c${index} THEN '${regla.campo}'::text END`).join(', ');
     const diferentes = reglas.map((regla, index) => `CASE WHEN NOT e.c${index} THEN '${regla.campo}'::text END`).join(', ');
     const orden: AcervoOrden = { campo: filtros.orden_por ?? 'folio', direccion: filtros.orden_direccion ?? 'asc' };
+    const ordenarFre = orden.campo === 'fre';
     const ordenPagina = unidad === 'antecedentes' ? ordenAntecedentesSql('e', orden) : ordenInmueblesSql('e', orden);
     const ordenExacto = unidad === 'antecedentes' ? ordenAntecedentesSql('r', orden) : ordenInmueblesSql('r', orden);
     const ordenSugerencias = `e.puntaje DESC, ${ordenFoliosSql('e')}${unidad === 'antecedentes' ? ', e.antecedente_id::bigint' : ''}`;
@@ -289,8 +299,8 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
         ? "coalesce(t.propietarios, '[]'::jsonb) AS propietarios" : 'e.' + c).join(', ')}
       FROM exactos e LEFT JOIN titulares_para_ordenar t ON t.folio_id = e.folio_id::bigint
     ), ` : '';
-    const paginaCampos = campos.map(c => this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios && c === 'propietarios'
-      ? propietariosSql(this.origen, fuentes, 'e.folio_id::bigint') + ' AS propietarios' : c);
+    const paginaCampos = [...campos.map(c => this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios && c === 'propietarios'
+      ? propietariosSql(this.origen, fuentes, 'e.folio_id::bigint') + ' AS propietarios' : c), ...(ordenarFre ? ['fre_orden'] : [])];
     const propietariosSugeridos = this.origen.modo === 'servidor' && unidad === 'folios' && !agruparTitulares && !ordenarPropietarios
       ? ` || jsonb_build_object('propietarios', ${propietariosSql(this.origen, fuentes, 'e.folio_id::bigint')})` : '';
     const titularesMostrados = agruparTitulares ? `, folios_mostrados AS MATERIALIZED (
@@ -328,9 +338,41 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
       ? [...reglas.map((_regla, index) => `calculada${index}.c${index} AS c${index}`),
         ...reglas.map((_regla, index) => `calculada${index}.s${index} AS s${index}`)].join(', ')
       : afinidades.join(', ');
+    const ctesRpp = buscarAmbosFolios ? fuentes.rpp!.ctes('rpp', aproximada
+      ? `strpos(q.nu_folio::bigint::text, p.normal${indiceFolio}) > 0`
+      : `right(q.nu_folio::bigint::text, char_length(p.normal${indiceFolio})) = p.normal${indiceFolio}`, true) : '';
+    // Completa las dos numeraciones únicamente para la página y las sugerencias,
+    // dentro de la misma sentencia y del mismo control de cancelación manual.
+    // Solo al ordenar por F.R.E. se calcula el cruce para todos los folios que
+    // cumplen los filtros. Así el orden es global y estable entre páginas.
+    const freParaOrdenar = !ordenarFre ? '' : fuentes.rpp ? `numeros_para_ordenar_fre AS MATERIALIZED (
+      SELECT DISTINCT folio_id::bigint / 100 AS numero_folio FROM exactos
+    ), datos_fre_para_ordenar AS MATERIALIZED (
+      ${fuentes.rpp.resumenSql('q.nu_folio IN (SELECT numero_folio FROM numeros_para_ordenar_fre)')}
+    ), exactos_fre_ordenables AS NOT MATERIALIZED (
+      SELECT e.*, (rf.folios_rpp->>0)::numeric AS fre_orden FROM exactos e
+      LEFT JOIN datos_fre_para_ordenar rf ON rf.numero_folio = e.folio_id::bigint / 100
+    ), ` : `exactos_fre_ordenables AS NOT MATERIALIZED (
+      SELECT e.*, NULL::numeric AS fre_orden FROM exactos e
+    ), `;
+    const rppMostrados = fuentes.rpp ? ordenarFre ? `, datos_folios_rpp AS MATERIALIZED (
+      SELECT * FROM datos_fre_para_ordenar
+      UNION ALL SELECT * FROM (
+        ${fuentes.rpp.resumenSql("q.nu_folio IN (SELECT (resultado->>'folio_id')::bigint / 100 FROM sugerencias)")}
+      ) sugeridos_fre
+    )` : `, numeros_visibles_rpp AS MATERIALIZED (
+      SELECT folio_id::bigint / 100 AS numero_folio FROM pagina
+      UNION SELECT (resultado->>'folio_id')::bigint / 100 FROM sugerencias
+    ), datos_folios_rpp AS MATERIALIZED (
+      ${fuentes.rpp.resumenSql('q.nu_folio IN (SELECT numero_folio FROM numeros_visibles_rpp)')}
+    )` : '';
+    const datosRpp = fuentes.rpp
+      ? ` || jsonb_build_object('folios_rpp', coalesce(rf.folios_rpp, '[]'::jsonb),
+          'rpp_estado', coalesce(rf.rpp_estado, 'sin_coincidencia'))`
+      : ` || jsonb_build_object('folios_rpp', '[]'::jsonb, 'rpp_estado', 'no_disponible')`;
     const sql = `WITH ${fuentes.prefijoBusqueda ?? fuentes.prefijo}parametros_entrada AS (
       SELECT ?::smallint AS delegacion_id, ${parametros.join(', ')}
-    ), ${parametrosSql}, ${fuentesPropietario}base AS NOT MATERIALIZED (
+    ), ${parametrosSql}, ${ctesRpp}${fuentesPropietario}base AS NOT MATERIALIZED (
       SELECT ${unidad === 'antecedentes' ? antecedenteSql() : inmuebleSql(this.origen, fuentes, this.origen.modo === 'servidor' && (!ordenarPropietarios || agruparTitulares))}
       FROM ${fuentes.folios} f
       ${unidad === 'antecedentes' ? `JOIN ${fuentes.antecedentes} a ON a.folio_id = f.id` : ''}
@@ -352,8 +394,8 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
         array_remove(ARRAY[${diferentes}], NULL) AS campos_diferentes
       FROM afinidades e
       WHERE (${alMenosSimilar})
-    ), ${titularesParaOrdenar}pagina AS (
-      SELECT ${paginaCampos.join(', ')} FROM ${ordenarPropietarios && agruparTitulares ? 'exactos_ordenables' : 'exactos'} e
+    ), ${titularesParaOrdenar}${freParaOrdenar}pagina AS (
+      SELECT ${paginaCampos.join(', ')} FROM ${ordenarFre ? 'exactos_fre_ordenables' : ordenarPropietarios && agruparTitulares ? 'exactos_ordenables' : 'exactos'} e
       ORDER BY ${ordenPagina}
       LIMIT ? OFFSET ?
     ), sugerencias AS (
@@ -363,19 +405,22 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
         row_number() OVER (ORDER BY ${ordenSugerencias}) AS orden
       FROM candidatos e ORDER BY ${ordenSugerencias}
       LIMIT ${LIMITE_APROXIMADOS}
-    )${titularesMostrados} SELECT
+    )${titularesMostrados}${rppMostrados} SELECT
       (SELECT jsonb_build_object('id', d.id, 'nombre', d.nombre, 'oficina', d.oficina)
         FROM ${fuentes.delegaciones} d WHERE d.id = p.delegacion_id) AS delegacion,
+      ${buscarAmbosFolios ? '(SELECT count(*)::integer FROM rpp_parejas WHERE NOT verificada)' : '0'} AS rpp_ambiguos,
       (SELECT count(*)::integer FROM exactos) AS total_resultados,
       (SELECT count(DISTINCT folio_id)::integer FROM exactos) AS total_folios,
-      coalesce((SELECT jsonb_agg(to_jsonb(r)${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''}
+      coalesce((SELECT jsonb_agg((to_jsonb(r) - 'fre_orden')${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''}${datosRpp}
         ORDER BY ${ordenExacto}) FROM pagina r
-        ${agruparTitulares ? 'LEFT JOIN titulares_mostrados tm ON tm.folio_id = r.folio_id::bigint' : ''}), '[]'::jsonb) AS resultados,
+        ${agruparTitulares ? 'LEFT JOIN titulares_mostrados tm ON tm.folio_id = r.folio_id::bigint' : ''}
+        ${fuentes.rpp ? 'LEFT JOIN datos_folios_rpp rf ON rf.numero_folio = r.folio_id::bigint / 100' : ''}), '[]'::jsonb) AS resultados,
       (SELECT count(*)::integer FROM candidatos) AS total_aproximados,
-      coalesce((SELECT jsonb_agg(jsonb_build_object('resultado', s.resultado${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''},
+      coalesce((SELECT jsonb_agg(jsonb_build_object('resultado', s.resultado${agruparTitulares ? " || jsonb_build_object('propietarios', coalesce(tm.propietarios, '[]'::jsonb))" : ''}${datosRpp},
         'campos_coincidentes', s.campos_coincidentes, 'campos_diferentes', s.campos_diferentes)
         ORDER BY s.orden) FROM sugerencias s
-        ${agruparTitulares ? "LEFT JOIN titulares_mostrados tm ON tm.folio_id = (s.resultado->>'folio_id')::bigint" : ''}), '[]'::jsonb) AS aproximados
+        ${agruparTitulares ? "LEFT JOIN titulares_mostrados tm ON tm.folio_id = (s.resultado->>'folio_id')::bigint" : ''}
+        ${fuentes.rpp ? "LEFT JOIN datos_folios_rpp rf ON rf.numero_folio = (s.resultado->>'folio_id')::bigint / 100" : ''}), '[]'::jsonb) AS aproximados
       FROM parametros p`;
 
     let result: SqlResult<BusquedaRow<T>>;
@@ -397,7 +442,9 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
       pagina: filtros.pagina, tamano_pagina: filtros.tamano_pagina,
       paginas_totales: Math.ceil(row.total_resultados / filtros.tamano_pagina),
       orden,
-      mensaje: row.total_resultados ? null : unidad === 'antecedentes'
+      advertencia_rpp: row.rpp_ambiguos ? 'Hay coincidencias de F.R.E. cuya correspondencia requiere revisión.' : null,
+      mensaje: row.total_resultados ? null : row.rpp_ambiguos
+        ? 'El F.R.E. tiene correspondencias ambiguas. Se requiere verificar su antecedente.' : unidad === 'antecedentes'
         ? 'NO SE ENCONTRARON DATOS DEL ANTECEDENTE' : 'NO SE ENCONTRARON DATOS DEL INMUEBLE',
       resultados: row.resultados, total_aproximados: row.total_aproximados,
       limite_aproximados: LIMITE_APROXIMADOS, aproximados: row.aproximados,
@@ -440,6 +487,13 @@ export class PostgresAcervoSearchRepository implements AcervoSearchRepository {
       (SELECT count(*)::integer FROM actos) AS total_actos
       FROM inmueble i JOIN ${fuentes.folios} f ON f.id = i.folio_id::bigint
       JOIN ${fuentes.delegaciones} d ON d.id = f.delegacion_id`, [folioId, delegacionId]);
-    return result.rows[0] ?? null;
+    const detalle = result.rows[0] ?? null;
+    if (detalle) {
+      detalle.inmueble.folio_gisnet = detalle.inmueble.folio;
+      Object.assign(detalle.inmueble, fuentes.rpp
+        ? await fuentes.rpp.datos(detalle.inmueble.folio)
+        : { folios_rpp: [], rpp_estado: 'no_disponible' });
+    }
+    return detalle;
   }
 }

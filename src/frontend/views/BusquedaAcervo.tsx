@@ -193,7 +193,8 @@ export const BusquedaAcervo: React.FC<Props> = ({ cliente = acervoApi }) => {
             <TipoCoincidenciaAcervo prefijo="acervo-inm" valor={inmuebles.precision} deshabilitado={sinDelegacion}
               onCambiar={(valor) => { cerrarDetalle(); inmuebles.cambiarPrecision(valor); }} />
           </div>
-          <CamposAcervo prefijo="acervo-inm" campos={CAMPOS_IDENTIFICACION} valores={inmuebles.formulario} deshabilitado={sinDelegacion}
+          <CamposAcervo prefijo="acervo-inm" campos={CAMPOS_IDENTIFICACION}
+            valores={inmuebles.formulario} deshabilitado={sinDelegacion}
             onCambiar={(campo, valor) => { cerrarDetalle(); inmuebles.cambiar(campo, valor); }} />
           <UbicacionAcervo valores={inmuebles.formulario} deshabilitado={sinDelegacion}
             onCambiar={(campo, valor) => { cerrarDetalle(); inmuebles.cambiar(campo, valor); }} />

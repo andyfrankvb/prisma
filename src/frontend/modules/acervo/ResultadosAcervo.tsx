@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icono } from '../../components/Icono';
 import { CLASE_SECUNDARIO } from './CamposAcervo';
-import { mostrarDato, mostrarSuperficie } from './campos';
+import { mostrarDato, mostrarSuperficie, mostrarFoliosRpp } from './campos';
 import { IconoOrdenAcervo } from './IconoOrdenAcervo';
 import type {
   AcervoBusqueda, AcervoOrden, CampoOrdenAcervo, AntecedenteResultado, FilaAcervo, InmuebleResultado,
@@ -22,25 +22,27 @@ export const anchoColumnaAcervo = (porcentaje: number) =>
 
 export const COLUMNAS_ANTECEDENTE: ColumnaAcervo<AntecedenteResultado>[] = [
   { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'Sección', ancho: 9, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
-  { etiqueta: 'Tomo', ancho: 11, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
-  { etiqueta: 'Volumen', ancho: 12, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
-  { etiqueta: 'Inscripción', ancho: 14, numerica: true, ordenarPor: 'inscripcion', valor: (fila) => mostrarDato(fila.registro) },
-  { etiqueta: 'Inscripción final', ancho: 17, numerica: true, ordenarPor: 'inscripcion_final', valor: (fila) => mostrarDato(fila.registro_final) },
-  { etiqueta: 'Foja inicial', ancho: 13, numerica: true, ordenarPor: 'foja_inicial', valor: (fila) => mostrarDato(fila.foja_inicial) },
-  { etiqueta: 'Foja final', ancho: 13, numerica: true, ordenarPor: 'foja_final', valor: (fila) => mostrarDato(fila.foja_final) },
-  { etiqueta: 'Acto', ancho: 11, numerica: true, valor: (fila) => mostrarDato(fila.acto) },
+  { etiqueta: 'F.R.E.', ordenarPor: 'fre', ancho: 10, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'Sección', ancho: 8, numerica: true, valor: (fila) => mostrarDato(fila.seccion) },
+  { etiqueta: 'Tomo', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.tomo) },
+  { etiqueta: 'Volumen', ancho: 10, numerica: true, valor: (fila) => mostrarDato(fila.volumen) },
+  { etiqueta: 'Inscripción', ancho: 13, numerica: true, ordenarPor: 'inscripcion', valor: (fila) => mostrarDato(fila.registro) },
+  { etiqueta: 'Inscripción final', ancho: 16, numerica: true, ordenarPor: 'inscripcion_final', valor: (fila) => mostrarDato(fila.registro_final) },
+  { etiqueta: 'Foja inicial', ancho: 12, numerica: true, ordenarPor: 'foja_inicial', valor: (fila) => mostrarDato(fila.foja_inicial) },
+  { etiqueta: 'Foja final', ancho: 12, numerica: true, ordenarPor: 'foja_final', valor: (fila) => mostrarDato(fila.foja_final) },
+  { etiqueta: 'Acto', ancho: 9, numerica: true, valor: (fila) => mostrarDato(fila.acto) },
 ];
 
 export const COLUMNAS_INMUEBLE: ColumnaAcervo<InmuebleResultado>[] = [
   { etiqueta: 'Folio', ordenarPor: 'folio', valor: (fila) => fila.folio },
-  { etiqueta: 'Propietario', ancho: 21, valor: (fila) => fila.propietarios.join(' · ') || '—' },
-  { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 14, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
-  { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 12, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },
-  { etiqueta: 'Calle', ancho: 16, valor: (fila) => mostrarDato(fila.calle) },
-  { etiqueta: 'Colonia', ancho: 12, valor: (fila) => mostrarDato(fila.colonia) },
-  { etiqueta: 'Lote', ordenarPor: 'lote', ancho: 6, numerica: true, valor: (fila) => mostrarDato(fila.lote) },
-  { etiqueta: 'Manzana', ordenarPor: 'manzana', ancho: 7, numerica: true, valor: (fila) => mostrarDato(fila.manzana) },
+  { etiqueta: 'F.R.E.', ordenarPor: 'fre', ancho: 9, numerica: true, valor: (fila) => mostrarFoliosRpp(fila, true) },
+  { etiqueta: 'Propietario', ancho: 20, valor: (fila) => fila.propietarios.join(' · ') || '—' },
+  { etiqueta: 'Clave catastral', ordenarPor: 'clave_catastral', ancho: 13, numerica: true, valor: (fila) => mostrarDato(fila.clave_catastral) },
+  { etiqueta: 'Superficie total', ordenarPor: 'superficie_total', ancho: 11, numerica: true, valor: (fila) => mostrarSuperficie(fila.superficie_total, fila.unidad_superficie) },
+  { etiqueta: 'Calle', ancho: 14, valor: (fila) => mostrarDato(fila.calle) },
+  { etiqueta: 'Colonia', ancho: 10, valor: (fila) => mostrarDato(fila.colonia) },
+  { etiqueta: 'Lote', ordenarPor: 'lote', ancho: 5, numerica: true, valor: (fila) => mostrarDato(fila.lote) },
+  { etiqueta: 'Manzana', ordenarPor: 'manzana', ancho: 6, numerica: true, valor: (fila) => mostrarDato(fila.manzana) },
   { etiqueta: 'Localidad', ancho: 12, valor: (fila) => mostrarDato(fila.localidad) },
 ];
 
@@ -145,6 +147,7 @@ export function ResultadosAcervo<T extends FilaAcervo>({
         </div>
         <span role={cargando ? 'status' : undefined} className="acervo-estado-resultados acervo-rounded-full acervo-bg-fondo acervo-px-3 acervo-py-1.5 acervo-text-[11px] acervo-text-carbon">{cargando ? 'Actualizando…' : resultado.delegacion.nombre}</span>
       </div>
+      {resultado.advertencia_rpp && resultado.total_resultados > 0 && <p role="status" className="acervo-m-0 acervo-px-5 acervo-pb-3 acervo-text-xs acervo-text-guinda">{resultado.advertencia_rpp}</p>}
       {resultado.total_resultados === 0
         ? <div className="acervo-border-0 acervo-border-t acervo-border-solid acervo-border-borde acervo-px-5 acervo-py-5">
             <p className="acervo-m-0 acervo-text-xs acervo-font-bold acervo-text-guinda">{resultado.mensaje ?? 'NO SE ENCONTRARON DATOS'}</p>

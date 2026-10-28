@@ -68,7 +68,7 @@ export function leerAntecedente(query: Query): AntecedenteFiltros {
   const campo = texto(query, 'orden_por', 30) ?? 'folio';
   const direccion = texto(query, 'orden_direccion', 10)?.toLowerCase() ?? 'asc';
   if (!CAMPOS_ORDEN_ANTECEDENTE.some(permitido => permitido === campo)) {
-    throw new AppError('Ordena por Folio, Inscripción, Inscripción final, Foja inicial o Foja final.', 400);
+    throw new AppError('Ordena por Folio, F.R.E., Inscripción, Inscripción final, Foja inicial o Foja final.', 400);
   }
   if (direccion !== 'asc' && direccion !== 'desc') {
     throw new AppError('La dirección del orden debe ser asc o desc.', 400);

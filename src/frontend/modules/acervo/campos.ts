@@ -9,6 +9,8 @@ export interface CampoFormulario<K extends string> {
   etiqueta: string;
   maximo?: number;
   modo?: 'text' | 'numeric' | 'decimal';
+  deshabilitado?: boolean;
+  placeholder?: string;
 }
 
 export const CAMPOS_ANTECEDENTE: CampoFormulario<CampoAntecedente>[] = [
@@ -128,4 +130,11 @@ export function mostrarFecha(valor: string | null): string {
   if (!valor) return '—';
   const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
   return partes ? partes[3] + '/' + partes[2] + '/' + partes[1] : valor;
+}
+
+export function mostrarFoliosRpp(inmueble: { folios_rpp?: string[]; rpp_estado?: string }, compacto = false): string {
+  const folios = inmueble.folios_rpp ?? [];
+  if (inmueble.rpp_estado === 'no_disponible' || inmueble.rpp_estado === undefined) return 'No disponible';
+  if (folios.length && (inmueble.rpp_estado === 'vinculado' || inmueble.rpp_estado === 'parcial')) return folios.join(' · ') + (inmueble.rpp_estado === 'parcial' ? (compacto ? ' · Por verificar' : ' · Hay otras coincidencias por verificar') : '');
+  return inmueble.rpp_estado === 'ambiguo' ? (compacto ? 'Por verificar' : 'Coincidencias por verificar') : (compacto ? '—' : 'Sin correspondencia identificada');
 }

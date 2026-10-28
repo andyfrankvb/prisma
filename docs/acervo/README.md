@@ -4,6 +4,13 @@ Consulta de inmuebles y antecedentes de las cuatro delegaciones, con el diseño
 y las búsquedas aprobados por QA. API: `/api/v1/acervo`. Pantalla:
 `/busqueda-acervo`.
 
+La identificación permite consultar ambas numeraciones desde el único campo **Folio**.
+Los resultados y el detalle presentan **Folio** y **F.R.E.**, enlazados por un
+antecedente completo y único en cada fuente. El comportamiento vigente y sus
+pruebas se describen en [38_folio_unificado.md](38_folio_unificado.md).
+F.R.E. también admite orden numérico en ambas tablas; su criterio y validación
+están en [39_orden_fre.md](39_orden_fre.md).
+
 ## Integración
 
 - La API usa `authenticate` y `requireModulo('busqueda_acervo', ...)` de PRISMA.
