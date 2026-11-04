@@ -4,6 +4,8 @@
 .git
 **/.DS_Store
 backups/
+.env.gestion*
+.respaldos-gestion/
 storage/
 # Respaldos SQL sueltos en la raíz (NO excluir db/ ni las migraciones)
 /sirppc_backup.sql

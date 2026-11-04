@@ -13,6 +13,8 @@ frontend/.next/
 .env.production
 .env.qa
 .env.acervo*
+.env.gestion*
+.respaldos-gestion/
 infra/.env
 # Los .ejemplo sí se versionan: son plantillas sin claves reales.
 !.env*.ejemplo

@@ -35,6 +35,7 @@ import { VigilanciaConsultas }    from './views/VigilanciaConsultas';
 import { Tickets }                from './views/Tickets';
 import { VisorDocumentos }        from './views/VisorDocumentos';
 import { BusquedaAcervo }         from './views/BusquedaAcervo';
+import { BusquedaGestion }        from './views/BusquedaGestion';
 import { AppShell }           from './components/AppShell';
 
 import { theme } from './theme';
@@ -88,6 +89,10 @@ function App() {
 
           <Route path="/busqueda-acervo" element={
             <ProtectedRoute><AppShell><BusquedaAcervo /></AppShell></ProtectedRoute>
+          } />
+
+          <Route path="/busqueda-gestion" element={
+            <ProtectedRoute><AppShell><BusquedaGestion /></AppShell></ProtectedRoute>
           } />
 
           <Route

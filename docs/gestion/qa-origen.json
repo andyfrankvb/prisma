@@ -1,0 +1,70 @@
+{
+  "paquete": "02_busqueda_gestion_integracion.zip",
+  "revision": "2026-10-28-referencias-consultas-ocupadas",
+  "sha256_paquete": "d81fc60c7edbb4cedab1305e29f64b49d700dec8e075bc5fea547efd5b9420c2",
+  "base_integracion": "4d9805be8596f5d03b4df896b450a53ffd02ac6b",
+  "archivos": [
+    {
+      "ruta": "src/frontend/modules/gestion/CargaBusquedaGestion.tsx",
+      "sha256_qa": "a832550e7df1b2bb4a9c3c60d3b52548d8c0731d6c3bda4b234d05443947c960",
+      "sha256_integrado": "a832550e7df1b2bb4a9c3c60d3b52548d8c0731d6c3bda4b234d05443947c960"
+    },
+    {
+      "ruta": "src/frontend/modules/gestion/controlBusquedaGestion.ts",
+      "sha256_qa": "8fd18c6173dfb70842767fc353e6cce86e4806b727544f0cffce1ac836b2def8",
+      "sha256_integrado": "8fd18c6173dfb70842767fc353e6cce86e4806b727544f0cffce1ac836b2def8"
+    },
+    {
+      "ruta": "src/frontend/modules/gestion/gestion.css",
+      "sha256_qa": "e60430917429435fe2fc62852640270febf746ffa7a0afd738cf4ccadb2995c8",
+      "sha256_integrado": "e60430917429435fe2fc62852640270febf746ffa7a0afd738cf4ccadb2995c8"
+    },
+    {
+      "ruta": "src/frontend/modules/gestion/types.ts",
+      "sha256_qa": "4661f09d53d3c0d904f9d8b9b7f37f89c72f5280358fd80e3d9e45ead6698017",
+      "sha256_integrado": "4661f09d53d3c0d904f9d8b9b7f37f89c72f5280358fd80e3d9e45ead6698017"
+    },
+    {
+      "ruta": "src/frontend/services/gestionApi.ts",
+      "sha256_qa": "cec619a1210af44898caec56ef8c3ca1cbbdc4f924931b114b9753acb3f59369",
+      "sha256_integrado": "cec619a1210af44898caec56ef8c3ca1cbbdc4f924931b114b9753acb3f59369"
+    },
+    {
+      "ruta": "src/frontend/views/BusquedaGestion.tsx",
+      "sha256_qa": "654847fee65220e4fea2e0bb8f2fa47b0266cfbfc846a336130fd18536ed6b61",
+      "sha256_integrado": "654847fee65220e4fea2e0bb8f2fa47b0266cfbfc846a336130fd18536ed6b61"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.cancelacion.ts",
+      "sha256_qa": "e3734cf6d3d57996546fdac5578a320ac82d5c12dc2bbb1d1a84e6f4c2be9937",
+      "sha256_integrado": "e3734cf6d3d57996546fdac5578a320ac82d5c12dc2bbb1d1a84e6f4c2be9937"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.connection.ts",
+      "sha256_qa": "7c6691dca229c64a788977edd62d0c1a3367c86ae428b3b5eab2b1a146c77a39",
+      "sha256_integrado": "a14ea56e2c7a4db7dc1d87dcad17cc2da35625dcd57e65cd5a39545af4f52901"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.imagenes.ts",
+      "sha256_qa": "7e7b2ed654f23559c4c8edc41128753e35c9c5f1027f52f25b32ba6742267a8c",
+      "sha256_integrado": "7e7b2ed654f23559c4c8edc41128753e35c9c5f1027f52f25b32ba6742267a8c"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.repository.ts",
+      "sha256_qa": "976a4aca05080fe85aab1648c63f7bf380d0a76bf9e922f56651ec1f401cc7da",
+      "sha256_integrado": "976a4aca05080fe85aab1648c63f7bf380d0a76bf9e922f56651ec1f401cc7da"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.routes.ts",
+      "sha256_qa": "7632bdf60b226279834ede98eac35593e2a15e66389d189a4df97133394b305b",
+      "sha256_integrado": "7632bdf60b226279834ede98eac35593e2a15e66389d189a4df97133394b305b"
+    },
+    {
+      "ruta": "src/modules/gestion/gestion.types.ts",
+      "sha256_qa": "93a1b2f9ecb5eaa4675ac1445e1f65b1af6ece8d233405977094c1c38eceded0",
+      "sha256_integrado": "93a1b2f9ecb5eaa4675ac1445e1f65b1af6ece8d233405977094c1c38eceded0"
+    }
+  ],
+  "ajuste_conexion": "El host y el puerto vienen de la variable de entorno exclusiva; se conserva la base consultas_rppc y la lectura independiente.",
+  "acceso": "El catálogo y las asignaciones existentes de PRISMA sustituyen los accesos simulados del instalador local."
+}
