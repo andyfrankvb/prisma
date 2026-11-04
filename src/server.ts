@@ -38,6 +38,7 @@ import consultasRouter       from './modules/consultas/consultas.routes';
 import ticketsRouter         from './modules/tickets/tickets.routes';
 import visorDocumentosRouter from './modules/visor_documentos/visor.routes';
 import { crearModuloAcervo } from './modules/acervo/acervo.module';
+import gestionRouter from './modules/gestion/gestion.routes';
 import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { runConsultasSync } from './integraciones/consultas.sync';
@@ -73,7 +74,7 @@ app.use(cors({
   },
   credentials: true,
   methods:     ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Gestion-Consulta'],
 }));
 
 // ── Request logging (pino-http) ───────────────────────────────
@@ -185,6 +186,7 @@ app.use('/api/v1/correspondencia', correspondenciaRouter);
 // `oficiosRouter` respondía «Token requerido» aunque su propio router no pide
 // autenticación para esa ruta.
 app.use('/api/v1/consultas',      consultasRouter);
+app.use('/api/v1/gestion',        gestionRouter);
 app.use('/api/v1',                oficiosRouter);
 app.use('/api/v1',                folioSalidaRouter);
 app.use('/api/v1/usuarios',       usuariosRouter);
