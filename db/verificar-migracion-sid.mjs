@@ -68,15 +68,17 @@ const MODULOS = [
         motivo: 'Todo ticket de SID debe existir en PRISMA; `origen_id` es UNIQUE, no puede duplicar.',
       },
       {
+        // En SID la llave es `ticket_id`, no `id`.
         concepto: 'último id de origen alcanzado',
-        sid: 'SELECT COALESCE(max(id), 0) FROM tickets',
+        sid: 'SELECT COALESCE(max(ticket_id), 0) FROM tickets',
         prisma: 'SELECT COALESCE(max(origen_id), 0) FROM tickets',
         tolerancia: 0,
         motivo: 'Si el máximo no coincide, la corrida se quedó a medias (es reanudable: vuelve a correrla).',
       },
       {
+        // La tabla se llama `ticket_file` en SID y `ticket_archivos` en PRISMA.
         concepto: 'archivos adjuntos',
-        sid: 'SELECT count(*) FROM ticket_archivos',
+        sid: 'SELECT count(*) FROM ticket_file',
         prisma: 'SELECT count(*) FROM ticket_archivos WHERE origen_id IS NOT NULL',
         tolerancia: 0,
         motivo: 'Se migra el registro del adjunto. El binario no se copia: se lee de donde SID lo dejó.',
@@ -89,7 +91,7 @@ const MODULOS = [
         // 0 de 13,760 tickets quedaron ligados a un usuario de PRISMA. Por eso
         // esto compara contra los huérfanos reales de SID en vez de solo informar.
         concepto: 'identidad sin resolver',
-        sid: 'SELECT count(*) FROM tickets t WHERE NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.id = t.remitente_id)',
+        sid: 'SELECT count(*) FROM tickets t WHERE NOT EXISTS (SELECT 1 FROM usuarios u WHERE u.usuario_id = t.remitente_id)',
         prisma: 'SELECT count(*) FROM tickets WHERE origen_id IS NOT NULL AND remitente_id IS NULL',
         tolerancia: 0,
         motivo: 'Si en PRISMA hay más sin resolver que huérfanos en SID, el cruce por correo no funcionó: '
@@ -117,11 +119,17 @@ const MODULOS = [
         motivo: 'Histórico cerrado de Consulta Pública: debe cuadrar exacto.',
       },
       {
+        // OJO: comparar máximos NO detecta huecos. Al verificar esto contra el
+        // SID real aparecieron 3,151 consultas sin migrar y solo 75 estaban
+        // después del máximo: las otras 3,076 son huecos en medio, desde el id
+        // 76,768. Como el migrador retoma con `WHERE id > max(origen_id)`,
+        // volver a correrlo recupera las 75 y nunca las 3,076. Para esas hace
+        // falta un recorrido por `NOT EXISTS`, no por cursor.
         concepto: 'último id de origen alcanzado',
         sid: 'SELECT COALESCE(max(id), 0) FROM consulta_publica',
         prisma: 'SELECT COALESCE(max(origen_id), 0) FROM consulta_publica',
         tolerancia: 0,
-        motivo: 'Detecta una corrida interrumpida.',
+        motivo: 'Detecta una corrida interrumpida. El conteo de arriba es el que detecta huecos en medio.',
       },
     ],
   },
@@ -212,7 +220,9 @@ const MODULOS = [
 
 /** Tablas de SID que ya tiene cubiertas algún migrador, para el inventario. */
 const TABLAS_CUBIERTAS = new Set([
-  'tickets', 'ticket_archivos', 'consulta_publica', 'folios', 'registros',
+  // Nombres como se llaman EN SID, no en PRISMA: los adjuntos son `ticket_file`
+  // allá y `ticket_archivos` acá.
+  'tickets', 'ticket_file', 'consulta_publica', 'folios', 'registros',
   'visor_pdf_index', 'sid_inscripciones_control',
 ]);
 
