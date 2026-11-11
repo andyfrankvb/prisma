@@ -126,7 +126,7 @@ const TarjetaModulo: React.FC<{ resumen: ResumenModulo }> = ({ resumen }) => {
   const alertas      = resumen.alertas  ?? 0;
   const pendientes   = resumen.pendientes ?? 0;
 
-  let borderColor = theme.colors.alert.green;
+  let borderColor: string = theme.colors.alert.green;
   if (alertas > 0) {
     borderColor = theme.colors.alert.red;
   } else if (pendientes > 0) {

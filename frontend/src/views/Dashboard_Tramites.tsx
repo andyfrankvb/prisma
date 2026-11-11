@@ -526,6 +526,7 @@ export const Dashboard_Tramites: React.FC = () => {
     revisor:     'Director Jurídico',
     finalizador: 'Cierre de Trámites',
     supervisora: 'Supervisión General',
+    observador:  'Delegación (consulta)',
   };
 
   const hoy = new Date().toISOString().slice(0, 10);

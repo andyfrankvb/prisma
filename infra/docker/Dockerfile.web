@@ -2,9 +2,7 @@
 # Dockerfile: Web (frontend Vite/React → servido por Nginx)
 # Target: infra/docker/Dockerfile.web
 #
-# El proyecto Vite vive en frontend/ y sus componentes reales en
-# src/frontend/ (en desarrollo se montan como src_frontend/; aquí
-# se COPIAN porque en la imagen no hay volúmenes).
+# Todo el frontend vive en frontend/: index.html, configs y src/.
 # ─────────────────────────────────────────────────────────────
 
 # ── Stage 1: build del frontend (Vite) ────────────────────────
@@ -20,12 +18,12 @@ COPY frontend/index.html frontend/vite.config.ts frontend/tsconfig.json ./
 COPY frontend/src/    ./src/
 COPY frontend/public/ ./public/
 
-# Componentes reales (en dev se montan como src_frontend/)
-COPY src/frontend/ ./src_frontend/
-
-# Compilar → genera /app/dist (usamos vite directo; el type-check
-# no debe frenar el despliegue)
-RUN npx vite build
+# Compilar → genera /app/dist. `npm run build` es `tsc && vite build`: el
+# type-check corre primero y un error de tipos detiene la construcción.
+# Antes se usaba `npx vite build`, que transpila sin verificar; con eso
+# vivieron 11 errores sin detectar, uno de ellos un ReferenceError en
+# producción. La puerta se cierra aquí, no en la máquina de cada quien.
+RUN npm run build
 
 # ── Stage 2: Nginx sirviendo el build estático ────────────────
 FROM nginx:1.25-alpine AS runtime

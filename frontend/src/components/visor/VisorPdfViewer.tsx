@@ -12,7 +12,7 @@
  * no muestra y lo que quitaba espacio útil al documento. Con los plugins
  * sueltos (zoom/rotate/get-file/print) ese panel nunca existe.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Worker, Viewer, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
 import { rotatePlugin } from '@react-pdf-viewer/rotate';
@@ -50,6 +50,56 @@ export const VisorPdfViewer: React.FC<Props> = ({ pdfUrl, cargando, error, puede
   const { Download } = getFilePluginInstance;
   const { Print } = printPluginInstance;
 
+  // Contenedor del documento: de aquí sale el elemento con scroll que usa el
+  // ciclo de abajo. `.rpv-core__inner-pages` es el que desplaza @react-pdf-viewer,
+  // equivalente al `#viewerContainer` que buscaba SID por id.
+  const contenedorRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Port de `ajusteYScroll()` (visor.component.ts, SID): un solo botón que
+   * recorre la foja en tres pasos — ajusta al ancho, baja al final, vuelve
+   * arriba — y se queda alternando entre los dos últimos. Es como leen una
+   * foja de corrido sin soltar el mouse.
+   *
+   * El estado va en un ref y no en useState a propósito: solo lo lee el
+   * manejador del clic, así que guardarlo en estado provocaría un re-render
+   * del visor —y con él recargar el PDF— en cada paso del ciclo.
+   */
+  const pasoCicloRef = useRef(0);
+
+  // Cada documento nuevo empieza el ciclo desde cero, igual que SID al abrir
+  // otra foja (`estadoAccion = 0`).
+  useEffect(() => { pasoCicloRef.current = 0; }, [pdfUrl]);
+
+  const scrollDelDocumento = (): HTMLElement | null =>
+    contenedorRef.current?.querySelector<HTMLElement>('.rpv-core__inner-pages') ?? null;
+
+  const ajusteYScroll = (): void => {
+    const contenedor = scrollDelDocumento();
+    if (!contenedor) return;
+
+    switch (pasoCicloRef.current) {
+      case 0:
+        zoomTo(SpecialZoomLevel.PageWidth);
+        pasoCicloRef.current = 1;
+        break;
+      case 1:
+        contenedor.scrollTo({ top: contenedor.scrollHeight, behavior: 'smooth' });
+        pasoCicloRef.current = 2;
+        break;
+      default:
+        contenedor.scrollTo({ top: 0, behavior: 'smooth' });
+        pasoCicloRef.current = 1;
+        break;
+    }
+  };
+
+  /** Página completa reinicia el ciclo, como hacía `onZoomChange` en SID. */
+  const ajustarPaginaCompleta = (): void => {
+    zoomTo(SpecialZoomLevel.PageFit);
+    pasoCicloRef.current = 0;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Toolbar propio — mismos botones que SID (zoom, ajustar ancho, rotar), más descarga solo si el rol lo permite. */}
@@ -65,6 +115,18 @@ export const VisorPdfViewer: React.FC<Props> = ({ pdfUrl, cargando, error, puede
 
         <BotonToolbar titulo="Ajustar ancho" onClick={() => zoomTo(SpecialZoomLevel.PageWidth)}>
           <Icono nombre="ampliar" size={14} color="#fff" />
+        </BotonToolbar>
+
+        <BotonToolbar titulo="Ajustar página completa" onClick={ajustarPaginaCompleta} anchoAuto>
+          Pág.
+        </BotonToolbar>
+
+        <BotonToolbar titulo="Tamaño real (100%)" onClick={() => zoomTo(1)} anchoAuto>
+          100%
+        </BotonToolbar>
+
+        <BotonToolbar titulo="Ajustar al ancho y recorrer la foja" onClick={ajusteYScroll}>
+          <Icono nombre="flechaAbajo" size={14} color="#fff" />
         </BotonToolbar>
 
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
@@ -90,7 +152,7 @@ export const VisorPdfViewer: React.FC<Props> = ({ pdfUrl, cargando, error, puede
       </div>
 
       {/* Documento */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', background: '#525659' }}>
+      <div ref={contenedorRef} style={{ flex: 1, minHeight: 0, position: 'relative', background: '#525659' }}>
         {cargando && <Centrado><span style={{ color: '#fff' }}>Cargando documento…</span></Centrado>}
         {!cargando && error && (
           <Centrado>
@@ -118,12 +180,16 @@ const Centrado: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-const BotonToolbar: React.FC<{ titulo: string; onClick: () => void; children: React.ReactNode }> = ({ titulo, onClick, children }) => (
+const BotonToolbar: React.FC<{ titulo: string; onClick: () => void; anchoAuto?: boolean; children: React.ReactNode }> = ({
+  titulo, onClick, anchoAuto, children,
+}) => (
   <button
     onClick={onClick} title={titulo}
     style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      width: anchoAuto ? 'auto' : 30, minWidth: 30, height: 30, padding: anchoAuto ? '0 8px' : 0,
       borderRadius: theme.radius.sm, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer',
+      color: '#fff', fontFamily: 'inherit', fontSize: '0.72rem', fontWeight: 600, lineHeight: 1,
     }}
   >
     {children}

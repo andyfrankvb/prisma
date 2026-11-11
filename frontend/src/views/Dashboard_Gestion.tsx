@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import type { PaperSize } from 'exceljs';
 import { Icono } from '../components/Icono';
 import { theme } from '../theme';
 import { StatusBadge }  from '../components/StatusBadge';
@@ -782,7 +783,9 @@ export const Dashboard_Gestion: React.FC = () => {
 
       // Impresión: tamaño Carta, horizontal, ajustar al ancho de una hoja, encabezado repetido.
       ws.pageSetup = {
-        paperSize: 1,                 // 1 = Carta (Letter)
+        // 1 = Carta (Letter) según el formato de Excel. El enum `PaperSize`
+        // de exceljs no declara ese miembro, de ahí la aserción.
+        paperSize: 1 as PaperSize,
         orientation: 'landscape',
         fitToPage: true,
         fitToWidth: 1,
@@ -1245,7 +1248,7 @@ const TrafficDot: React.FC<{ tiene_termino: boolean; dias: number | null; cerrad
   // Cerrado: el plazo dejó de correr, así que el semáforo se apaga. Dejarlo en
   // rojo junto a un término que ya dice «Atendido» haría parecer que el oficio
   // sigue pendiente cuando el asunto está resuelto.
-  let color = cerrado ? theme.colors.grayMid : theme.colors.alert.green;
+  let color: string = cerrado ? theme.colors.grayMid : theme.colors.alert.green;
   if (!cerrado && tiene_termino && dias !== null) {
     if (dias <= 1) color = theme.colors.alert.red;
     else if (dias <= 3) color = theme.colors.alert.yellow;

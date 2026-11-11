@@ -29,7 +29,9 @@ import * as s from './estilosSid';
 import type { VersionDigitalizacion, VisorFojaDetalle } from '../../types';
 
 export interface VisorModalItem {
-  key:     number;
+  // Una foja puede aparecer en varias versiones, así que la clave es
+  // `fojaId` cuando basta y `fojaId-version` cuando hay que distinguirlas.
+  key:     string | number;
   fojaId:  number;
   titulo:  string;
   detalle?: string;

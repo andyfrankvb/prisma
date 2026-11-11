@@ -37,7 +37,7 @@ export const FiltroCampanias: React.FC<Props> = ({ campanias, seleccionadas, onC
     borderRadius: theme.radius.sm,
     border: `1px solid ${activa ? theme.colors.primary : theme.colors.border}`,
     background: activa ? theme.colors.primary : theme.colors.white,
-    color: activa ? theme.colors.white : (pendiente ? theme.colors.textSecondary : theme.colors.text),
+    color: activa ? theme.colors.white : (pendiente ? theme.colors.textSecondary : theme.colors.textPrimary),
     fontSize: '0.78rem',
     fontFamily: theme.font.family,
     fontWeight: activa ? 600 : 400,

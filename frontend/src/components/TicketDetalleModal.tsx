@@ -21,13 +21,23 @@ import { theme } from '../theme';
 import { useDialogo } from '../context/DialogoContext';
 import { getTicketById, actualizarTicket, getTicketDestinatarios, descargarArchivoTicket } from '../api';
 import {
-  TicketDetalle, EstadoTicket, UrgenciaTicket, CategoriaTicket, CambioCampoTicket,
+  TicketDetalle, EstadoTicket, UrgenciaTicket, UrgenciaTicketHistorica,
+  CategoriaTicket, CambioCampoTicket,
   ESTADOS_CON_SOLUCION_TICKET, ESTADO_TICKET_LABEL, URGENCIA_TICKET_LABEL,
   TIPO_TICKET_LABEL, CATEGORIAS_TICKET_OPCIONES,
 } from '../types';
 
 const ESTADOS: EstadoTicket[] = ['NUEVO', 'ABIERTO', 'EN_PROCESO', 'EN_ESPERA', 'RESUELTO', 'CERRADO'];
 const URGENCIAS: UrgenciaTicket[] = ['URGENTE', 'MEDIA', 'BAJA', 'INDEFINIDA'];
+
+/**
+ * Los tickets heredados del SID traen urgencias que ya no se ofrecen
+ * (`ALTA`, `MUY_URGENTE`). Se conservan para no falsear el historial, pero
+ * al editar hay que reclasificarlas a una vigente: el contrato de la API
+ * (`ActualizarTicketPayload`) solo acepta las cuatro actuales.
+ */
+const esUrgenciaVigente = (u: UrgenciaTicketHistorica): u is UrgenciaTicket =>
+  (URGENCIAS as UrgenciaTicketHistorica[]).includes(u);
 
 interface Props {
   ticketId:        number | null;
@@ -98,7 +108,7 @@ export const TicketDetalleModal: React.FC<Props> = ({ ticketId, open, onClose, p
   const [destinatarios, setDestinatarios] = useState<{ id: number; nombre: string }[]>([]);
 
   const [form, setForm] = useState({
-    titulo: '', descripcion: '', estado: 'NUEVO' as EstadoTicket, urgencia: 'MEDIA' as UrgenciaTicket,
+    titulo: '', descripcion: '', estado: 'NUEVO' as EstadoTicket, urgencia: 'MEDIA' as UrgenciaTicketHistorica,
     categoria: '' as CategoriaTicket | '', destinatario_id: '' as number | '', solucion: '',
   });
   const [archivos, setArchivos] = useState<File[]>([]);
@@ -136,6 +146,12 @@ export const TicketDetalleModal: React.FC<Props> = ({ ticketId, open, onClose, p
       setError('Debes capturar la solución (mínimo 5 caracteres) para cerrar el ticket.');
       return;
     }
+    const urgencia = form.urgencia;
+    if (!esUrgenciaVigente(urgencia)) {
+      setError(`Este ticket tiene la urgencia «${URGENCIA_TICKET_LABEL[urgencia]}», del sistema anterior. `
+             + 'Elige una de las urgencias vigentes para poder guardarlo.');
+      return;
+    }
     setGuardando(true);
     setError(null);
     try {
@@ -143,7 +159,7 @@ export const TicketDetalleModal: React.FC<Props> = ({ ticketId, open, onClose, p
         titulo:      form.titulo.trim(),
         descripcion: form.descripcion.trim(),
         estado:      form.estado,
-        urgencia:    form.urgencia,
+        urgencia,
         categoria:   form.categoria || null,
         destinatario_id: form.destinatario_id === '' ? null : Number(form.destinatario_id),
         ...(requiereSolucion ? { solucion: form.solucion.trim() } : {}),
@@ -236,6 +252,11 @@ export const TicketDetalleModal: React.FC<Props> = ({ ticketId, open, onClose, p
                     {campo('Urgencia', (
                       <select style={input} value={form.urgencia} onChange={(e) => setForm((f) => ({ ...f, urgencia: e.target.value as UrgenciaTicket }))}>
                         {URGENCIAS.map((u) => <option key={u} value={u}>{URGENCIA_TICKET_LABEL[u]}</option>)}
+                        {!esUrgenciaVigente(form.urgencia) && (
+                          <option value={form.urgencia} disabled>
+                            {URGENCIA_TICKET_LABEL[form.urgencia]} (sistema anterior)
+                          </option>
+                        )}
                       </select>
                     ))}
                   </div>

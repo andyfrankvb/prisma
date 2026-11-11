@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { crearTransporteCancelableGestion } from '../../frontend/modules/gestion/controlBusquedaGestion';
+import { crearTransporteCancelableGestion } from './controlBusquedaGestion';
 
 describe('transporte cancelable de Gestión', () => {
   it('asocia un identificador a cada búsqueda y confirma el POST antes de abortar HTTP', async () => {

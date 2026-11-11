@@ -381,7 +381,7 @@ const MetricasContent: React.FC<MetricasContentProps> = ({
           color={metricas.urgentes_24h > 0 ? theme.colors.alert.yellow : theme.colors.alert.green} alert={metricas.urgentes_24h > 0} />
         <KpiCard label="Finalizados (mes)" value={metricas.finalizados_mes} icon="checkCirculo" color={theme.colors.alert.green} />
         <KpiCard label="Promedio resolución"
-          value={metricas.promedio_dias_resolucion !== null ? `${metricas.promedio_dias_resolucion}d` : '—'} icon="⏱" color={theme.colors.primaryLight} />
+          value={metricas.promedio_dias_resolucion !== null ? `${metricas.promedio_dias_resolucion}d` : '—'} icon="reloj" color={theme.colors.primaryLight} />
       </div>
 
       {/* ── Distribución por estatus ─────────────────────── */}

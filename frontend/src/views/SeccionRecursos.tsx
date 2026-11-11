@@ -76,6 +76,7 @@ const Apartado: React.FC<{
   onError: (m: string) => void;
   onAviso: (m: string) => void;
 }> = ({ n, valor, onCambio, onError, onAviso }) => {
+  const dialogo = useDialogo();
   const [archivo, setArchivo] = useState<File | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
