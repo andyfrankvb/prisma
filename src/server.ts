@@ -43,6 +43,7 @@ import cron from 'node-cron';
 import { runSiqrooSync } from './integraciones/siqroo.sync';
 import { runConsultasSync } from './integraciones/consultas.sync';
 import { startNotificationService } from './notifications';
+import { loginLimiter } from './middleware/rate-limit.middleware';
 import { AppError } from './utils/AppError';
 import { logger }   from './utils/logger';
 import { db }       from './db';
@@ -54,9 +55,36 @@ const app  = express();
 const PORT = Number(process.env.PORT ?? 3000);
 const isProd = process.env.NODE_ENV === 'production';
 
+/**
+ * Detrás de nginx: una sola salto de proxy.
+ *
+ * Sin esto, `req.ip` sería siempre la IP del contenedor de nginx y cualquier
+ * límite por IP caería sobre todos los usuarios a la vez en lugar de sobre
+ * quien abusa. nginx envía `X-Forwarded-For` (infra/nginx/app.conf.template).
+ *
+ * El valor es 1 —un salto— y no `true`: confiar en toda la cadena permitiría a
+ * un cliente inventar su propia IP agregando encabezados.
+ */
+app.set('trust proxy', 1);
+
 // ── Security headers ──────────────────────────────────────────
 app.use(helmet({
-  // CSP is handled by Nginx in production; keep permissive here for API-only responses
+  /**
+   * CSP desactivado aquí, y HOY NO LO PONE NADIE MÁS.
+   *
+   * El comentario anterior decía «CSP is handled by Nginx in production». No es
+   * cierto en la configuración que se despliega: la directiva vive solo en
+   * `infra/nginx/app.conf.https.template`, y `infra/docker/Dockerfile.web` copia
+   * a la imagen `app.conf.template` —la de HTTP—, que no la tiene. La plantilla
+   * con CSP y HSTS nunca entra al contenedor.
+   *
+   * Sí están los otros encabezados, en `infra/nginx/nginx.conf`:
+   * X-Frame-Options, X-Content-Type-Options, X-XSS-Protection y Referrer-Policy.
+   *
+   * Pendiente de decisión: activarlo aquí para las respuestas del API, o
+   * agregarlo a `app.conf.template`. Mientras se decida, que el código no
+   * afirme una protección que no existe.
+   */
   contentSecurityPolicy: false,
 }));
 
@@ -100,7 +128,7 @@ app.use('/files', express.static(path.join(process.cwd(), 'storage')));
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 
 // ── Auth: login ───────────────────────────────────────────────
-app.post('/api/v1/auth/login', async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/v1/auth/login', loginLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body;
 

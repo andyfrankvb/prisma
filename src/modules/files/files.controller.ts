@@ -4,16 +4,34 @@
  *
  * Endpoints
  * ─────────────────────────────────────────────────────────────
- *  GET /files/:id/original  → PDF original del oficio
- *  GET /files/:id/proyecto  → Borrador subido por el abogado
- *  GET /files/:id/firmado   → Documento firmado por secretaría
+ *  GET /files/:id/original       → PDF original del oficio
+ *  GET /files/:id/proyecto       → Borrador subido por el abogado
+ *  GET /files/:id/proyecto/info  → Metadata del borrador
+ *  GET /files/:id/firmado        → Documento firmado por secretaría
+ *
+ * El `:id` es SIEMPRE el id del oficio, también en las rutas del proyecto y del
+ * firmado (ahí consulta `gestiones_contestacion.oficio_id`). Por eso la
+ * autorización es una sola pregunta: ¿puede esta persona ver este oficio?
+ *
+ * ── Por qué estos handlers autorizan ──────────────────────────────────────────
+ *
+ * Antes solo exigían sesión. `authenticate` corre en el router, pero cualquier
+ * token válido servía: los cuatro tomaban el id de la URL, consultaban por él y
+ * entregaban el archivo. Con eso, cualquier usuario autenticado —de cualquier
+ * rol y cualquier delegación— podía leer todos los oficios originales, todos los
+ * borradores jurídicos y todas las resoluciones firmadas del sistema iterando el
+ * id. La bandeja sí filtraba por rol; estas rutas eran la puerta de atrás.
+ *
+ * La regla de visibilidad no se reescribe aquí: se toma de
+ * `oficios.visibilidad.ts`, que usa los mismos predicados SQL que la bandeja.
  */
 
 import { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs   from 'fs';
-import { db }       from '../../db';
-import { AppError } from '../../utils/AppError';
+import { db }        from '../../db';
+import { AppError }  from '../../utils/AppError';
+import { puedeVerOficio } from '../oficialia_partes/oficios.visibilidad';
 
 const STORAGE_BASE = process.env.STORAGE_LOCAL_PATH ?? path.join(process.cwd(), 'storage');
 
@@ -26,6 +44,32 @@ function getMimeType(filePath: string): string {
     case '.docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     default:      return 'application/octet-stream';
   }
+}
+
+/**
+ * Valida el id de la URL y comprueba que quien pide pueda ver ese oficio.
+ *
+ * Devuelve el id ya validado. Lanza `AppError` con el código que corresponde:
+ *   · 400 — el id no es un entero (antes `parseInt` dejaba pasar `NaN`)
+ *   · 401 — sin usuario en la petición (no debería ocurrir tras `authenticate`)
+ *   · 403 — el oficio queda fuera del alcance de esta persona
+ *
+ * El 404 lo decide cada handler: solo él sabe qué fila buscaba.
+ */
+async function oficioAutorizado(req: Request): Promise<number> {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError('Id de oficio inválido', 400);
+  }
+
+  const user = req.user;
+  if (!user) throw new AppError('Token requerido', 401);
+
+  if (!(await puedeVerOficio(user, id))) {
+    throw new AppError('No tienes acceso a este documento', 403);
+  }
+
+  return id;
 }
 
 /** Resolve an absolute path and stream it, or 404 */
@@ -67,7 +111,7 @@ export async function serveOriginal(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id  = await oficioAutorizado(req);
     const row = await db('oficios').where({ id }).select('pdf_original_path').first();
     if (!row) return next(new AppError('Oficio no encontrado', 404));
     serveFile(res, next, row.pdf_original_path, 'PDF original');
@@ -86,7 +130,7 @@ export async function infoProyecto(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id  = await oficioAutorizado(req);
     const row = await db('gestiones_contestacion')
       .where({ oficio_id: id })
       .select('proyecto_url', 'texto_proyecto')
@@ -115,7 +159,7 @@ export async function serveProyecto(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id  = await oficioAutorizado(req);
     const row = await db('gestiones_contestacion')
       .where({ oficio_id: id })
       .select('proyecto_url')
@@ -133,12 +177,12 @@ export async function serveFirmado(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id  = await oficioAutorizado(req);
     const row = await db('gestiones_contestacion')
       .where({ oficio_id: id })
       .select('escaneo_firmado_url')
       .first();
-    if (!row) return next(new AppError('Gestión no encontrada', 404));
+    if (!row) return next(new AppError('Documento firmado no encontrado', 404));
     serveFile(res, next, row.escaneo_firmado_url, 'Documento firmado');
   } catch (err) { next(err); }
 }

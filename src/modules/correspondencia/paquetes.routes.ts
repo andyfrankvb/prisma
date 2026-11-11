@@ -17,6 +17,7 @@
 
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
+import { publicoLimiter } from '../../middleware/rate-limit.middleware';
 import {
   listarPaquetes, obtenerPaquete, crearPaquete,
   agregarOficio, quitarOficio, cerrarPaquete, cancelarPaquete,
@@ -30,17 +31,21 @@ const router = Router();
 //
 // Van ANTES que las autenticadas para que ningún middleware de sesión las alcance
 // por accidente si alguien agrega un `router.use` más arriba en el futuro.
+//
+// Al no exigir sesión, son la única superficie de la aplicación que cualquiera
+// puede llamar sin credenciales: las cinco llevan `publicoLimiter`. Va ruta por
+// ruta y no con un `router.use`, por la misma razón que `authenticate`.
 
 /** La lista de nombres para identificarse la primera vez que se escanea. */
-router.get ('/publico/personas',          personasParaEscaneo);
+router.get ('/publico/personas',          publicoLimiter, personasParaEscaneo);
 /** Lo que ve quien acaba de escanear: qué paquete es, qué lleva y por dónde ha pasado. */
-router.get ('/publico/:token',            rastrearPorToken);
+router.get ('/publico/:token',            publicoLimiter, rastrearPorToken);
 /** «Lo traigo yo» — un toque. Solo si nadie lo trae o si a esa persona se lo entregaron. */
-router.post('/publico/:token/traslado',   registrarTraslado);
+router.post('/publico/:token/traslado',   publicoLimiter, registrarTraslado);
 /** «Se lo entrego a…» — quien lo trae elige a la siguiente persona; ella confirma. */
-router.post('/publico/:token/relevo',     ofrecerRelevo);
+router.post('/publico/:token/relevo',     publicoLimiter, ofrecerRelevo);
 /** La entrega: exige el código de cuatro dígitos del destinatario. */
-router.post('/publico/:token/entrega',    registrarEntrega);
+router.post('/publico/:token/entrega',    publicoLimiter, registrarEntrega);
 
 // ── Con sesión ───────────────────────────────────────────────────────────────
 
